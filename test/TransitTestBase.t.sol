@@ -5,8 +5,18 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Terminal } from "../src/Terminal.sol";
-import { Warehouse } from "../src/Warehouse.sol";
-import { WarehouseSpoke } from "../src/WarehouseSpoke.sol";
+import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
+import { Warehouse } from "../src/warehouse/Warehouse.sol";
+import { WarehouseToken } from "../src/warehouse/WarehouseToken.sol";
+import { WarehouseCrosschainModule } from "../src/warehouse/crosschain/WarehouseCrosschainModule.sol";
+import { MockCrosschainModule } from "./mocks/MockCrosschainModule.sol";
+import {
+    ADMIN_ROLE,
+    PAUSER_ROLE,
+    WAREHOUSE_ROLE,
+    CROSSCHAIN_MODULE_ROLE,
+    SOLVER_ROLE
+} from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
 
@@ -33,13 +43,18 @@ contract TransitTestBase is Test {
     uint256 adminPk;
     address solver;
     uint256 solverPk;
+    address vault;
+    uint256 vaultPk;
 
     uint64[] spokeIDs;
     uint64 hubID;
+    uint256 withdrawNonce;
 
     Terminal terminal;
-    Warehouse warehouse;
-    mapping(uint64 => WarehouseSpoke) warehouses;
+    mapping(uint64 => TransitAuthority) authorities;
+    mapping(uint64 => Warehouse) warehouses;
+    mapping(uint64 => MockCrosschainModule) modules;
+    mapping(uint64 onChain => mapping(uint64 assetChain => mapping(ERC20 => WarehouseToken))) tokenOf;
 
     mapping(uint64 => uint256) forkOf;
 
@@ -50,8 +65,6 @@ contract TransitTestBase is Test {
     }
 
     function _initTransit(uint64 _hubID, uint64[] memory _spokeIDs) internal {
-        // created so that we can potentially change tests to have different hub/spokes and other
-        // configurations to test other ones
         hubID = _hubID;
         spokeIDs = _spokeIDs;
 
@@ -59,27 +72,89 @@ contract TransitTestBase is Test {
         _initUsers();
 
         _createFork(hubID);
-        warehouse = new Warehouse(admin);
-        terminal = new Terminal();
-
         for (uint256 i; i < spokeIDs.length; i++) {
             _createFork(spokeIDs[i]);
-            warehouses[spokeIDs[i]] = new WarehouseSpoke();
         }
 
+        _deployCore(hubID);
+        for (uint256 i; i < spokeIDs.length; i++) {
+            _deployCore(spokeIDs[i]);
+        }
+
+        _selectChain(hubID);
+        terminal = new Terminal();
+
+        _wireChains();
         _launchTransitTokens();
         _approveVault();
     }
 
-    function _approveVault() internal {
-        _selectChain(hubID);
-        ChainConfig storage config = chainConfig[hubID];
-        ERC20[3] memory assets = [config.usdc, config.usdg, config.usdt];
-        vm.startPrank(admin);
-        for (uint256 i; i < assets.length; i++) {
-            if (address(assets[i]) == address(0)) continue;
-            SafeTransferLib.safeApprove(address(assets[i]), address(warehouse), type(uint256).max);
+    function _deployCore(uint64 chain) internal {
+        _selectChain(chain);
+
+        TransitAuthority authority = new TransitAuthority(admin);
+        Warehouse warehouse = new Warehouse(address(authority), hubID, vault);
+        MockCrosschainModule module = new MockCrosschainModule(address(authority), address(warehouse));
+
+        authorities[chain] = authority;
+        warehouses[chain] = warehouse;
+        modules[chain] = module;
+
+        _grantRoles(chain);
+    }
+
+    function _wireChains() internal {
+        for (uint256 i; i < spokeIDs.length; i++) {
+            uint64 spoke = spokeIDs[i];
+            _addRoute(spoke, hubID, address(modules[hubID]));
+            _addRoute(hubID, spoke, address(modules[spoke]));
         }
+    }
+
+    function _addRoute(uint64 onChain, uint64 remoteChain, address remoteModule) internal {
+        _selectChain(onChain);
+        vm.startPrank(admin);
+        warehouses[onChain].addChain(remoteChain, true, true, 200_000, 0);
+        modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain);
+        vm.stopPrank();
+    }
+
+    function _grantRoles(uint64 chain) internal {
+        TransitAuthority authority = authorities[chain];
+        Warehouse warehouse = warehouses[chain];
+
+        bytes4[] memory adminSels = new bytes4[](8);
+        adminSels[0] = Warehouse.launchToken.selector;
+        adminSels[1] = Warehouse.setTokenConfig.selector;
+        adminSels[2] = Warehouse.setWithdrawSigner.selector;
+        adminSels[3] = Warehouse.setSendModule.selector;
+        adminSels[4] = Warehouse.addChain.selector;
+        adminSels[5] = Warehouse.setChainGasLimit.selector;
+        adminSels[6] = Warehouse.setAllowMessagesFromChain.selector;
+        adminSels[7] = Warehouse.setAllowMessagesToChain.selector;
+
+        bytes4[] memory pauseSels = new bytes4[](1);
+        pauseSels[0] = Warehouse.setPaused.selector;
+
+        bytes4[] memory receiveSels = new bytes4[](1);
+        receiveSels[0] = Warehouse.receiveMessage.selector;
+
+        bytes4[] memory peerSels = new bytes4[](1);
+        peerSels[0] = WarehouseCrosschainModule.setPeer.selector;
+
+        vm.startPrank(admin);
+        authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), pauseSels, PAUSER_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE);
+        authority.setTargetFunctionRole(address(modules[chain]), peerSels, ADMIN_ROLE);
+
+        authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
+        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(modules[chain]));
+        authority.grantRole(PAUSER_ROLE, admin);
+        authority.grantRole(SOLVER_ROLE, solver);
+
+        warehouse.setSendModule(modules[chain]);
+        warehouse.setWithdrawSigner(withdrawSigner);
         vm.stopPrank();
     }
 
@@ -99,19 +174,55 @@ contract TransitTestBase is Test {
 
     function _launchToken(uint64 chain, ERC20 asset) internal {
         if (address(asset) == address(0)) return;
+
         _selectChain(chain);
         string memory symbol = asset.symbol();
         uint8 decimals = asset.decimals();
-        _selectChain(hubID);
-        warehouse.launchToken(chain, asset, symbol, decimals);
+
+        Warehouse.BridgeData memory data = chain == hubID
+            ? Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "")
+            : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
+
+        vm.prank(admin);
+        WarehouseToken token = warehouses[chain].launchToken(asset, symbol, decimals, data);
+        tokenOf[chain][chain][asset] = token;
+
+        bytes4[] memory sels = new bytes4[](2);
+        sels[0] = WarehouseToken.enter.selector;
+        sels[1] = WarehouseToken.exit.selector;
+
+        vm.prank(admin);
+        authorities[chain].setTargetFunctionRole(address(token), sels, WAREHOUSE_ROLE);
     }
 
-    // eth forkBlock pinned near tip at 2026-09-17T21:41Z; this RPC only serves state by block hash within ~128
-    // blocks of tip, so it goes stale in ~25 min. rh serves by hash at any depth.
+    function _approveVault() internal {
+        _approveVaultOn(hubID);
+        for (uint256 i; i < spokeIDs.length; i++) {
+            _approveVaultOn(spokeIDs[i]);
+        }
+    }
+
+    function _approveVaultOn(uint64 chain) internal {
+        _selectChain(chain);
+        ChainConfig storage config = chainConfig[chain];
+        ERC20[3] memory assets = [config.usdc, config.usdg, config.usdt];
+
+        vm.startPrank(vault);
+        for (uint256 i; i < assets.length; i++) {
+            if (address(assets[i]) == address(0)) continue;
+            WarehouseToken token = tokenOf[chain][chain][assets[i]];
+            if (address(token) == address(0)) continue;
+            SafeTransferLib.safeApprove(address(assets[i]), address(token), type(uint256).max);
+        }
+        vm.stopPrank();
+    }
+
+    // eth forkBlock pinned near tip; this RPC only serves state by block hash within ~128 blocks of
+    // tip, so it goes stale in ~25 min. rh serves by hash at any depth.
     function _initChainConfigs() internal {
         chainConfig[ETH_CHAIN_ID] = ChainConfig({
             rpcAlias: "eth",
-            forkBlock: 25_999_956,
+            forkBlock: 0,
             usdc: ERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48),
             usdg: ERC20(0xe343167631d89B6Ffc58B88d6b7fB0228795491D),
             usdt: ERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7)
@@ -144,19 +255,27 @@ contract TransitTestBase is Test {
         (withdrawSigner, withdrawSignerPk) = makeAddrAndKey("withdrawSigner");
         (admin, adminPk) = makeAddrAndKey("admin");
         (solver, solverPk) = makeAddrAndKey("solver");
+        (vault, vaultPk) = makeAddrAndKey("vault");
+    }
+
+    function _vaultOf(uint64) internal view returns (address) {
+        return vault;
+    }
+
+    function _hubToken(uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
+        return tokenOf[hubID][assetChain][asset];
+    }
+
+    function _tokenOn(uint64 onChain, uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
+        return tokenOf[onChain][assetChain][asset];
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
         _selectChain(chain);
         deal(address(asset), user, amount);
         vm.startPrank(user);
-        if (chain == hubID) {
-            SafeTransferLib.safeApprove(address(asset), address(warehouse), amount);
-            warehouse.deposit(asset, amount);
-        } else {
-            SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-            warehouses[chain].deposit(asset, amount);
-        }
+        SafeTransferLib.safeApprove(address(asset), address(tokenOf[chain][chain][asset]), amount);
+        warehouses[chain].deposit(asset, amount, user);
         vm.stopPrank();
     }
 
@@ -170,27 +289,39 @@ contract TransitTestBase is Test {
         internal
         returns (bytes32 withdrawId)
     {
-        _selectChain(hubID);
-        Warehouse.WithdrawRequest memory withdrawRequest = Warehouse.WithdrawRequest(asset, amount, chain, user);
+        require(shouldBeAtomic, "only signed withdraws are supported");
+        require(chain == hubID, "can only atomically withdraw on Hub");
 
-        vm.startPrank(user);
-        if (shouldBeAtomic) {
-            require(chain == hubID, "can only atomically withdraw on Hub");
-            bytes memory validSignature = _signWithdraw(withdrawRequest, withdrawSignerPk);
-            withdrawId = warehouse.withdrawInstant(withdrawRequest, validSignature);
-        } else {
-            withdrawId = warehouse.requestWithdraw(withdrawRequest);
-        }
-        vm.stopPrank();
+        _selectChain(hubID);
+        Warehouse.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
+        bytes memory validSignature = _signWithdraw(request, withdrawSignerPk);
+
+        vm.prank(user);
+        withdrawId = warehouses[hubID].withdrawWithSignature(request, validSignature);
+    }
+
+    function _withdrawRequestFor(
+        address user,
+        uint256 amount,
+        ERC20 asset,
+        uint64 chain
+    )
+        internal
+        returns (Warehouse.WithdrawRequest memory)
+    {
+        return Warehouse.WithdrawRequest({
+            owner: user,
+            asset: asset,
+            assetChainId: chain,
+            amount: amount,
+            to: user,
+            nonce: ++withdrawNonce,
+            deadline: block.timestamp + 1 days
+        });
     }
 
     function _signWithdraw(Warehouse.WithdrawRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                warehouse.WITHDRAW_REQUEST_TYPEHASH(), request.localAsset, request.amount, request.chain, request.to
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", warehouse.DOMAIN_SEPARATOR(), structHash));
+        bytes32 digest = warehouses[hubID].hashWithdrawRequest(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }

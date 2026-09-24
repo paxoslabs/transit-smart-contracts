@@ -21,15 +21,15 @@ contract HappyPaths is TransitTestBase {
 
         _selectChain(hubID);
 
-        ERC20 transit_eth_USDC = warehouse.getToken(hubID, usdc);
+        ERC20 transit_eth_USDC = _hubToken(hubID, usdc);
         assertEq(transit_eth_USDC.balanceOf(alice), amount, "deposit: alice not credited transit token");
-        assertEq(usdc.balanceOf(warehouse.vault()), amount, "deposit: vault did not receive usdc");
+        assertEq(usdc.balanceOf(_vaultOf(hubID)), amount, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
 
         _withdrawOnChain(alice, amount, usdc, hubID, true);
 
         assertEq(transit_eth_USDC.balanceOf(alice), 0, "withdraw: alice transit token not burned");
-        assertEq(usdc.balanceOf(warehouse.vault()), 0, "withdraw: vault did not release usdc");
+        assertEq(usdc.balanceOf(_vaultOf(hubID)), 0, "withdraw: vault did not release usdc");
         assertEq(usdc.balanceOf(alice), amount, "withdraw: alice did not receive usdc back");
     }
 
@@ -43,8 +43,8 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubID);
         _selectChain(hubID);
 
-        ERC20 transit_eth_USDC = warehouse.getToken(hubID, usdc);
-        ERC20 transit_eth_USDG = warehouse.getToken(hubID, usdg);
+        ERC20 transit_eth_USDC = _hubToken(hubID, usdc);
+        ERC20 transit_eth_USDG = _hubToken(hubID, usdg);
 
         Terminal.SignedOrder memory aliceOrder =
             _signOrder(Terminal.Order(transit_eth_USDC, transit_eth_USDG, amount, amount, alice), alicePk);
