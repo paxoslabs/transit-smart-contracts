@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Warehouse } from "../Warehouse.sol";
 
-abstract contract WarehouseCrosschainModule is AccessManaged {
+abstract contract CrosschainAdapter is AccessManaged {
 
     struct PeerConfig {
         bytes32 peer;

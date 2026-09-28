@@ -8,7 +8,7 @@ import { TransitAuthority } from "../../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../../src/warehouse/Warehouse.sol";
 import { WarehouseToken } from "../../src/warehouse/WarehouseToken.sol";
 import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
-import { WarehouseCrosschainModule } from "../../src/warehouse/crosschain/WarehouseCrosschainModule.sol";
+import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { ADMIN_ROLE, WAREHOUSE_ROLE } from "../../src/helpers/Constants.sol";
 
 contract WarehouseUnitTest is Test {
@@ -157,7 +157,7 @@ contract WarehouseUnitTest is Test {
         sels[2] = Warehouse.addChain.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
-        peerSels[0] = WarehouseCrosschainModule.setPeer.selector;
+        peerSels[0] = CrosschainAdapter.setPeer.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), sels, ADMIN_ROLE);

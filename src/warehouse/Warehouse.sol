@@ -10,7 +10,7 @@ import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { WarehouseToken } from "./WarehouseToken.sol";
-import { WarehouseCrosschainModule } from "./crosschain/WarehouseCrosschainModule.sol";
+import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 import { BeforeTransferHook } from "./interfaces/BeforeTransferHook.sol";
 
 contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
@@ -86,7 +86,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     bool public isPaused;
     uint256 public outboundNonce;
 
-    WarehouseCrosschainModule public sendModule;
+    CrosschainAdapter public sendModule;
 
     mapping(address token => TokenConfig) public configOf;
     mapping(ERC20 asset => WarehouseToken) public tokenForAsset;
@@ -183,7 +183,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         emit WithdrawSignerUpdated(_withdrawSigner);
     }
 
-    function setSendModule(WarehouseCrosschainModule module) external restricted {
+    function setSendModule(CrosschainAdapter module) external restricted {
         sendModule = module;
         emit SendModuleUpdated(address(module));
     }
@@ -304,7 +304,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
             )
         );
 
-        WarehouseCrosschainModule module = sendModule;
+        CrosschainAdapter module = sendModule;
         if (address(module) == address(0)) revert UnknownModule();
         messageId = module.send{ value: msg.value }(data.chainId, data.messageGas, payload);
 
@@ -312,7 +312,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     }
 
     function quoteBridge(BridgeData calldata data, bytes calldata payload) external view returns (uint256 fee) {
-        WarehouseCrosschainModule module = sendModule;
+        CrosschainAdapter module = sendModule;
         if (address(module) == address(0)) revert UnknownModule();
         return module.quote(data.chainId, data.messageGas, payload);
     }
@@ -423,7 +423,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
             abi.encode(LaunchMessage({ asset: address(asset), symbol: symbol, decimals: decimals, nonce: nonce }))
         );
 
-        WarehouseCrosschainModule module = sendModule;
+        CrosschainAdapter module = sendModule;
         if (address(module) == address(0)) revert UnknownModule();
         module.send{ value: msg.value }(data.chainId, data.messageGas, payload);
     }
