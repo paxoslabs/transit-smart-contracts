@@ -92,7 +92,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     error UnknownModule();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
-    error DestinationChainReceiverIsZeroAddress();
+    error DestinationNotHub();
     error ZeroMessageGasLimit();
     error GasLimitExceeded();
     error GasTooLow();
@@ -168,18 +168,52 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     // ========================================= USER =========================================
 
     /// TODO: Decide whether admins need a per-asset deny-list now that any ERC20 is accepted.
-    function deposit(ERC20 asset, uint256 amount, address to) external nonReentrant returns (uint256 shares) {
+    /// TODO: Only data.chainId and data.messageGas are read; destinationChainReceiver (`to` is used instead),
+    /// bridgeFeeToken and data are ignored. Slim BridgeData or pass messageGas directly?
+    function deposit(
+        ERC20 asset,
+        uint256 amount,
+        address to,
+        BridgeData calldata data
+    )
+        external
+        payable
+        nonReentrant
+        returns (uint256 shares)
+    {
         if (isPaused) revert Paused();
         if (amount == 0) revert ZeroAssets();
-        /// TODO: Stopgap. Spoke deposits must send a Transfer message to the hub, which needs BridgeData and
-        /// msg.value for the fee. Decide the spoke deposit signature; until then spokes revert here.
-        if (uint64(block.chainid) != hubChainId) revert();
 
         uint64 assetChainId = uint64(block.chainid);
 
         shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
-        hub.enter(to, assetChainId, address(asset), shares);
+
+        if (assetChainId == hubChainId) {
+            hub.enter(to, assetChainId, address(asset), shares);
+        } else {
+            if (data.chainId != hubChainId) revert DestinationNotHub();
+            _checkRoute(data);
+
+            bytes memory payload = abi.encode(
+                MessageType.Transfer,
+                abi.encode(
+                    TransferMessage({
+                        assetChainId: assetChainId,
+                        asset: address(asset),
+                        nonce: ++outboundNonce,
+                        amount: shares,
+                        to: to
+                    })
+                )
+            );
+
+            CrosschainAdapter module = sendModule;
+            if (address(module) == address(0)) revert UnknownModule();
+            bytes32 messageId = module.send{ value: msg.value }(hubChainId, data.messageGas, payload);
+
+            emit MessageSent(messageId, shares, to);
+        }
 
         emit Deposit(address(asset), msg.sender, to, amount);
     }
@@ -213,47 +247,6 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         SafeTransferLib.safeTransferFrom(address(request.asset), vault, request.to, request.amount);
 
         emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
-    }
-
-    /// NOTE: Add deposit and bridge
-    /// TODO: Decide what bridge means with a single hub. Spokes hold no balances, so this only works on the
-    /// hub, and the receiving spoke has no hub to credit.
-    function bridge(
-        uint64 assetChainId,
-        ERC20 asset,
-        uint256 shareAmount,
-        BridgeData calldata data
-    )
-        external
-        payable
-        nonReentrant
-        returns (bytes32 messageId)
-    {
-        if (isPaused) revert Paused();
-
-        _beforeBridge(data);
-
-        hub.exit(msg.sender, assetChainId, address(asset), shareAmount);
-
-        uint256 nonce = ++outboundNonce;
-        bytes memory payload = abi.encode(
-            MessageType.Transfer,
-            abi.encode(
-                TransferMessage({
-                    assetChainId: assetChainId,
-                    asset: address(asset),
-                    nonce: nonce,
-                    amount: shareAmount,
-                    to: data.destinationChainReceiver
-                })
-            )
-        );
-
-        CrosschainAdapter module = sendModule;
-        if (address(module) == address(0)) revert UnknownModule();
-        messageId = module.send{ value: msg.value }(data.chainId, data.messageGas, payload);
-
-        _afterBridge(shareAmount, data, messageId);
     }
 
     function quoteBridge(BridgeData calldata data, bytes calldata payload) external view returns (uint256 fee) {
@@ -323,15 +316,6 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         if (!chain.allowMessagesTo) revert MessagesNotAllowedTo(data.chainId);
         if (data.messageGas > chain.messageGasLimit) revert GasLimitExceeded();
         if (data.messageGas < chain.minimumMessageGas) revert GasTooLow();
-    }
-
-    function _beforeBridge(BridgeData calldata data) internal view returns (Chain memory chain) {
-        chain = _checkRoute(data);
-        if (data.destinationChainReceiver == address(0)) revert DestinationChainReceiverIsZeroAddress();
-    }
-
-    function _afterBridge(uint256 shareAmount, BridgeData calldata data, bytes32 messageId) internal {
-        emit MessageSent(messageId, shareAmount, data.destinationChainReceiver);
     }
 
     function _afterReceive(uint256 shareAmount, address destinationChainReceiver, bytes32 messageId) internal {

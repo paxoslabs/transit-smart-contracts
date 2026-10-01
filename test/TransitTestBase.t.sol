@@ -250,8 +250,14 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(asset, amount, user);
+        warehouses[chain].deposit(asset, amount, user, _depositData(chain));
         vm.stopPrank();
+    }
+
+    function _depositData(uint64 chain) internal view returns (Warehouse.BridgeData memory) {
+        return chain == hubID
+            ? Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "")
+            : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
     }
 
     function _withdrawOnChain(
