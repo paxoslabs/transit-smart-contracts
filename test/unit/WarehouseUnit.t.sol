@@ -6,9 +6,8 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../../src/warehouse/Warehouse.sol";
-import { WarehouseToken } from "../../src/warehouse/WarehouseToken.sol";
-import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
-import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
+import { WarehouseHub } from "../../src/warehouse/WarehouseHub.sol";
+import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { ADMIN_ROLE, WAREHOUSE_ROLE } from "../../src/helpers/Constants.sol";
 
 contract WarehouseUnitTest is Test {
@@ -19,7 +18,7 @@ contract WarehouseUnitTest is Test {
     TransitAuthority authority;
     Warehouse warehouse;
     ERC20 usdc;
-    WarehouseToken token;
+    WarehouseHub hub;
 
     address admin = makeAddr("admin");
     address vault = makeAddr("vault");
@@ -35,47 +34,42 @@ contract WarehouseUnitTest is Test {
         (signer, signerPk) = makeAddrAndKey("withdrawSigner");
 
         authority = new TransitAuthority(admin);
-        warehouse = new Warehouse(address(authority), HUB, vault);
+        hub = new WarehouseHub(address(authority));
+        warehouse = new Warehouse(address(authority), HUB, vault, hub);
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](3);
-        adminSels[0] = Warehouse.launchToken.selector;
-        adminSels[1] = Warehouse.setWithdrawSigner.selector;
-        adminSels[2] = Warehouse.setSendModule.selector;
+        bytes4[] memory adminSels = new bytes4[](2);
+        adminSels[0] = Warehouse.setWithdrawSigner.selector;
+        adminSels[1] = Warehouse.setSendModule.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
         warehouse.setWithdrawSigner(signer);
-        token = warehouse.launchToken(usdc, "USDC", 6, _noBridge());
         vm.stopPrank();
 
-        _authorizeToken(token);
+        _authorizeHub();
 
         vm.prank(vault);
-        SafeTransferLib.safeApprove(address(usdc), address(token), type(uint256).max);
+        SafeTransferLib.safeApprove(address(usdc), address(warehouse), type(uint256).max);
     }
 
     function _asset(string memory name_, string memory symbol_, uint8 decimals_) internal returns (ERC20) {
-        return ERC20(address(new WarehouseToken(address(authority), vault, name_, symbol_, decimals_)));
+        return ERC20(address(new MockERC20(name_, symbol_, decimals_)));
     }
 
-    function _authorizeToken(WarehouseToken t) internal {
+    function _authorizeHub() internal {
         bytes4[] memory sels = new bytes4[](2);
-        sels[0] = WarehouseToken.enter.selector;
-        sels[1] = WarehouseToken.exit.selector;
+        sels[0] = WarehouseHub.enter.selector;
+        sels[1] = WarehouseHub.exit.selector;
         vm.prank(admin);
-        authority.setTargetFunctionRole(address(t), sels, WAREHOUSE_ROLE);
-    }
-
-    function _noBridge() internal pure returns (Warehouse.BridgeData memory) {
-        return Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "");
+        authority.setTargetFunctionRole(address(hub), sels, WAREHOUSE_ROLE);
     }
 
     function _deposit(address user, uint256 amount) internal {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(usdc), address(token), amount);
+        SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
         warehouse.deposit(usdc, amount, user);
         vm.stopPrank();
     }
@@ -97,110 +91,42 @@ contract WarehouseUnitTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    // ---------------------------------------------------------------- launch
-
-    function testLaunchCopiesDecimalsAndNamespacesSymbol() public view {
-        assertEq(token.decimals(), 6, "launch: warehouse token decimals do not match underlying");
-        assertEq(token.symbol(), "transit_1_USDC", "launch: symbol not namespaced by chain id");
-        assertEq(token.name(), "transit_1_USDC", "launch: name should match symbol");
-    }
-
-    function testLaunchRejectsDecimalsMismatch() public {
-        ERC20 weird = _asset("Weird", "WRD", 18);
-        vm.prank(admin);
-        vm.expectRevert(Warehouse.DecimalsMismatch.selector);
-        warehouse.launchToken(weird, "WRD", 6, _noBridge());
-    }
-
-    function testRelaunchReverts() public {
-        vm.prank(admin);
-        vm.expectRevert(Warehouse.AlreadyLaunched.selector);
-        warehouse.launchToken(usdc, "USDC", 6, _noBridge());
-    }
-
-    function testLaunchByNonAdminReverts() public {
-        ERC20 other = _asset("Other", "OTH", 6);
-        vm.prank(mallory);
-        vm.expectRevert();
-        warehouse.launchToken(other, "OTH", 6, _noBridge());
-    }
-
     // ---------------------------------------------------------------- deposit
 
     function testDepositCreditsUserAndVault() public {
         _deposit(alice, 100e6);
 
-        assertEq(token.balanceOf(alice), 100e6, "deposit: alice not credited transit token");
+        assertEq(hub.balanceOf(alice, HUB, address(usdc)), 100e6, "deposit: alice not credited hub balance");
         assertEq(usdc.balanceOf(vault), 100e6, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
         assertEq(usdc.balanceOf(address(warehouse)), 0, "deposit: warehouse must never hold funds");
     }
 
-    function testDepositUnregisteredAssetReverts() public {
-        ERC20 other = _asset("Other", "OTH", 6);
-        deal(address(other), alice, 1e6);
+    function testDepositAnyAssetCreditsHub() public {
+        ERC20 other = _asset("Other", "OTH", 18);
+        deal(address(other), alice, 1e18);
         vm.startPrank(alice);
-        SafeTransferLib.safeApprove(address(other), address(warehouse), 1e6);
-        vm.expectRevert(Warehouse.NotRegistered.selector);
-        warehouse.deposit(other, 1e6, alice);
-        vm.stopPrank();
-    }
-
-    function testSpokeLaunchQueuesHubMirrorMessage() public {
-        vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault);
-        MockCrosschainModule spokeModule = new MockCrosschainModule(address(authority), address(spokeWarehouse));
-
-        bytes4[] memory sels = new bytes4[](3);
-        sels[0] = Warehouse.launchToken.selector;
-        sels[1] = Warehouse.setSendModule.selector;
-        sels[2] = Warehouse.addChain.selector;
-
-        bytes4[] memory peerSels = new bytes4[](1);
-        peerSels[0] = CrosschainAdapter.setPeer.selector;
-
-        vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(spokeWarehouse), sels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeModule), peerSels, ADMIN_ROLE);
-        authority.grantRole(WAREHOUSE_ROLE, address(spokeWarehouse));
-        spokeWarehouse.setSendModule(spokeModule);
-        spokeWarehouse.addChain(HUB, true, true, 200_000, 0);
-        spokeModule.setPeer(HUB, bytes32(uint256(uint160(address(warehouse)))), HUB);
-
-        ERC20 usdg = _asset("Global Dollar", "USDG", 6);
-        spokeWarehouse.launchToken(
-            usdg, "USDG", 6, Warehouse.BridgeData(HUB, address(0), ERC20(address(0)), 200_000, "")
-        );
+        SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
+        warehouse.deposit(other, 1e18, alice);
         vm.stopPrank();
 
-        bytes[] memory queued = spokeModule.pending();
-        assertEq(queued.length, 1, "launch: spoke did not queue a hub mirror message");
-
-        (Warehouse.MessageType messageType, bytes memory body) = abi.decode(queued[0], (Warehouse.MessageType, bytes));
-        assertEq(uint8(messageType), uint8(Warehouse.MessageType.Launch), "launch: queued message is not a Launch");
-
-        Warehouse.LaunchMessage memory m = abi.decode(body, (Warehouse.LaunchMessage));
-        assertEq(m.asset, address(usdg), "launch: message carries the wrong asset");
-        assertEq(m.decimals, 6, "launch: message carries the wrong decimals");
+        assertEq(hub.balanceOf(alice, HUB, address(other)), 1e18, "deposit: arbitrary asset not credited on hub");
+        assertEq(other.balanceOf(vault), 1e18, "deposit: vault did not receive arbitrary asset");
     }
 
-    function testHubLaunchQueuesNothing() public {
-        assertEq(address(warehouse.tokenForAsset(usdc)), address(token), "launch: hub token not registered locally");
-    }
-
-    // ---------------------------------------------------------------- token auth
+    // ---------------------------------------------------------------- hub auth
 
     function testOnlyWarehouseCanMint() public {
         vm.prank(mallory);
         vm.expectRevert();
-        token.enter(address(0), ERC20(address(0)), 0, mallory, 1e6);
+        hub.enter(mallory, HUB, address(usdc), 1e6);
     }
 
     function testOnlyWarehouseCanBurn() public {
         _deposit(alice, 100e6);
         vm.prank(mallory);
         vm.expectRevert();
-        token.exit(mallory, usdc, 100e6, alice, 100e6);
+        hub.exit(alice, HUB, address(usdc), 100e6);
     }
 
     // ---------------------------------------------------------------- withdraw
@@ -214,7 +140,7 @@ contract WarehouseUnitTest is Test {
         vm.prank(alice);
         warehouse.withdrawWithSignature(req, sig);
 
-        assertEq(token.balanceOf(alice), 0, "withdraw: transit token not burned");
+        assertEq(hub.balanceOf(alice, HUB, address(usdc)), 0, "withdraw: hub balance not burned");
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
         assertEq(usdc.balanceOf(vault), 0, "withdraw: vault did not release usdc");
     }
@@ -268,8 +194,9 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonModuleReverts() public {
-        Warehouse.TransferMessage memory m =
-            Warehouse.TransferMessage({ token: address(token), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+        Warehouse.TransferMessage memory m = Warehouse.TransferMessage({
+            assetChainId: HUB, asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice
+        });
         bytes memory payload = abi.encode(Warehouse.MessageType.Transfer, abi.encode(m));
 
         vm.prank(mallory);

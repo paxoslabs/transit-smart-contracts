@@ -7,3 +7,4 @@ bytes32 constant WAREHOUSE_ROLE = bytes32(uint256(0x03));
 bytes32 constant MANAGER_ROLE = bytes32(uint256(0x04));
 bytes32 constant CROSSCHAIN_MODULE_ROLE = bytes32(uint256(0x05));
 bytes32 constant SOLVER_ROLE = bytes32(uint256(0x06));
+bytes32 constant TERMINAL_ROLE = bytes32(uint256(0x07));

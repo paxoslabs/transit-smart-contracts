@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { ERC20 } from "solady/tokens/ERC20.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
-import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { WarehouseHub } from "./warehouse/WarehouseHub.sol";
 
 contract Terminal is EIP712 {
 
     /// TODO: Decide the remaining Order fields. As written there is no nonce or deadline, so a signed order
-    /// replays and can be filled again in a later batch against the owner's standing approval. validTo,
+    /// replays and can be filled again in a later batch against the owner's hub balance. validTo,
     /// feeAmount and partiallyFillable are the other obvious candidates.
     struct Order {
-        ERC20 sellToken;
-        ERC20 buyToken;
+        uint64 sellTokenChainId;
+        address sellToken;
+        uint64 buyTokenChainId;
+        address buyToken;
         uint256 sellAmount;
         uint256 buyAmount;
         address receiver;
@@ -24,10 +25,17 @@ contract Terminal is EIP712 {
         bytes signature;
     }
 
-    bytes32 public constant ORDER_TYPEHASH =
-        keccak256("Order(address sellToken,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver)");
+    bytes32 public constant ORDER_TYPEHASH = keccak256(
+        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver)"
+    );
 
-    /// TODO: Decide the EIP712 domain name and version. I used "Transit Terminal" and "1".
+    WarehouseHub public immutable hub;
+
+    constructor(WarehouseHub _hub) {
+        hub = _hub;
+    }
+
+    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Terminal" and "1".
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         return ("Transit Terminal", "1");
     }
@@ -43,12 +51,12 @@ contract Terminal is EIP712 {
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i].order;
             address owner = _recoverOrderOwner(orders[i]);
-            SafeTransferLib.safeTransferFrom(address(order.sellToken), owner, address(this), order.sellAmount);
+            hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, order.sellAmount);
         }
 
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i].order;
-            SafeTransferLib.safeTransfer(address(order.buyToken), order.receiver, order.buyAmount);
+            hub.move(address(this), order.receiver, order.buyTokenChainId, order.buyToken, order.buyAmount);
         }
     }
 
@@ -56,7 +64,9 @@ contract Terminal is EIP712 {
         bytes32 structHash = keccak256(
             abi.encode(
                 ORDER_TYPEHASH,
+                signed.order.sellTokenChainId,
                 signed.order.sellToken,
+                signed.order.buyTokenChainId,
                 signed.order.buyToken,
                 signed.order.sellAmount,
                 signed.order.buyAmount,

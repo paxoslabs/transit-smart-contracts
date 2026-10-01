@@ -7,7 +7,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../src/warehouse/Warehouse.sol";
-import { WarehouseToken } from "../src/warehouse/WarehouseToken.sol";
+import { WarehouseHub } from "../src/warehouse/WarehouseHub.sol";
 import { CrosschainAdapter } from "../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { MockCrosschainModule } from "./mocks/MockCrosschainModule.sol";
 import {
@@ -15,7 +15,8 @@ import {
     PAUSER_ROLE,
     WAREHOUSE_ROLE,
     CROSSCHAIN_MODULE_ROLE,
-    SOLVER_ROLE
+    SOLVER_ROLE,
+    TERMINAL_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -51,10 +52,10 @@ contract TransitTestBase is Test {
     uint256 withdrawNonce;
 
     Terminal terminal;
+    WarehouseHub hub;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
     mapping(uint64 => MockCrosschainModule) modules;
-    mapping(uint64 onChain => mapping(uint64 assetChain => mapping(ERC20 => WarehouseToken))) tokenOf;
 
     mapping(uint64 => uint256) forkOf;
 
@@ -82,10 +83,10 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubID);
-        terminal = new Terminal();
+        terminal = new Terminal(hub);
+        _grantTerminalRole();
 
         _wireChains();
-        _launchTransitTokens();
         _approveVault();
     }
 
@@ -93,7 +94,9 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        Warehouse warehouse = new Warehouse(address(authority), hubID, vault);
+        if (chain == hubID) hub = new WarehouseHub(address(authority));
+        Warehouse warehouse =
+            new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : WarehouseHub(address(0)));
         MockCrosschainModule module = new MockCrosschainModule(address(authority), address(warehouse));
 
         authorities[chain] = authority;
@@ -123,15 +126,13 @@ contract TransitTestBase is Test {
         TransitAuthority authority = authorities[chain];
         Warehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](8);
-        adminSels[0] = Warehouse.launchToken.selector;
-        adminSels[1] = Warehouse.setTokenConfig.selector;
-        adminSels[2] = Warehouse.setWithdrawSigner.selector;
-        adminSels[3] = Warehouse.setSendModule.selector;
-        adminSels[4] = Warehouse.addChain.selector;
-        adminSels[5] = Warehouse.setChainGasLimit.selector;
-        adminSels[6] = Warehouse.setAllowMessagesFromChain.selector;
-        adminSels[7] = Warehouse.setAllowMessagesToChain.selector;
+        bytes4[] memory adminSels = new bytes4[](6);
+        adminSels[0] = Warehouse.setWithdrawSigner.selector;
+        adminSels[1] = Warehouse.setSendModule.selector;
+        adminSels[2] = Warehouse.addChain.selector;
+        adminSels[3] = Warehouse.setChainGasLimit.selector;
+        adminSels[4] = Warehouse.setAllowMessagesFromChain.selector;
+        adminSels[5] = Warehouse.setAllowMessagesToChain.selector;
 
         bytes4[] memory pauseSels = new bytes4[](1);
         pauseSels[0] = Warehouse.setPaused.selector;
@@ -155,44 +156,24 @@ contract TransitTestBase is Test {
 
         warehouse.setSendModule(modules[chain]);
         warehouse.setWithdrawSigner(withdrawSigner);
+
+        if (chain == hubID) {
+            bytes4[] memory hubSels = new bytes4[](2);
+            hubSels[0] = WarehouseHub.enter.selector;
+            hubSels[1] = WarehouseHub.exit.selector;
+            authority.setTargetFunctionRole(address(hub), hubSels, WAREHOUSE_ROLE);
+        }
         vm.stopPrank();
     }
 
-    function _launchTransitTokens() internal {
-        _launchTokensFor(hubID);
-        for (uint256 i; i < spokeIDs.length; i++) {
-            _launchTokensFor(spokeIDs[i]);
-        }
-    }
+    function _grantTerminalRole() internal {
+        bytes4[] memory moveSels = new bytes4[](1);
+        moveSels[0] = WarehouseHub.move.selector;
 
-    function _launchTokensFor(uint64 chain) internal {
-        ChainConfig storage config = chainConfig[chain];
-        _launchToken(chain, config.usdc);
-        _launchToken(chain, config.usdg);
-        _launchToken(chain, config.usdt);
-    }
-
-    function _launchToken(uint64 chain, ERC20 asset) internal {
-        if (address(asset) == address(0)) return;
-
-        _selectChain(chain);
-        string memory symbol = asset.symbol();
-        uint8 decimals = asset.decimals();
-
-        Warehouse.BridgeData memory data = chain == hubID
-            ? Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "")
-            : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
-
-        vm.prank(admin);
-        WarehouseToken token = warehouses[chain].launchToken(asset, symbol, decimals, data);
-        tokenOf[chain][chain][asset] = token;
-
-        bytes4[] memory sels = new bytes4[](2);
-        sels[0] = WarehouseToken.enter.selector;
-        sels[1] = WarehouseToken.exit.selector;
-
-        vm.prank(admin);
-        authorities[chain].setTargetFunctionRole(address(token), sels, WAREHOUSE_ROLE);
+        vm.startPrank(admin);
+        authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
+        authorities[hubID].grantRole(TERMINAL_ROLE, address(terminal));
+        vm.stopPrank();
     }
 
     function _approveVault() internal {
@@ -210,9 +191,7 @@ contract TransitTestBase is Test {
         vm.startPrank(vault);
         for (uint256 i; i < assets.length; i++) {
             if (address(assets[i]) == address(0)) continue;
-            WarehouseToken token = tokenOf[chain][chain][assets[i]];
-            if (address(token) == address(0)) continue;
-            SafeTransferLib.safeApprove(address(assets[i]), address(token), type(uint256).max);
+            SafeTransferLib.safeApprove(address(assets[i]), address(warehouses[chain]), type(uint256).max);
         }
         vm.stopPrank();
     }
@@ -262,19 +241,15 @@ contract TransitTestBase is Test {
         return vault;
     }
 
-    function _hubToken(uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
-        return tokenOf[hubID][assetChain][asset];
-    }
-
-    function _tokenOn(uint64 onChain, uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
-        return tokenOf[onChain][assetChain][asset];
+    function _hubBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
+        return hub.balanceOf(user, assetChain, address(asset));
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
         _selectChain(chain);
         deal(address(asset), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(asset), address(tokenOf[chain][chain][asset]), amount);
+        SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
         warehouses[chain].deposit(asset, amount, user);
         vm.stopPrank();
     }
@@ -330,7 +305,9 @@ contract TransitTestBase is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 terminal.ORDER_TYPEHASH(),
+                order.sellTokenChainId,
                 order.sellToken,
+                order.buyTokenChainId,
                 order.buyToken,
                 order.sellAmount,
                 order.buyAmount,
