@@ -7,7 +7,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
-import { WarehouseHub } from "./WarehouseHub.sol";
+import { Hub } from "./Hub.sol";
 import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 
 contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
@@ -59,7 +59,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     uint64 public immutable hubChainId;
 
     address public immutable vault;
-    WarehouseHub public immutable hub;
+    Hub public immutable hub;
     address public withdrawSigner;
     bool public isPaused;
     uint256 public outboundNonce;
@@ -98,7 +98,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
     error GasTooLow();
 
     /// TODO: Decide how the hub is wired. Currently an immutable constructor arg, address(0) on spokes.
-    constructor(address _authority, uint64 _hubChainId, address _vault, WarehouseHub _hub) AccessManaged(_authority) {
+    constructor(address _authority, uint64 _hubChainId, address _vault, Hub _hub) AccessManaged(_authority) {
         if (_vault == address(0)) revert VaultUnset();
         hubChainId = _hubChainId;
         vault = _vault;

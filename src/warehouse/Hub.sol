@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 
-contract WarehouseHub is AccessManaged {
+contract Hub is AccessManaged {
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
 

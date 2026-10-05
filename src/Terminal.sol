@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
-import { WarehouseHub } from "./warehouse/WarehouseHub.sol";
+import { Hub } from "./warehouse/Hub.sol";
 
 contract Terminal is EIP712 {
 
@@ -29,9 +29,9 @@ contract Terminal is EIP712 {
         "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver)"
     );
 
-    WarehouseHub public immutable hub;
+    Hub public immutable hub;
 
-    constructor(WarehouseHub _hub) {
+    constructor(Hub _hub) {
         hub = _hub;
     }
 

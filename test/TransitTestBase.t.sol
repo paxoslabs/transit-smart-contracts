@@ -7,7 +7,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../src/warehouse/Warehouse.sol";
-import { WarehouseHub } from "../src/warehouse/WarehouseHub.sol";
+import { Hub } from "../src/warehouse/Hub.sol";
 import { CrosschainAdapter } from "../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { MockCrosschainModule } from "./mocks/MockCrosschainModule.sol";
 import {
@@ -52,7 +52,7 @@ contract TransitTestBase is Test {
     uint256 withdrawNonce;
 
     Terminal terminal;
-    WarehouseHub hub;
+    Hub hub;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
     mapping(uint64 => MockCrosschainModule) modules;
@@ -94,9 +94,9 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        if (chain == hubID) hub = new WarehouseHub(address(authority));
+        if (chain == hubID) hub = new Hub(address(authority));
         Warehouse warehouse =
-            new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : WarehouseHub(address(0)));
+            new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : Hub(address(0)));
         MockCrosschainModule module = new MockCrosschainModule(address(authority), address(warehouse));
 
         authorities[chain] = authority;
@@ -159,8 +159,8 @@ contract TransitTestBase is Test {
 
         if (chain == hubID) {
             bytes4[] memory hubSels = new bytes4[](2);
-            hubSels[0] = WarehouseHub.enter.selector;
-            hubSels[1] = WarehouseHub.exit.selector;
+            hubSels[0] = Hub.enter.selector;
+            hubSels[1] = Hub.exit.selector;
             authority.setTargetFunctionRole(address(hub), hubSels, WAREHOUSE_ROLE);
         }
         vm.stopPrank();
@@ -168,7 +168,7 @@ contract TransitTestBase is Test {
 
     function _grantTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](1);
-        moveSels[0] = WarehouseHub.move.selector;
+        moveSels[0] = Hub.move.selector;
 
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);

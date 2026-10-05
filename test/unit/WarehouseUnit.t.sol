@@ -6,7 +6,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../../src/warehouse/Warehouse.sol";
-import { WarehouseHub } from "../../src/warehouse/WarehouseHub.sol";
+import { Hub } from "../../src/warehouse/Hub.sol";
 import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
 import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
@@ -20,7 +20,7 @@ contract WarehouseUnitTest is Test {
     TransitAuthority authority;
     Warehouse warehouse;
     ERC20 usdc;
-    WarehouseHub hub;
+    Hub hub;
 
     address admin = makeAddr("admin");
     address vault = makeAddr("vault");
@@ -36,7 +36,7 @@ contract WarehouseUnitTest is Test {
         (signer, signerPk) = makeAddrAndKey("withdrawSigner");
 
         authority = new TransitAuthority(admin);
-        hub = new WarehouseHub(address(authority));
+        hub = new Hub(address(authority));
         warehouse = new Warehouse(address(authority), HUB, vault, hub);
         usdc = _asset("USD Coin", "USDC", 6);
 
@@ -62,8 +62,8 @@ contract WarehouseUnitTest is Test {
 
     function _authorizeHub() internal {
         bytes4[] memory sels = new bytes4[](2);
-        sels[0] = WarehouseHub.enter.selector;
-        sels[1] = WarehouseHub.exit.selector;
+        sels[0] = Hub.enter.selector;
+        sels[1] = Hub.exit.selector;
         vm.prank(admin);
         authority.setTargetFunctionRole(address(hub), sels, WAREHOUSE_ROLE);
     }
@@ -122,7 +122,7 @@ contract WarehouseUnitTest is Test {
 
     function testSpokeDepositCreditsHub() public {
         vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, WarehouseHub(address(0)));
+        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, Hub(address(0)));
         MockCrosschainModule spokeModule = new MockCrosschainModule(address(authority), address(spokeWarehouse));
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
@@ -176,7 +176,7 @@ contract WarehouseUnitTest is Test {
 
     function testSpokeDepositToNonHubReverts() public {
         vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, WarehouseHub(address(0)));
+        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, Hub(address(0)));
 
         deal(address(usdc), alice, 1e6);
         vm.startPrank(alice);
