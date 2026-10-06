@@ -119,9 +119,9 @@ contract TransitTestBase is Test {
     function _addRoute(uint64 onChain, uint64 remoteChain, address remoteModule) internal {
         _selectChain(onChain);
         vm.startPrank(admin);
-        if (onChain == hubID) hub.addChain(remoteChain, true, true, 200_000, 0);
-        else warehouses[onChain].addChain(remoteChain, true, true, 200_000, 0);
-        modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain);
+        if (onChain == hubID) hub.addChain(remoteChain, true, true);
+        else warehouses[onChain].addChain(remoteChain, true, true);
+        modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain, 200_000, 0);
         vm.stopPrank();
     }
 
@@ -129,12 +129,11 @@ contract TransitTestBase is Test {
         TransitAuthority authority = authorities[chain];
         Warehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](5);
+        bytes4[] memory adminSels = new bytes4[](4);
         adminSels[0] = Warehouse.setSendModule.selector;
         adminSels[1] = Warehouse.addChain.selector;
-        adminSels[2] = Warehouse.setChainGasLimit.selector;
-        adminSels[3] = Warehouse.setAllowMessagesFromChain.selector;
-        adminSels[4] = Warehouse.setAllowMessagesToChain.selector;
+        adminSels[2] = Warehouse.setAllowMessagesFromChain.selector;
+        adminSels[3] = Warehouse.setAllowMessagesToChain.selector;
 
         bytes4[] memory pauseSels = new bytes4[](1);
         pauseSels[0] = Warehouse.setPaused.selector;
@@ -142,8 +141,9 @@ contract TransitTestBase is Test {
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Warehouse.receiveMessage.selector;
 
-        bytes4[] memory peerSels = new bytes4[](1);
+        bytes4[] memory peerSels = new bytes4[](2);
         peerSels[0] = CrosschainAdapter.setPeer.selector;
+        peerSels[1] = CrosschainAdapter.setChainGasLimit.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
@@ -164,15 +164,14 @@ contract TransitTestBase is Test {
             hubSels[1] = Hub.exit.selector;
             authority.setTargetFunctionRole(address(hub), hubSels, WAREHOUSE_ROLE);
 
-            bytes4[] memory hubAdminSels = new bytes4[](8);
+            bytes4[] memory hubAdminSels = new bytes4[](7);
             hubAdminSels[0] = Hub.setWarehouse.selector;
             hubAdminSels[1] = Hub.setWithdrawSigner.selector;
             hubAdminSels[2] = Hub.setSendModule.selector;
             hubAdminSels[3] = Hub.addChain.selector;
             hubAdminSels[4] = Hub.removeChain.selector;
-            hubAdminSels[5] = Hub.setChainGasLimit.selector;
-            hubAdminSels[6] = Hub.setAllowMessagesFromChain.selector;
-            hubAdminSels[7] = Hub.setAllowMessagesToChain.selector;
+            hubAdminSels[5] = Hub.setAllowMessagesFromChain.selector;
+            hubAdminSels[6] = Hub.setAllowMessagesToChain.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](1);

@@ -61,9 +61,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     error UnknownModule();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
-    error ZeroMessageGasLimit();
-    error GasLimitExceeded();
-    error GasTooLow();
 
     constructor(address _authority) AccessManaged(_authority) { }
 
@@ -101,17 +98,13 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     function addChain(
         uint64 chainId,
         bool allowMessagesFrom,
-        bool allowMessagesTo,
-        uint64 messageGasLimit,
-        uint64 minimumMessageGas
+        bool allowMessagesTo
     )
         external
         restricted
     {
         if (chainId == 0) revert UnknownSourceChain(chainId);
-        if (allowMessagesTo && messageGasLimit == 0) revert ZeroMessageGasLimit();
-        Warehouse.Chain memory chain =
-            Warehouse.Chain(allowMessagesFrom, allowMessagesTo, messageGasLimit, minimumMessageGas, true);
+        Warehouse.Chain memory chain = Warehouse.Chain(allowMessagesFrom, allowMessagesTo, true);
         chains[chainId] = chain;
         emit ChainAdded(chainId, chain);
     }
@@ -127,11 +120,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
 
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
         chains[chainId].allowMessagesTo = allowed;
-    }
-
-    function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
-        if (messageGasLimit == 0) revert ZeroMessageGasLimit();
-        chains[chainId].messageGasLimit = messageGasLimit;
     }
 
     // ========================================= LEDGER =========================================
@@ -180,7 +168,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
         if (request.assetChainId == uint64(block.chainid)) {
             warehouse.release(request.asset, request.to, request.amount);
         } else {
-            _checkRoute(request.assetChainId, data.messageGas);
+            _checkRoute(request.assetChainId);
 
             bytes memory payload = abi.encode(
                 Warehouse.MessageType.Transfer,
@@ -266,11 +254,8 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
         messageConsumed[sourceChainId][nonce] = true;
     }
 
-    function _checkRoute(uint64 chainId, uint64 messageGas) internal view {
-        Warehouse.Chain memory chain = chains[chainId];
-        if (!chain.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
-        if (messageGas > chain.messageGasLimit) revert GasLimitExceeded();
-        if (messageGas < chain.minimumMessageGas) revert GasTooLow();
+    function _checkRoute(uint64 chainId) internal view {
+        if (!chains[chainId].allowMessagesTo) revert MessagesNotAllowedTo(chainId);
     }
 
 }

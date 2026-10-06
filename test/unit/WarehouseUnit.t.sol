@@ -160,11 +160,11 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(hubModule));
 
         spokeWarehouse.setSendModule(spokeModule);
-        spokeWarehouse.addChain(HUB, true, true, 200_000, 0);
-        spokeModule.setPeer(HUB, bytes32(uint256(uint160(address(hubModule)))), HUB);
+        spokeWarehouse.addChain(HUB, true, true);
+        spokeModule.setPeer(HUB, bytes32(uint256(uint160(address(hubModule)))), HUB, 200_000, 0);
 
-        hub.addChain(SPOKE, true, true, 200_000, 0);
-        hubModule.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeModule)))), SPOKE);
+        hub.addChain(SPOKE, true, true);
+        hubModule.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeModule)))), SPOKE, 200_000, 0);
         vm.stopPrank();
 
         vm.chainId(SPOKE);

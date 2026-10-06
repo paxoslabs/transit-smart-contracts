@@ -21,8 +21,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     struct Chain {
         bool allowMessagesFrom;
         bool allowMessagesTo;
-        uint64 messageGasLimit;
-        uint64 minimumMessageGas;
         bool registered;
     }
 
@@ -67,9 +65,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
     error DestinationNotHub();
-    error ZeroMessageGasLimit();
-    error GasLimitExceeded();
-    error GasTooLow();
 
     /// TODO: Decide how the hub is wired. Currently an immutable constructor arg, address(0) on spokes.
     constructor(address _authority, uint64 _hubChainId, address _vault, Hub _hub) AccessManaged(_authority) {
@@ -94,16 +89,13 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     function addChain(
         uint64 chainId,
         bool allowMessagesFrom,
-        bool allowMessagesTo,
-        uint64 messageGasLimit,
-        uint64 minimumMessageGas
+        bool allowMessagesTo
     )
         external
         restricted
     {
         if (chainId == 0) revert UnknownSourceChain(chainId);
-        if (allowMessagesTo && messageGasLimit == 0) revert ZeroMessageGasLimit();
-        Chain memory chain = Chain(allowMessagesFrom, allowMessagesTo, messageGasLimit, minimumMessageGas, true);
+        Chain memory chain = Chain(allowMessagesFrom, allowMessagesTo, true);
         chains[chainId] = chain;
         emit ChainAdded(chainId, chain);
     }
@@ -119,11 +111,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
 
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
         chains[chainId].allowMessagesTo = allowed;
-    }
-
-    function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
-        if (messageGasLimit == 0) revert ZeroMessageGasLimit();
-        chains[chainId].messageGasLimit = messageGasLimit;
     }
 
     // ========================================= USER =========================================
@@ -233,8 +220,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     function _checkRoute(BridgeData calldata data) internal view returns (Chain memory chain) {
         chain = chains[data.chainId];
         if (!chain.allowMessagesTo) revert MessagesNotAllowedTo(data.chainId);
-        if (data.messageGas > chain.messageGasLimit) revert GasLimitExceeded();
-        if (data.messageGas < chain.minimumMessageGas) revert GasTooLow();
     }
 
     function _afterReceive(uint256 shareAmount, address destinationChainReceiver, bytes32 messageId) internal {
