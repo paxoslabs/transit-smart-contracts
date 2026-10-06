@@ -2,7 +2,7 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { Warehouse } from "../Warehouse.sol";
+import { ICrosschainReceiver } from "./ICrosschainReceiver.sol";
 
 abstract contract CrosschainAdapter is AccessManaged {
 
@@ -11,7 +11,7 @@ abstract contract CrosschainAdapter is AccessManaged {
         uint256 remoteId;
     }
 
-    address public immutable warehouse;
+    address public immutable endpoint;
 
     mapping(uint64 chainId => PeerConfig) public peers;
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
@@ -20,16 +20,16 @@ abstract contract CrosschainAdapter is AccessManaged {
     event MessageSent(uint64 indexed chainId, bytes32 indexed messageId, bytes payload);
     event MessageReceived(uint64 indexed chainId, bytes32 sender, bytes payload);
 
-    error OnlyWarehouse();
+    error OnlyEndpoint();
     error PeerNotSet(uint64 chainId);
     error UnauthorizedPeer(uint64 chainId, bytes32 sender);
 
-    constructor(address _authority, address _warehouse) AccessManaged(_authority) {
-        warehouse = _warehouse;
+    constructor(address _authority, address _endpoint) AccessManaged(_authority) {
+        endpoint = _endpoint;
     }
 
-    modifier onlyWarehouse() {
-        if (msg.sender != warehouse) revert OnlyWarehouse();
+    modifier onlyEndpoint() {
+        if (msg.sender != endpoint) revert OnlyEndpoint();
         _;
     }
 
@@ -48,7 +48,7 @@ abstract contract CrosschainAdapter is AccessManaged {
     )
         external
         payable
-        onlyWarehouse
+        onlyEndpoint
         returns (bytes32 messageId)
     {
         PeerConfig memory peer = _peerOf(chainId);
@@ -74,7 +74,7 @@ abstract contract CrosschainAdapter is AccessManaged {
 
         emit MessageReceived(chainId, sender, payload);
 
-        Warehouse(payable(warehouse)).receiveMessage(chainId, payload);
+        ICrosschainReceiver(endpoint).receiveMessage(chainId, payload);
     }
 
     function _peerOf(uint64 chainId) internal view returns (PeerConfig memory peer) {

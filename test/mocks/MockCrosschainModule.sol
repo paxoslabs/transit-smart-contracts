@@ -8,7 +8,7 @@ contract MockCrosschainModule is CrosschainAdapter {
     bytes[] public sent;
     uint256 public fee;
 
-    constructor(address _authority, address _warehouse) CrosschainAdapter(_authority, _warehouse) { }
+    constructor(address _authority, address _endpoint) CrosschainAdapter(_authority, _endpoint) { }
 
     function quote(uint64, uint64, bytes calldata) external view override returns (uint256) {
         return fee;

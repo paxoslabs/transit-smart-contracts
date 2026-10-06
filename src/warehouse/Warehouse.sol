@@ -3,14 +3,12 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
-import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { Hub } from "./Hub.sol";
 import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 
-contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
+contract Warehouse is AccessManaged, ReentrancyGuard {
 
     struct BridgeData {
         uint64 chainId;
@@ -28,39 +26,21 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         bool registered;
     }
 
-    /// TODO: Decide the final WithdrawRequest fields. owner + nonce + deadline are what close the
-    /// replay hole; requiring msg.sender == owner blocks gasless relayers.
-    struct WithdrawRequest {
-        address owner;
-        ERC20 asset;
-        uint64 assetChainId;
-        uint256 amount;
-        address to;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
     enum MessageType {
         Transfer
     }
 
     struct TransferMessage {
-        uint64 assetChainId;
         address asset;
         uint256 nonce;
         uint256 amount;
         address to;
     }
 
-    bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
-        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce,uint256 deadline)"
-    );
-
     uint64 public immutable hubChainId;
 
     address public immutable vault;
     Hub public immutable hub;
-    address public withdrawSigner;
     bool public isPaused;
     uint256 public outboundNonce;
 
@@ -68,26 +48,20 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
 
     mapping(uint64 chainId => Chain) public chains;
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
-    mapping(bytes32 withdrawId => bool) public withdrawUsed;
 
-    event WithdrawSignerUpdated(address indexed withdrawSigner);
     event SendModuleUpdated(address indexed module);
     event PauseSet(bool isPaused);
     event ChainAdded(uint64 indexed chainId, Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
-    event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
+    event Release(address indexed asset, address indexed to, uint256 amount);
     event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
     event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
     error Paused();
     error UnknownSourceChain(uint64 chainId);
-    error NotLocalAsset();
     error VaultUnset();
     error ZeroAssets();
-    error BadSignature();
-    error Expired();
-    error WithdrawReplay();
     error MessageReplay();
     error UnknownModule();
     error MessagesNotAllowedFrom(uint64 chainId);
@@ -105,20 +79,7 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         hub = _hub;
     }
 
-    function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit Warehouse", "1");
-    }
-
-    function DOMAIN_SEPARATOR() external view returns (bytes32) {
-        return _domainSeparator();
-    }
-
     // ========================================= ADMIN =========================================
-
-    function setWithdrawSigner(address _withdrawSigner) external restricted {
-        withdrawSigner = _withdrawSigner;
-        emit WithdrawSignerUpdated(_withdrawSigner);
-    }
 
     function setSendModule(CrosschainAdapter module) external restricted {
         sendModule = module;
@@ -199,7 +160,6 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
                 MessageType.Transfer,
                 abi.encode(
                     TransferMessage({
-                        assetChainId: assetChainId,
                         asset: address(asset),
                         nonce: ++outboundNonce,
                         amount: shares,
@@ -218,41 +178,16 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         emit Deposit(address(asset), msg.sender, to, amount);
     }
 
-    /// TODO: Be batches
-    function withdrawWithSignature(
-        WithdrawRequest calldata request,
-        bytes calldata signature
-    )
-        external
-        nonReentrant
-        returns (bytes32 withdrawId)
-    {
-        if (isPaused) revert Paused();
-        if (block.timestamp > request.deadline) revert Expired();
-        if (msg.sender != request.owner) revert BadSignature();
-        /// TODO: Stopgap. Balances live on the hub, so a spoke cannot burn locally. Decide the spoke withdraw
-        /// flow; until then spokes revert here.
-        if (uint64(block.chainid) != hubChainId) revert();
-
-        withdrawId = hashWithdrawRequest(request);
-        if (withdrawUsed[withdrawId]) revert WithdrawReplay();
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(withdrawSigner, withdrawId, signature)) {
-            revert BadSignature();
-        }
-        withdrawUsed[withdrawId] = true;
-
-        if (request.assetChainId != uint64(block.chainid)) revert NotLocalAsset();
-
-        hub.exit(request.owner, request.assetChainId, address(request.asset), request.amount);
-        SafeTransferLib.safeTransferFrom(address(request.asset), vault, request.to, request.amount);
-
-        emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
-    }
-
     function quoteBridge(BridgeData calldata data, bytes calldata payload) external view returns (uint256 fee) {
         CrosschainAdapter module = sendModule;
         if (address(module) == address(0)) revert UnknownModule();
         return module.quote(data.chainId, data.messageGas, payload);
+    }
+
+    // ========================================= HUB =========================================
+
+    function release(ERC20 asset, address to, uint256 amount) external restricted nonReentrant {
+        _release(address(asset), to, amount);
     }
 
     // ========================================= MODULE =========================================
@@ -271,37 +206,21 @@ contract Warehouse is AccessManaged, EIP712, ReentrancyGuard {
         }
     }
 
-    /// TODO: Decide what a spoke does on receiving a Transfer. There is no hub to credit there, so it reverts.
     function _receiveTransfer(uint64 sourceChainId, TransferMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
-        if (isPaused) revert Paused();
-
-        hub.enter(message.to, message.assetChainId, message.asset, message.amount);
+        _release(message.asset, message.to, message.amount);
 
         _afterReceive(message.amount, message.to, bytes32(message.nonce));
     }
 
-    // ========================================= VIEWS =========================================
-
-    function hashWithdrawRequest(WithdrawRequest calldata request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    WITHDRAW_REQUEST_TYPEHASH,
-                    request.owner,
-                    address(request.asset),
-                    request.assetChainId,
-                    request.amount,
-                    request.to,
-                    request.nonce,
-                    request.deadline
-                )
-            )
-        );
-    }
-
     // ========================================= INTERNAL =========================================
+
+    function _release(address asset, address to, uint256 amount) internal {
+        if (isPaused) revert Paused();
+        SafeTransferLib.safeTransferFrom(asset, vault, to, amount);
+        emit Release(asset, to, amount);
+    }
 
     function _consume(uint64 sourceChainId, uint256 nonce) internal {
         /// TODO: Decide whether a duplicate should revert or no-op. Reverting strands the losing

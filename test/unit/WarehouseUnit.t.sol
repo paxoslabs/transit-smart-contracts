@@ -10,7 +10,7 @@ import { Hub } from "../../src/warehouse/Hub.sol";
 import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
 import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, WAREHOUSE_ROLE, CROSSCHAIN_MODULE_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, WAREHOUSE_ROLE, CROSSCHAIN_MODULE_ROLE, HUB_ROLE } from "../../src/helpers/Constants.sol";
 
 contract WarehouseUnitTest is Test {
 
@@ -40,14 +40,26 @@ contract WarehouseUnitTest is Test {
         warehouse = new Warehouse(address(authority), HUB, vault, hub);
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](2);
-        adminSels[0] = Warehouse.setWithdrawSigner.selector;
-        adminSels[1] = Warehouse.setSendModule.selector;
+        bytes4[] memory adminSels = new bytes4[](1);
+        adminSels[0] = Warehouse.setSendModule.selector;
+
+        bytes4[] memory hubAdminSels = new bytes4[](4);
+        hubAdminSels[0] = Hub.setWarehouse.selector;
+        hubAdminSels[1] = Hub.setWithdrawSigner.selector;
+        hubAdminSels[2] = Hub.setSendModule.selector;
+        hubAdminSels[3] = Hub.addChain.selector;
+
+        bytes4[] memory releaseSels = new bytes4[](1);
+        releaseSels[0] = Warehouse.release.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), releaseSels, HUB_ROLE);
         authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
-        warehouse.setWithdrawSigner(signer);
+        authority.grantRole(HUB_ROLE, address(hub));
+        hub.setWarehouse(warehouse);
+        hub.setWithdrawSigner(signer);
         vm.stopPrank();
 
         _authorizeHub();
@@ -80,8 +92,8 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
     }
 
-    function _request(address owner, uint256 amount) internal returns (Warehouse.WithdrawRequest memory) {
-        return Warehouse.WithdrawRequest({
+    function _request(address owner, uint256 amount) internal returns (Hub.WithdrawRequest memory) {
+        return Hub.WithdrawRequest({
             owner: owner,
             asset: usdc,
             assetChainId: HUB,
@@ -92,8 +104,8 @@ contract WarehouseUnitTest is Test {
         });
     }
 
-    function _sign(Warehouse.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, warehouse.hashWithdrawRequest(req));
+    function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashWithdrawRequest(req));
         return abi.encodePacked(r, s, v);
     }
 
@@ -127,7 +139,7 @@ contract WarehouseUnitTest is Test {
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
         vm.chainId(HUB);
-        MockCrosschainModule hubModule = new MockCrosschainModule(address(authority), address(warehouse));
+        MockCrosschainModule hubModule = new MockCrosschainModule(address(authority), address(hub));
 
         bytes4[] memory warehouseSels = new bytes4[](2);
         warehouseSels[0] = Warehouse.setSendModule.selector;
@@ -137,21 +149,21 @@ contract WarehouseUnitTest is Test {
         peerSels[0] = CrosschainAdapter.setPeer.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Warehouse.receiveMessage.selector;
+        receiveSels[0] = Hub.receiveMessage.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(spokeModule), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hubModule), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE);
+        authority.setTargetFunctionRole(address(hub), receiveSels, CROSSCHAIN_MODULE_ROLE);
         authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(hubModule));
 
         spokeWarehouse.setSendModule(spokeModule);
         spokeWarehouse.addChain(HUB, true, true, 200_000, 0);
         spokeModule.setPeer(HUB, bytes32(uint256(uint160(address(hubModule)))), HUB);
 
-        warehouse.addChain(SPOKE, true, true, 200_000, 0);
+        hub.addChain(SPOKE, true, true, 200_000, 0);
         hubModule.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeModule)))), SPOKE);
         vm.stopPrank();
 
@@ -207,12 +219,12 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        Warehouse.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, signerPk);
 
         vm.prank(alice);
-        warehouse.withdrawWithSignature(req, sig);
+        hub.withdrawWithSignature(req, sig, _noBridge());
 
         assertEq(hub.balanceOf(alice, HUB, address(usdc)), 0, "withdraw: hub balance not burned");
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
@@ -221,55 +233,55 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        Warehouse.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawRequest memory req = _request(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(alice);
-        vm.expectRevert(Warehouse.BadSignature.selector);
-        warehouse.withdrawWithSignature(req, sig);
+        vm.expectRevert(Hub.BadSignature.selector);
+        hub.withdrawWithSignature(req, sig, _noBridge());
     }
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        Warehouse.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawRequest memory req = _request(alice, 100e6);
         bytes memory sig = _sign(req, signerPk);
 
         vm.prank(alice);
-        warehouse.withdrawWithSignature(req, sig);
+        hub.withdrawWithSignature(req, sig, _noBridge());
 
         vm.prank(alice);
-        vm.expectRevert(Warehouse.WithdrawReplay.selector);
-        warehouse.withdrawWithSignature(req, sig);
+        vm.expectRevert(Hub.WithdrawReplay.selector);
+        hub.withdrawWithSignature(req, sig, _noBridge());
     }
 
     function testWithdrawExpiredReverts() public {
         _deposit(alice, 100e6);
-        Warehouse.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawRequest memory req = _request(alice, 100e6);
         bytes memory sig = _sign(req, signerPk);
 
         vm.warp(req.deadline + 1);
         vm.prank(alice);
-        vm.expectRevert(Warehouse.Expired.selector);
-        warehouse.withdrawWithSignature(req, sig);
+        vm.expectRevert(Hub.Expired.selector);
+        hub.withdrawWithSignature(req, sig, _noBridge());
     }
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        Warehouse.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, signerPk);
 
         vm.prank(mallory);
-        vm.expectRevert(Warehouse.BadSignature.selector);
-        warehouse.withdrawWithSignature(req, sig);
+        vm.expectRevert(Hub.BadSignature.selector);
+        hub.withdrawWithSignature(req, sig, _noBridge());
     }
 
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonModuleReverts() public {
         Warehouse.TransferMessage memory m = Warehouse.TransferMessage({
-            assetChainId: HUB, asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice
+            asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice
         });
         bytes memory payload = abi.encode(Warehouse.MessageType.Transfer, abi.encode(m));
 

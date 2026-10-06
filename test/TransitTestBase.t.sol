@@ -16,7 +16,8 @@ import {
     WAREHOUSE_ROLE,
     CROSSCHAIN_MODULE_ROLE,
     SOLVER_ROLE,
-    TERMINAL_ROLE
+    TERMINAL_ROLE,
+    HUB_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -97,7 +98,8 @@ contract TransitTestBase is Test {
         if (chain == hubID) hub = new Hub(address(authority));
         Warehouse warehouse =
             new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : Hub(address(0)));
-        MockCrosschainModule module = new MockCrosschainModule(address(authority), address(warehouse));
+        MockCrosschainModule module =
+            new MockCrosschainModule(address(authority), chain == hubID ? address(hub) : address(warehouse));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -117,7 +119,8 @@ contract TransitTestBase is Test {
     function _addRoute(uint64 onChain, uint64 remoteChain, address remoteModule) internal {
         _selectChain(onChain);
         vm.startPrank(admin);
-        warehouses[onChain].addChain(remoteChain, true, true, 200_000, 0);
+        if (onChain == hubID) hub.addChain(remoteChain, true, true, 200_000, 0);
+        else warehouses[onChain].addChain(remoteChain, true, true, 200_000, 0);
         modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain);
         vm.stopPrank();
     }
@@ -126,13 +129,12 @@ contract TransitTestBase is Test {
         TransitAuthority authority = authorities[chain];
         Warehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](6);
-        adminSels[0] = Warehouse.setWithdrawSigner.selector;
-        adminSels[1] = Warehouse.setSendModule.selector;
-        adminSels[2] = Warehouse.addChain.selector;
-        adminSels[3] = Warehouse.setChainGasLimit.selector;
-        adminSels[4] = Warehouse.setAllowMessagesFromChain.selector;
-        adminSels[5] = Warehouse.setAllowMessagesToChain.selector;
+        bytes4[] memory adminSels = new bytes4[](5);
+        adminSels[0] = Warehouse.setSendModule.selector;
+        adminSels[1] = Warehouse.addChain.selector;
+        adminSels[2] = Warehouse.setChainGasLimit.selector;
+        adminSels[3] = Warehouse.setAllowMessagesFromChain.selector;
+        adminSels[4] = Warehouse.setAllowMessagesToChain.selector;
 
         bytes4[] memory pauseSels = new bytes4[](1);
         pauseSels[0] = Warehouse.setPaused.selector;
@@ -146,7 +148,9 @@ contract TransitTestBase is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE);
+        authority.setTargetFunctionRole(
+            chain == hubID ? address(hub) : address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE
+        );
         authority.setTargetFunctionRole(address(modules[chain]), peerSels, ADMIN_ROLE);
 
         authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
@@ -154,14 +158,37 @@ contract TransitTestBase is Test {
         authority.grantRole(PAUSER_ROLE, admin);
         authority.grantRole(SOLVER_ROLE, solver);
 
-        warehouse.setSendModule(modules[chain]);
-        warehouse.setWithdrawSigner(withdrawSigner);
-
         if (chain == hubID) {
             bytes4[] memory hubSels = new bytes4[](2);
             hubSels[0] = Hub.enter.selector;
             hubSels[1] = Hub.exit.selector;
             authority.setTargetFunctionRole(address(hub), hubSels, WAREHOUSE_ROLE);
+
+            bytes4[] memory hubAdminSels = new bytes4[](8);
+            hubAdminSels[0] = Hub.setWarehouse.selector;
+            hubAdminSels[1] = Hub.setWithdrawSigner.selector;
+            hubAdminSels[2] = Hub.setSendModule.selector;
+            hubAdminSels[3] = Hub.addChain.selector;
+            hubAdminSels[4] = Hub.removeChain.selector;
+            hubAdminSels[5] = Hub.setChainGasLimit.selector;
+            hubAdminSels[6] = Hub.setAllowMessagesFromChain.selector;
+            hubAdminSels[7] = Hub.setAllowMessagesToChain.selector;
+            authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
+
+            bytes4[] memory hubPauseSels = new bytes4[](1);
+            hubPauseSels[0] = Hub.setPaused.selector;
+            authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
+
+            bytes4[] memory releaseSels = new bytes4[](1);
+            releaseSels[0] = Warehouse.release.selector;
+            authority.setTargetFunctionRole(address(warehouse), releaseSels, HUB_ROLE);
+            authority.grantRole(HUB_ROLE, address(hub));
+
+            hub.setWarehouse(warehouse);
+            hub.setSendModule(modules[chain]);
+            hub.setWithdrawSigner(withdrawSigner);
+        } else {
+            warehouse.setSendModule(modules[chain]);
         }
         vm.stopPrank();
     }
@@ -274,11 +301,11 @@ contract TransitTestBase is Test {
         require(chain == hubID, "can only atomically withdraw on Hub");
 
         _selectChain(hubID);
-        Warehouse.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
+        Hub.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, withdrawSignerPk);
 
         vm.prank(user);
-        withdrawId = warehouses[hubID].withdrawWithSignature(request, validSignature);
+        withdrawId = hub.withdrawWithSignature(request, validSignature, _depositData(hubID));
     }
 
     function _withdrawRequestFor(
@@ -288,9 +315,9 @@ contract TransitTestBase is Test {
         uint64 chain
     )
         internal
-        returns (Warehouse.WithdrawRequest memory)
+        returns (Hub.WithdrawRequest memory)
     {
-        return Warehouse.WithdrawRequest({
+        return Hub.WithdrawRequest({
             owner: user,
             asset: asset,
             assetChainId: chain,
@@ -301,8 +328,8 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(Warehouse.WithdrawRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = warehouses[hubID].hashWithdrawRequest(request);
+    function _signWithdraw(Hub.WithdrawRequest memory request, uint256 pk) internal view returns (bytes memory) {
+        bytes32 digest = hub.hashWithdrawRequest(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }

@@ -10,10 +10,10 @@ contract CCIPAdapter is CrosschainAdapter, CCIPReceiver {
 
     constructor(
         address _authority,
-        address _warehouse,
+        address _endpoint,
         address _router
     )
-        CrosschainAdapter(_authority, _warehouse)
+        CrosschainAdapter(_authority, _endpoint)
         CCIPReceiver(_router)
     { }
 
