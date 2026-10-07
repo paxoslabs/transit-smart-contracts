@@ -35,6 +35,8 @@ contract Terminal is EIP712 {
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
 
+    event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
+
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
@@ -72,6 +74,8 @@ contract Terminal is EIP712 {
 
             address owner = _recoverOrderOwner(orderHash, fill.signature);
             hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
+
+            emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
         }
 
         for (uint256 i; i < fills.length; i++) {
