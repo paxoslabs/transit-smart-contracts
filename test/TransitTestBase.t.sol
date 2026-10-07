@@ -343,7 +343,8 @@ contract TransitTestBase is Test {
                 order.buyToken,
                 order.sellAmount,
                 order.buyAmount,
-                order.receiver
+                order.receiver,
+                order.salt
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", terminal.DOMAIN_SEPARATOR(), structHash));

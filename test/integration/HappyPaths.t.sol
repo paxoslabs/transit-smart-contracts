@@ -42,9 +42,9 @@ contract HappyPaths is TransitTestBase {
         _selectChain(hubID);
 
         Terminal.SignedOrder memory aliceOrder =
-            _signOrder(Terminal.Order(hubID, address(usdc), hubID, address(usdg), amount, amount, alice), alicePk);
+            _signOrder(Terminal.Order(hubID, address(usdc), hubID, address(usdg), amount, amount, alice, bytes32(uint256(1))), alicePk);
         Terminal.SignedOrder memory bobOrder =
-            _signOrder(Terminal.Order(hubID, address(usdg), hubID, address(usdc), amount, amount, bob), bobPk);
+            _signOrder(Terminal.Order(hubID, address(usdg), hubID, address(usdc), amount, amount, bob, bytes32(uint256(2))), bobPk);
 
         Terminal.SignedOrder[] memory orders = new Terminal.SignedOrder[](2);
         orders[0] = aliceOrder;

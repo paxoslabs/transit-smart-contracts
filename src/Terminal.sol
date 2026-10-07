@@ -7,9 +7,7 @@ import { Hub } from "./warehouse/Hub.sol";
 
 contract Terminal is EIP712 {
 
-    /// TODO: Decide the remaining Order fields. As written there is no nonce or deadline, so a signed order
-    /// replays and can be filled again in a later batch against the owner's hub balance. validTo,
-    /// feeAmount and partiallyFillable are the other obvious candidates.
+    /// TODO: Decide the remaining Order fields. validTo, feeAmount and partiallyFillable are the obvious candidates.
     struct Order {
         uint64 sellTokenChainId;
         address sellToken;
@@ -18,6 +16,7 @@ contract Terminal is EIP712 {
         uint256 sellAmount;
         uint256 buyAmount;
         address receiver;
+        bytes32 salt;
     }
 
     struct SignedOrder {
@@ -26,10 +25,14 @@ contract Terminal is EIP712 {
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver)"
+        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,bytes32 salt)"
     );
 
     Hub public immutable hub;
+
+    mapping(bytes32 orderHash => bool) public filled;
+
+    error OrderFilled(bytes32 orderHash);
 
     constructor(Hub _hub) {
         hub = _hub;
@@ -50,7 +53,10 @@ contract Terminal is EIP712 {
     function settle(SignedOrder[] calldata orders) external {
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i].order;
-            address owner = _recoverOrderOwner(orders[i]);
+            bytes32 orderHash = _hashOrder(order);
+            if (filled[orderHash]) revert OrderFilled(orderHash);
+            filled[orderHash] = true;
+            address owner = _recoverOrderOwner(orderHash, orders[i].signature);
             hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, order.sellAmount);
         }
 
@@ -60,20 +66,26 @@ contract Terminal is EIP712 {
         }
     }
 
-    function _recoverOrderOwner(SignedOrder calldata signed) internal view returns (address) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                ORDER_TYPEHASH,
-                signed.order.sellTokenChainId,
-                signed.order.sellToken,
-                signed.order.buyTokenChainId,
-                signed.order.buyToken,
-                signed.order.sellAmount,
-                signed.order.buyAmount,
-                signed.order.receiver
+    function _hashOrder(Order calldata order) internal view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    ORDER_TYPEHASH,
+                    order.sellTokenChainId,
+                    order.sellToken,
+                    order.buyTokenChainId,
+                    order.buyToken,
+                    order.sellAmount,
+                    order.buyAmount,
+                    order.receiver,
+                    order.salt
+                )
             )
         );
-        return ECDSA.recoverCalldata(_hashTypedData(structHash), signed.signature);
+    }
+
+    function _recoverOrderOwner(bytes32 orderHash, bytes calldata signature) internal view returns (address) {
+        return ECDSA.recoverCalldata(orderHash, signature);
     }
 
 }
