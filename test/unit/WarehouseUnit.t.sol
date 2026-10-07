@@ -10,7 +10,7 @@ import { Hub } from "../../src/warehouse/Hub.sol";
 import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
 import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, WAREHOUSE_ROLE, CROSSCHAIN_MODULE_ROLE, HUB_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, WAREHOUSE_ROLE, CROSSCHAIN_MODULE_ROLE, HUB_ROLE, SOLVER_ROLE } from "../../src/helpers/Constants.sol";
 
 contract WarehouseUnitTest is Test {
 
@@ -27,13 +27,13 @@ contract WarehouseUnitTest is Test {
     address alice = makeAddr("alice");
     address mallory = makeAddr("mallory");
 
-    address signer;
-    uint256 signerPk;
+    address backend = makeAddr("backend");
+    uint256 alicePk;
     uint256 withdrawNonce;
 
     function setUp() public {
         vm.chainId(HUB);
-        (signer, signerPk) = makeAddrAndKey("withdrawSigner");
+        (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
         hub = new Hub(address(authority));
@@ -43,11 +43,13 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory adminSels = new bytes4[](1);
         adminSels[0] = Warehouse.setSendModule.selector;
 
-        bytes4[] memory hubAdminSels = new bytes4[](4);
+        bytes4[] memory hubAdminSels = new bytes4[](3);
         hubAdminSels[0] = Hub.setWarehouse.selector;
-        hubAdminSels[1] = Hub.setWithdrawSigner.selector;
-        hubAdminSels[2] = Hub.setSendModule.selector;
-        hubAdminSels[3] = Hub.addChain.selector;
+        hubAdminSels[1] = Hub.setSendModule.selector;
+        hubAdminSels[2] = Hub.addChain.selector;
+
+        bytes4[] memory withdrawSels = new bytes4[](1);
+        withdrawSels[0] = Hub.withdrawWithSignature.selector;
 
         bytes4[] memory releaseSels = new bytes4[](1);
         releaseSels[0] = Warehouse.release.selector;
@@ -56,10 +58,11 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), releaseSels, HUB_ROLE);
+        authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
+        authority.grantRole(SOLVER_ROLE, backend);
         authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
         authority.grantRole(HUB_ROLE, address(hub));
         hub.setWarehouse(warehouse);
-        hub.setWithdrawSigner(signer);
         vm.stopPrank();
 
         _authorizeHub();
@@ -220,9 +223,9 @@ contract WarehouseUnitTest is Test {
         _deposit(alice, 100e6);
         Hub.WithdrawRequest memory req = _request(alice, 100e6);
 
-        bytes memory sig = _sign(req, signerPk);
+        bytes memory sig = _sign(req, alicePk);
 
-        vm.prank(alice);
+        vm.prank(backend);
         hub.withdrawWithSignature(req, sig, _noBridge());
 
         assertEq(hub.balanceOf(alice, HUB, address(usdc)), 0, "withdraw: hub balance not burned");
@@ -236,7 +239,7 @@ contract WarehouseUnitTest is Test {
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
-        vm.prank(alice);
+        vm.prank(backend);
         vm.expectRevert(Hub.BadSignature.selector);
         hub.withdrawWithSignature(req, sig, _noBridge());
     }
@@ -244,12 +247,12 @@ contract WarehouseUnitTest is Test {
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
         Hub.WithdrawRequest memory req = _request(alice, 100e6);
-        bytes memory sig = _sign(req, signerPk);
+        bytes memory sig = _sign(req, alicePk);
 
-        vm.prank(alice);
+        vm.prank(backend);
         hub.withdrawWithSignature(req, sig, _noBridge());
 
-        vm.prank(alice);
+        vm.prank(backend);
         vm.expectRevert(Hub.WithdrawReplay.selector);
         hub.withdrawWithSignature(req, sig, _noBridge());
     }
@@ -257,10 +260,10 @@ contract WarehouseUnitTest is Test {
     function testWithdrawExpiredReverts() public {
         _deposit(alice, 100e6);
         Hub.WithdrawRequest memory req = _request(alice, 100e6);
-        bytes memory sig = _sign(req, signerPk);
+        bytes memory sig = _sign(req, alicePk);
 
         vm.warp(req.deadline + 1);
-        vm.prank(alice);
+        vm.prank(backend);
         vm.expectRevert(Hub.Expired.selector);
         hub.withdrawWithSignature(req, sig, _noBridge());
     }
@@ -269,10 +272,10 @@ contract WarehouseUnitTest is Test {
         _deposit(alice, 100e6);
         Hub.WithdrawRequest memory req = _request(alice, 100e6);
 
-        bytes memory sig = _sign(req, signerPk);
+        bytes memory sig = _sign(req, alicePk);
 
         vm.prank(mallory);
-        vm.expectRevert(Hub.BadSignature.selector);
+        vm.expectRevert();
         hub.withdrawWithSignature(req, sig, _noBridge());
     }
 

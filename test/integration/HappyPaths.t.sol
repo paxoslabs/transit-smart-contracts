@@ -24,7 +24,7 @@ contract HappyPaths is TransitTestBase {
         assertEq(usdc.balanceOf(_vaultOf(hubID)), amount, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
 
-        _withdrawOnChain(alice, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdc, hubID, true);
 
         assertEq(_hubBalance(alice, hubID, usdc), 0, "withdraw: alice hub balance not burned");
         assertEq(usdc.balanceOf(_vaultOf(hubID)), 0, "withdraw: vault did not release usdc");
@@ -67,8 +67,8 @@ contract HappyPaths is TransitTestBase {
         assertEq(_hubBalance(alice, hubID, usdc), 0, "settle: alice usdc not taken");
         assertEq(_hubBalance(bob, hubID, usdg), 0, "settle: bob usdg not taken");
 
-        _withdrawOnChain(alice, amount, usdg, hubID, true);
-        _withdrawOnChain(bob, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdg, hubID, true);
+        _withdrawOnChain(bob, bobPk, amount, usdc, hubID, true);
 
         assertEq(_hubBalance(alice, hubID, usdg), 0, "withdraw: alice hub usdg not burned");
         assertEq(_hubBalance(bob, hubID, usdc), 0, "withdraw: bob hub usdc not burned");

@@ -39,8 +39,6 @@ contract TransitTestBase is Test {
     uint256 alicePk;
     address bob;
     uint256 bobPk;
-    address withdrawSigner;
-    uint256 withdrawSignerPk;
     address admin;
     uint256 adminPk;
     address solver;
@@ -162,15 +160,18 @@ contract TransitTestBase is Test {
         if (chain == hubID) {
             authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(warehouse));
 
-            bytes4[] memory hubAdminSels = new bytes4[](7);
+            bytes4[] memory hubAdminSels = new bytes4[](6);
             hubAdminSels[0] = Hub.setWarehouse.selector;
-            hubAdminSels[1] = Hub.setWithdrawSigner.selector;
-            hubAdminSels[2] = Hub.setSendModule.selector;
-            hubAdminSels[3] = Hub.addChain.selector;
-            hubAdminSels[4] = Hub.removeChain.selector;
-            hubAdminSels[5] = Hub.setAllowMessagesFromChain.selector;
-            hubAdminSels[6] = Hub.setAllowMessagesToChain.selector;
+            hubAdminSels[1] = Hub.setSendModule.selector;
+            hubAdminSels[2] = Hub.addChain.selector;
+            hubAdminSels[3] = Hub.removeChain.selector;
+            hubAdminSels[4] = Hub.setAllowMessagesFromChain.selector;
+            hubAdminSels[5] = Hub.setAllowMessagesToChain.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
+
+            bytes4[] memory withdrawSels = new bytes4[](1);
+            withdrawSels[0] = Hub.withdrawWithSignature.selector;
+            authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);
             hubPauseSels[0] = Hub.pause.selector;
@@ -184,7 +185,6 @@ contract TransitTestBase is Test {
 
             hub.setWarehouse(warehouse);
             hub.setSendModule(modules[chain]);
-            hub.setWithdrawSigner(withdrawSigner);
             hub.addChain(hubID, true, false);
         } else {
             warehouse.setSendModule(modules[chain]);
@@ -261,7 +261,6 @@ contract TransitTestBase is Test {
     function _initUsers() internal {
         (alice, alicePk) = makeAddrAndKey("alice");
         (bob, bobPk) = makeAddrAndKey("bob");
-        (withdrawSigner, withdrawSignerPk) = makeAddrAndKey("withdrawSigner");
         (admin, adminPk) = makeAddrAndKey("admin");
         (solver, solverPk) = makeAddrAndKey("solver");
         (vault, vaultPk) = makeAddrAndKey("vault");
@@ -293,6 +292,7 @@ contract TransitTestBase is Test {
 
     function _withdrawOnChain(
         address user,
+        uint256 userPk,
         uint256 amount,
         ERC20 asset,
         uint64 chain,
@@ -306,9 +306,9 @@ contract TransitTestBase is Test {
 
         _selectChain(hubID);
         Hub.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
-        bytes memory validSignature = _signWithdraw(request, withdrawSignerPk);
+        bytes memory validSignature = _signWithdraw(request, userPk);
 
-        vm.prank(user);
+        vm.prank(solver);
         withdrawId = hub.withdrawWithSignature(request, validSignature, _depositData(hubID));
     }
 

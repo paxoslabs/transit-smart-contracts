@@ -12,8 +12,6 @@ import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 
 contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
-    /// TODO: Decide the final WithdrawRequest fields. owner + nonce + deadline are what close the
-    /// replay hole; requiring msg.sender == owner blocks gasless relayers.
     struct WithdrawRequest {
         address owner;
         ERC20 asset;
@@ -29,7 +27,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     );
 
     Warehouse public warehouse;
-    address public withdrawSigner;
     uint256 public outboundNonce;
 
     CrosschainAdapter public sendModule;
@@ -41,7 +38,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event WarehouseUpdated(address indexed warehouse);
-    event WithdrawSignerUpdated(address indexed withdrawSigner);
     event SendModuleUpdated(address indexed module);
     event ChainAdded(uint64 indexed chainId, Warehouse.Chain chain);
     event ChainRemoved(uint64 indexed chainId);
@@ -75,11 +71,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     function setWarehouse(Warehouse _warehouse) external restricted {
         warehouse = _warehouse;
         emit WarehouseUpdated(address(_warehouse));
-    }
-
-    function setWithdrawSigner(address _withdrawSigner) external restricted {
-        withdrawSigner = _withdrawSigner;
-        emit WithdrawSignerUpdated(_withdrawSigner);
     }
 
     function setSendModule(CrosschainAdapter module) external restricted {
@@ -149,16 +140,16 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     )
         external
         payable
+        restricted
         nonReentrant
         returns (bytes32 withdrawId)
     {
         _requireNotPaused();
         if (block.timestamp > request.deadline) revert Expired();
-        if (msg.sender != request.owner) revert BadSignature();
 
         withdrawId = hashWithdrawRequest(request);
         if (withdrawUsed[withdrawId]) revert WithdrawReplay();
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(withdrawSigner, withdrawId, signature)) {
+        if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signature)) {
             revert BadSignature();
         }
         withdrawUsed[withdrawId] = true;
