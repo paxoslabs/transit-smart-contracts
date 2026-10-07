@@ -109,6 +109,14 @@ contract WarehouseUnitTest is Test {
         });
     }
 
+    function _withdraw(Hub.WithdrawRequest memory req, bytes memory sig) internal {
+        Hub.WithdrawRequest[] memory reqs = new Hub.WithdrawRequest[](1);
+        reqs[0] = req;
+        bytes[] memory sigs = new bytes[](1);
+        sigs[0] = sig;
+        hub.withdrawWithSignature(reqs, sigs, _noBridge());
+    }
+
     function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashWithdrawRequest(req));
         return abi.encodePacked(r, s, v);
@@ -226,7 +234,7 @@ contract WarehouseUnitTest is Test {
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
 
         assertEq(hub.balanceOf(alice, HUB, address(usdc)), 0, "withdraw: hub balance not burned");
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
@@ -241,7 +249,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(backend);
         vm.expectRevert(Hub.BadSignature.selector);
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
     }
 
     function testWithdrawReplayReverts() public {
@@ -250,11 +258,11 @@ contract WarehouseUnitTest is Test {
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
 
         vm.prank(backend);
         vm.expectRevert(Hub.WithdrawReplay.selector);
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
     }
 
     function testWithdrawExpiredReverts() public {
@@ -265,7 +273,7 @@ contract WarehouseUnitTest is Test {
         vm.warp(req.deadline + 1);
         vm.prank(backend);
         vm.expectRevert(Hub.Expired.selector);
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
     }
 
     function testWithdrawBySomeoneElseReverts() public {
@@ -276,7 +284,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        hub.withdrawWithSignature(req, sig, _noBridge());
+        _withdraw(req, sig);
     }
 
     // ---------------------------------------------------------------- messages

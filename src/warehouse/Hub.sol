@@ -54,6 +54,8 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
     error ZeroAddress();
+    error LengthMismatch();
+    error ChainMismatch(uint64 chainId);
 
     constructor(address _authority) AccessManaged(_authority) { }
 
@@ -132,55 +134,68 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     // ========================================= USER =========================================
 
-    /// TODO: Be batches
     function withdrawWithSignature(
-        WithdrawRequest calldata request,
-        bytes calldata signature,
+        WithdrawRequest[] calldata requests,
+        bytes[] calldata signatures,
         Warehouse.BridgeData calldata data
     )
         external
         payable
         restricted
         nonReentrant
-        returns (bytes32 withdrawId)
+        returns (bytes32[] memory withdrawIds)
     {
         _requireNotPaused();
-        if (block.timestamp > request.deadline) revert Expired();
+        if (requests.length != signatures.length) revert LengthMismatch();
 
-        withdrawId = hashWithdrawRequest(request);
-        if (withdrawUsed[withdrawId]) revert WithdrawReplay();
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signature)) {
-            revert BadSignature();
+        uint64 assetChainId = requests[0].assetChainId;
+        bool local = assetChainId == uint64(block.chainid);
+        withdrawIds = new bytes32[](requests.length);
+        Warehouse.TransferMessage[] memory messages;
+        if (!local) messages = new Warehouse.TransferMessage[](requests.length);
+
+        for (uint256 i; i < requests.length; i++) {
+            WithdrawRequest calldata request = requests[i];
+            if (request.assetChainId != assetChainId) revert ChainMismatch(request.assetChainId);
+            if (block.timestamp > request.deadline) revert Expired();
+
+            bytes32 withdrawId = hashWithdrawRequest(request);
+            if (withdrawUsed[withdrawId]) revert WithdrawReplay();
+            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signatures[i])) {
+                revert BadSignature();
+            }
+            withdrawUsed[withdrawId] = true;
+            withdrawIds[i] = withdrawId;
+
+            _transfer(request.owner, address(0), assetChainId, address(request.asset), request.amount);
+
+            if (local) {
+                warehouse.release(request.asset, request.to, request.amount);
+            } else {
+                messages[i] = Warehouse.TransferMessage({
+                    asset: address(request.asset),
+                    nonce: ++outboundNonce,
+                    amount: request.amount,
+                    to: request.to
+                });
+            }
+
+            emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
         }
-        withdrawUsed[withdrawId] = true;
 
-        _transfer(request.owner, address(0), request.assetChainId, address(request.asset), request.amount);
+        if (!local) {
+            _checkRoute(assetChainId);
 
-        if (request.assetChainId == uint64(block.chainid)) {
-            warehouse.release(request.asset, request.to, request.amount);
-        } else {
-            _checkRoute(request.assetChainId);
-
-            bytes memory payload = abi.encode(
-                Warehouse.MessageType.Withdrawal,
-                abi.encode(
-                    Warehouse.TransferMessage({
-                        asset: address(request.asset),
-                        nonce: ++outboundNonce,
-                        amount: request.amount,
-                        to: request.to
-                    })
-                )
-            );
+            bytes memory payload = abi.encode(Warehouse.MessageType.BatchWithdrawal, abi.encode(messages));
 
             CrosschainAdapter module = sendModule;
             if (address(module) == address(0)) revert UnknownModule();
-            bytes32 messageId = module.send{ value: msg.value }(request.assetChainId, data.messageGas, payload);
+            bytes32 messageId = module.send{ value: msg.value }(assetChainId, data.messageGas, payload);
 
-            emit MessageSent(messageId, request.amount, request.to);
+            for (uint256 i; i < messages.length; i++) {
+                emit MessageSent(messageId, messages[i].amount, messages[i].to);
+            }
         }
-
-        emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
     }
 
     // ========================================= MODULE =========================================

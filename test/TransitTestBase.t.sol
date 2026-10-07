@@ -308,8 +308,13 @@ contract TransitTestBase is Test {
         Hub.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
+        Hub.WithdrawRequest[] memory requests = new Hub.WithdrawRequest[](1);
+        requests[0] = request;
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = validSignature;
+
         vm.prank(solver);
-        withdrawId = hub.withdrawWithSignature(request, validSignature, _depositData(hubID));
+        withdrawId = hub.withdrawWithSignature(requests, signatures, _depositData(hubID))[0];
     }
 
     function _withdrawRequestFor(
