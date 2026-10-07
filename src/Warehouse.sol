@@ -178,36 +178,22 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
     }
 
     function _receiveTransfer(uint64 sourceChainId, TransferMessage memory message) internal {
-        _consume(sourceChainId, message.nonce);
+        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
+        if (messageConsumed[sourceChainId][message.nonce]) revert MessageReplay();
+        messageConsumed[sourceChainId][message.nonce] = true;
 
-        _release(message.asset, message.to, message.amount);
+        _requireNotPaused();
+        SafeTransferLib.safeTransferFrom(message.asset, vault, message.to, message.amount);
+        emit Release(message.asset, message.to, message.amount);
 
-        _afterReceive(message.amount, message.to, bytes32(message.nonce));
+        emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
 
     // ========================================= INTERNAL =========================================
 
-    function _release(address asset, address to, uint256 amount) internal {
-        _requireNotPaused();
-        SafeTransferLib.safeTransferFrom(asset, vault, to, amount);
-        emit Release(asset, to, amount);
-    }
-
-    function _consume(uint64 sourceChainId, uint256 nonce) internal {
-        /// TODO: Decide whether a duplicate should revert or no-op. Reverting strands the losing
-        /// protocol's delivery in its retry queue forever when both adapters deliver the same message,
-        /// which is the expected steady state.
-        if (messageConsumed[sourceChainId][nonce]) revert MessageReplay();
-        messageConsumed[sourceChainId][nonce] = true;
-    }
-
     function _checkRoute(BridgeData calldata data) internal view returns (Chain memory chain) {
         chain = chains[data.chainId];
         if (!chain.allowMessagesTo) revert MessagesNotAllowedTo(data.chainId);
-    }
-
-    function _afterReceive(uint256 shareAmount, address destinationChainReceiver, bytes32 messageId) internal {
-        emit MessageReceived(messageId, shareAmount, destinationChainReceiver);
     }
 
 }

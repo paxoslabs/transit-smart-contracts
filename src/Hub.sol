@@ -200,7 +200,9 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     }
 
     function _receiveTransfer(uint64 sourceChainId, Warehouse.TransferMessage memory message) internal {
-        _consume(sourceChainId, message.nonce);
+        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
+        if (messageConsumed[sourceChainId][message.nonce]) revert MessageReplay();
+        messageConsumed[sourceChainId][message.nonce] = true;
 
         _requireNotPaused();
 
@@ -234,11 +236,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         if (from != address(0)) balanceOf[from][assetChainId][asset] -= amount;
         if (to != address(0)) balanceOf[to][assetChainId][asset] += amount;
         emit Transfer(from, to, assetChainId, asset, amount);
-    }
-
-    function _consume(uint64 sourceChainId, uint256 nonce) internal {
-        if (messageConsumed[sourceChainId][nonce]) revert MessageReplay();
-        messageConsumed[sourceChainId][nonce] = true;
     }
 
     function _checkRoute(uint64 chainId) internal view {
