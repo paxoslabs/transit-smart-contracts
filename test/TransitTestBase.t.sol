@@ -84,7 +84,7 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubID);
-        terminal = new Terminal(hub);
+        terminal = new Terminal(address(authorities[hubID]), hub);
         _grantTerminalRole();
 
         _wireChains();
@@ -198,6 +198,10 @@ contract TransitTestBase is Test {
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
         authorities[hubID].grantRole(TERMINAL_ROLE, address(terminal));
+
+        bytes4[] memory settleSels = new bytes4[](1);
+        settleSels[0] = Terminal.settle.selector;
+        authorities[hubID].setTargetFunctionRole(address(terminal), settleSels, SOLVER_ROLE);
         vm.stopPrank();
     }
 

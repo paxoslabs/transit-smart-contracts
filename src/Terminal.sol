@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { Hub } from "./warehouse/Hub.sol";
 
-contract Terminal is EIP712 {
+contract Terminal is AccessManaged, EIP712 {
 
     /// TODO: Decide the remaining Order fields. validTo and feeAmount are the obvious candidates.
     struct Order {
@@ -41,7 +42,7 @@ contract Terminal is EIP712 {
     error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
 
-    constructor(Hub _hub) {
+    constructor(address _authority, Hub _hub) AccessManaged(_authority) {
         hub = _hub;
     }
 
@@ -56,8 +57,7 @@ contract Terminal is EIP712 {
 
     /// TODO: Decide what happens to trade surplus. Since this is not UCP, a batch can over-collateralize and
     /// the excess stays in this contract with nothing to claim it. Leaving it here for now.
-    /// TODO: Decide solver access control. settle is unguarded, so anyone can call it.
-    function settle(Fill[] calldata fills) external {
+    function settle(Fill[] calldata fills) external restricted {
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
             Order calldata order = fill.order;
