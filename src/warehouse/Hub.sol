@@ -125,15 +125,18 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     // ========================================= LEDGER =========================================
 
     function enter(address to, uint64 assetChainId, address asset, uint256 amount) external restricted {
+        if (isPaused) revert Paused();
         _enter(to, assetChainId, asset, amount);
     }
 
     /// TODO: exit has no caller now that withdraws burn inside Hub. Remove?
     function exit(address from, uint64 assetChainId, address asset, uint256 amount) external restricted {
+        if (isPaused) revert Paused();
         _exit(from, assetChainId, asset, amount);
     }
 
     function move(address from, address to, uint64 assetChainId, address asset, uint256 amount) external restricted {
+        if (isPaused) revert Paused();
         balanceOf[from][assetChainId][asset] -= amount;
         balanceOf[to][assetChainId][asset] += amount;
         emit Move(from, to, assetChainId, asset, amount);
