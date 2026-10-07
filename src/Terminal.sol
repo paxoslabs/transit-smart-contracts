@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
+import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { Hub } from "./Hub.sol";
 
 contract Terminal is AccessManaged, EIP712 {
@@ -70,8 +71,9 @@ contract Terminal is AccessManaged, EIP712 {
             if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
                 revert NotPartiallyFillable(orderHash);
             }
-            /// TODO: Decide overflow handling. These products revert for amounts above ~2^128; fullMulDiv avoids it.
-            if (fill.buyFilled * order.sellAmount < fill.sellFilled * order.buyAmount) revert LimitPrice(orderHash);
+            if (fill.buyFilled < FixedPointMathLib.fullMulDivUp(fill.sellFilled, order.buyAmount, order.sellAmount)) {
+                revert LimitPrice(orderHash);
+            }
             filledAmount[orderHash] = filled;
 
             address owner = _recoverOrderOwner(orderHash, fill.signature);
