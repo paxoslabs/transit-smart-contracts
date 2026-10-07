@@ -27,8 +27,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
     enum MessageType {
         Deposit,
-        Withdrawal,
-        BatchWithdrawal
+        Withdrawal
     }
 
     struct TransferMessage {
@@ -190,8 +189,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
         (MessageType messageType, bytes memory body) = abi.decode(payload, (MessageType, bytes));
 
         if (messageType == MessageType.Withdrawal) {
-            _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
-        } else if (messageType == MessageType.BatchWithdrawal) {
             TransferMessage[] memory messages = abi.decode(body, (TransferMessage[]));
             for (uint256 i; i < messages.length; i++) {
                 _receiveTransfer(chainId, messages[i]);

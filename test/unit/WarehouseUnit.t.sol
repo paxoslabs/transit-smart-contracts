@@ -290,9 +290,8 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonModuleReverts() public {
-        Warehouse.TransferMessage memory m = Warehouse.TransferMessage({
-            asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice
-        });
+        Warehouse.TransferMessage[] memory m = new Warehouse.TransferMessage[](1);
+        m[0] = Warehouse.TransferMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
         bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);

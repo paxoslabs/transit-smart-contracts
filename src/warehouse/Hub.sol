@@ -186,7 +186,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         if (!local) {
             _checkRoute(assetChainId);
 
-            bytes memory payload = abi.encode(Warehouse.MessageType.BatchWithdrawal, abi.encode(messages));
+            bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(messages));
 
             CrosschainAdapter module = sendModule;
             if (address(module) == address(0)) revert UnknownModule();
