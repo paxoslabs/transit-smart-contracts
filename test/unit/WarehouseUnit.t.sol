@@ -4,11 +4,11 @@ pragma solidity ^0.8.37;
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { TransitAuthority } from "../../src/warehouse/TransitAuthority.sol";
-import { Warehouse } from "../../src/warehouse/Warehouse.sol";
-import { Hub } from "../../src/warehouse/Hub.sol";
+import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { Warehouse } from "../../src/Warehouse.sol";
+import { Hub } from "../../src/Hub.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
-import { MessagingAdapter } from "../../src/warehouse/crosschain/MessagingAdapter.sol";
+import { MessagingAdapter } from "../../src/crosschain/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE } from "../../src/helpers/Constants.sol";
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { MessagingAdapter } from "../../src/warehouse/crosschain/MessagingAdapter.sol";
+import { MessagingAdapter } from "../../src/crosschain/MessagingAdapter.sol";
 
 contract MockMessagingAdapter is MessagingAdapter {
 

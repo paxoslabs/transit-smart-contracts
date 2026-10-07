@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { ADMIN_ROLE } from "../helpers/Constants.sol";
+import { ADMIN_ROLE } from "./helpers/Constants.sol";
 
 contract TransitAuthority is AccessControlEnumerable {
 

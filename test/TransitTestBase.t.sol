@@ -5,10 +5,10 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Terminal } from "../src/Terminal.sol";
-import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
-import { Warehouse } from "../src/warehouse/Warehouse.sol";
-import { Hub } from "../src/warehouse/Hub.sol";
-import { MessagingAdapter } from "../src/warehouse/crosschain/MessagingAdapter.sol";
+import { TransitAuthority } from "../src/TransitAuthority.sol";
+import { Warehouse } from "../src/Warehouse.sol";
+import { Hub } from "../src/Hub.sol";
+import { MessagingAdapter } from "../src/crosschain/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
     ADMIN_ROLE,
