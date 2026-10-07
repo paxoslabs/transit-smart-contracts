@@ -31,6 +31,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error WithdrawReplay();
     error ZeroAddress();
     error LengthMismatch();
+    error EmptyBatch();
     error ChainMismatch(uint64 chainId);
 
     constructor(address _authority) MessagingEndpoint(_authority) { }
@@ -75,6 +76,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         returns (bytes32[] memory withdrawIds)
     {
         _requireNotPaused();
+        if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length) revert LengthMismatch();
 
         uint64 assetChainId = requests[0].assetChainId;
