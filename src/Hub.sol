@@ -66,7 +66,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     function withdrawWithSignature(
         WithdrawRequest[] calldata requests,
         bytes[] calldata signatures,
-        BridgeData calldata data
+        uint64 messageGas
     )
         external
         payable
@@ -106,7 +106,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
 
         bytes32 messageId =
-            _sendMessage(assetChainId, data.messageGas, MessageType.Withdrawal, abi.encode(messages));
+            _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
 
         for (uint256 i; i < messages.length; i++) {
             emit MessageSent(messageId, messages[i].amount, messages[i].to);

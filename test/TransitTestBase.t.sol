@@ -96,8 +96,8 @@ contract TransitTestBase is Test {
         if (chain == hubID) hub = new Hub(address(authority));
         Warehouse warehouse = new Warehouse(address(authority), vault);
         MockMessagingAdapter adapter = chain == hubID
-            ? new MockMessagingAdapter(address(authority), address(hub), address(warehouse))
-            : new MockMessagingAdapter(address(authority), address(warehouse), address(0));
+            ? new MockMessagingAdapter(address(authority), address(hub), address(warehouse), hubID)
+            : new MockMessagingAdapter(address(authority), address(warehouse), address(0), hubID);
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -264,14 +264,12 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(asset, amount, user, _depositData(chain));
+        warehouses[chain].deposit(asset, amount, user, _messageGas(chain));
         vm.stopPrank();
     }
 
-    function _depositData(uint64 chain) internal view returns (MessagingEndpoint.BridgeData memory) {
-        return chain == hubID
-            ? MessagingEndpoint.BridgeData(hubID, address(0), ERC20(address(0)), 0, "")
-            : MessagingEndpoint.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
+    function _messageGas(uint64 chain) internal view returns (uint64) {
+        return chain == hubID ? 0 : 200_000;
     }
 
     function _withdrawOnChain(
@@ -298,7 +296,7 @@ contract TransitTestBase is Test {
         signatures[0] = validSignature;
 
         vm.prank(solver);
-        withdrawId = hub.withdrawWithSignature(requests, signatures, _depositData(hubID))[0];
+        withdrawId = hub.withdrawWithSignature(requests, signatures, _messageGas(hubID))[0];
     }
 
     function _withdrawRequestFor(

@@ -11,9 +11,10 @@ contract MockMessagingAdapter is MessagingAdapter {
     constructor(
         address _authority,
         address _endpoint,
-        address _localEndpoint
+        address _localEndpoint,
+        uint64 _hubChainId
     )
-        MessagingAdapter(_authority, _endpoint, _localEndpoint)
+        MessagingAdapter(_authority, _endpoint, _localEndpoint, _hubChainId)
     { }
 
     function quote(uint64, uint64, bytes calldata) external view override returns (uint256) {

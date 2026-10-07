@@ -18,6 +18,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
     address public immutable endpoint;
     address public immutable localEndpoint;
+    uint64 public immutable hubChainId;
 
     mapping(uint64 chainId => PeerConfig) public peers;
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
@@ -45,9 +46,17 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
 
-    constructor(address _authority, address _endpoint, address _localEndpoint) AccessManaged(_authority) {
+    constructor(
+        address _authority,
+        address _endpoint,
+        address _localEndpoint,
+        uint64 _hubChainId
+    )
+        AccessManaged(_authority)
+    {
         endpoint = _endpoint;
         localEndpoint = _localEndpoint;
+        hubChainId = _hubChainId;
     }
 
     function setPeer(

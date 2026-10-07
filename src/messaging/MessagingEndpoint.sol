@@ -3,20 +3,11 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
-import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { IMessagingAdapter } from "./IMessagingAdapter.sol";
 import { IMessagingEndpoint } from "./IMessagingEndpoint.sol";
 
 abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard, IMessagingEndpoint {
-
-    struct BridgeData {
-        uint64 chainId;
-        address destinationChainReceiver;
-        ERC20 bridgeFeeToken;
-        uint64 messageGas;
-        bytes data;
-    }
 
     enum MessageType {
         Deposit,

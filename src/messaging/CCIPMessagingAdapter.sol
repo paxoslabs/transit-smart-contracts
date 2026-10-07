@@ -12,9 +12,10 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         address _authority,
         address _endpoint,
         address _localEndpoint,
+        uint64 _hubChainId,
         address _router
     )
-        MessagingAdapter(_authority, _endpoint, _localEndpoint)
+        MessagingAdapter(_authority, _endpoint, _localEndpoint, _hubChainId)
         CCIPReceiver(_router)
     { }
 

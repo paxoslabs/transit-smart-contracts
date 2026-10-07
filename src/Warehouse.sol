@@ -23,13 +23,11 @@ contract Warehouse is MessagingEndpoint {
     // ========================================= USER =========================================
 
     /// TODO: Decide whether admins need a per-asset deny-list now that any ERC20 is accepted.
-    /// TODO: Only data.chainId and data.messageGas are read; destinationChainReceiver (`to` is used instead),
-    /// bridgeFeeToken and data are ignored. Slim BridgeData or pass messageGas directly?
     function deposit(
         ERC20 asset,
         uint256 amount,
         address to,
-        BridgeData calldata data
+        uint64 messageGas
     )
         external
         payable
@@ -43,8 +41,8 @@ contract Warehouse is MessagingEndpoint {
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
         bytes32 messageId = _sendMessage(
-            data.chainId,
-            data.messageGas,
+            _hubChainId(),
+            messageGas,
             MessageType.Deposit,
             abi.encode(TransferMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, to: to }))
         );
@@ -54,10 +52,14 @@ contract Warehouse is MessagingEndpoint {
         emit Deposit(address(asset), msg.sender, to, amount);
     }
 
-    function quoteBridge(BridgeData calldata data, bytes calldata payload) external view returns (uint256 fee) {
+    function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {
+        return messagingAdapter.quote(_hubChainId(), messageGas, payload);
+    }
+
+    function _hubChainId() internal view returns (uint64) {
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();
-        return adapter.quote(data.chainId, data.messageGas, payload);
+        return adapter.hubChainId();
     }
 
     // ========================================= ADAPTER ========================================

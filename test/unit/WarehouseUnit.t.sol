@@ -40,7 +40,7 @@ contract WarehouseUnitTest is Test {
         authority = new TransitAuthority(admin);
         hub = new Hub(address(authority));
         warehouse = new Warehouse(address(authority), vault);
-        local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse));
+        local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse), HUB);
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
@@ -81,15 +81,11 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
     }
 
-    function _noBridge() internal pure returns (MessagingEndpoint.BridgeData memory) {
-        return MessagingEndpoint.BridgeData(HUB, address(0), ERC20(address(0)), 0, "");
-    }
-
     function _deposit(address user, uint256 amount) internal {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(usdc, amount, user, _noBridge());
+        warehouse.deposit(usdc, amount, user, 0);
         vm.stopPrank();
     }
 
@@ -109,7 +105,7 @@ contract WarehouseUnitTest is Test {
         reqs[0] = req;
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        hub.withdrawWithSignature(reqs, sigs, _noBridge());
+        hub.withdrawWithSignature(reqs, sigs, 0);
     }
 
     function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {
@@ -133,7 +129,7 @@ contract WarehouseUnitTest is Test {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        warehouse.deposit(other, 1e18, alice, _noBridge());
+        warehouse.deposit(other, 1e18, alice, 0);
         vm.stopPrank();
 
         assertEq(hub.balanceOf(alice, HUB, address(other)), 1e18, "deposit: arbitrary asset not credited on hub");
@@ -143,11 +139,11 @@ contract WarehouseUnitTest is Test {
     function testSpokeDepositCreditsHub() public {
         vm.chainId(SPOKE);
         Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
-        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0));
+        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0), HUB);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
         vm.chainId(HUB);
-        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0));
+        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0), HUB);
 
         bytes4[] memory warehouseSels = new bytes4[](1);
         warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
@@ -177,7 +173,7 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
         spokeWarehouse.deposit(
-            usdg, 100e6, alice, MessagingEndpoint.BridgeData(HUB, address(0), ERC20(address(0)), 200_000, "")
+            usdg, 100e6, alice, 200_000
         );
         vm.stopPrank();
 
@@ -189,34 +185,6 @@ contract WarehouseUnitTest is Test {
         hubAdapter.deliver(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), queued[0]);
 
         assertEq(hub.balanceOf(alice, SPOKE, address(usdg)), 100e6, "spoke deposit: hub did not credit alice");
-    }
-
-    function testSpokeDepositToNonHubReverts() public {
-        vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
-        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0));
-
-        bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
-        bytes4[] memory peerSels = new bytes4[](1);
-        peerSels[0] = MessagingAdapter.setPeer.selector;
-
-        vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
-        spokeWarehouse.setMessagingAdapter(spokeAdapter);
-        spokeAdapter.setPeer(HUB, bytes32(uint256(1)), HUB, 200_000, 0, true, true);
-        vm.stopPrank();
-
-        uint64 otherSpoke = 999;
-        deal(address(usdc), alice, 1e6);
-        vm.startPrank(alice);
-        SafeTransferLib.safeApprove(address(usdc), address(spokeWarehouse), 1e6);
-        vm.expectRevert(abi.encodeWithSelector(MessagingAdapter.PeerNotSet.selector, otherSpoke));
-        spokeWarehouse.deposit(
-            usdc, 1e6, alice, MessagingEndpoint.BridgeData(otherSpoke, address(0), ERC20(address(0)), 200_000, "")
-        );
-        vm.stopPrank();
     }
 
     // ---------------------------------------------------------------- hub auth
