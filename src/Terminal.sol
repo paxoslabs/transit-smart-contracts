@@ -32,7 +32,7 @@ contract Terminal is AccessManaged, EIP712 {
         "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,bytes32 salt,bool partiallyFillable)"
     );
 
-    Hub public immutable hub;
+    Hub public immutable HUB;
     address public immutable SURPLUS_RECIPIENT;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
@@ -44,7 +44,7 @@ contract Terminal is AccessManaged, EIP712 {
     error LimitPrice(bytes32 orderHash);
 
     constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
-        hub = _hub;
+        HUB = _hub;
         SURPLUS_RECIPIENT = _surplusRecipient;
     }
 
@@ -73,23 +73,23 @@ contract Terminal is AccessManaged, EIP712 {
             filledAmount[orderHash] = filled;
 
             address owner = _recoverOrderOwner(orderHash, fill.signature);
-            hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
+            HUB.move(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
 
             emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
         }
 
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
-            hub.move(
+            HUB.move(
                 address(this), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
             );
         }
 
         for (uint256 i; i < fills.length; i++) {
             Order calldata order = fills[i].order;
-            uint256 surplus = hub.balanceOf(address(this), order.sellTokenChainId, order.sellToken);
+            uint256 surplus = HUB.balanceOf(address(this), order.sellTokenChainId, order.sellToken);
             if (surplus > 0) {
-                hub.move(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
+                HUB.move(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
             }
         }
     }
