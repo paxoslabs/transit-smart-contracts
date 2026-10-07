@@ -48,7 +48,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
     event ChainAdded(uint64 indexed chainId, Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
-    event Release(address indexed asset, address indexed to, uint256 amount);
     event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
     event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
@@ -184,7 +183,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
         _requireNotPaused();
         SafeTransferLib.safeTransferFrom(message.asset, vault, message.to, message.amount);
-        emit Release(message.asset, message.to, message.amount);
 
         emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
