@@ -6,7 +6,7 @@ import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClien
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 import { MessagingAdapter } from "./MessagingAdapter.sol";
 
-contract CCIPAdapter is MessagingAdapter, CCIPReceiver {
+contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
     constructor(
         address _authority,

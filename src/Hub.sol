@@ -8,7 +8,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { Warehouse } from "./Warehouse.sol";
-import { IMessagingAdapter } from "./crosschain/IMessagingAdapter.sol";
+import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
 contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 

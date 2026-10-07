@@ -6,7 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { IMessagingAdapter } from "./crosschain/IMessagingAdapter.sol";
+import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
 contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 

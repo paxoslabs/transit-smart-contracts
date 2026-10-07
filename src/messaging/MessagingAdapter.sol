@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { IMessagingAdapter } from "./IMessagingAdapter.sol";
-import { ICrosschainReceiver } from "./ICrosschainReceiver.sol";
+import { IMessagingReceiver } from "./IMessagingReceiver.sol";
 
 abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
@@ -78,7 +78,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
             else revert OnlyEndpoint();
 
             messageId = keccak256(payload);
-            ICrosschainReceiver(target).receiveMessage(chainId, payload);
+            IMessagingReceiver(target).receiveMessage(chainId, payload);
         } else {
             if (msg.sender != endpoint) revert OnlyEndpoint();
 
@@ -108,7 +108,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
         emit MessageReceived(chainId, sender, payload);
 
-        ICrosschainReceiver(endpoint).receiveMessage(chainId, payload);
+        IMessagingReceiver(endpoint).receiveMessage(chainId, payload);
     }
 
     function _peerOf(uint64 chainId) internal view returns (PeerConfig memory peer) {

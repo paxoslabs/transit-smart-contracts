@@ -8,7 +8,7 @@ import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
-import { MessagingAdapter } from "../src/crosschain/MessagingAdapter.sol";
+import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
     ADMIN_ROLE,
