@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
-import { Warehouse } from "./Warehouse.sol";
-import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
+import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
-contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
+contract Hub is MessagingEndpoint, EIP712 {
 
     struct WithdrawRequest {
         address owner;
@@ -25,29 +21,19 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
     );
 
-    uint256 public outboundNonce;
-
-    IMessagingAdapter public messagingAdapter;
-
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
-    mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
-    event MessagingAdapterUpdated(address indexed adapter);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
-    event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
-    event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
     error BadSignature();
     error WithdrawReplay();
-    error MessageReplay();
-    error UnknownAdapter();
     error ZeroAddress();
     error LengthMismatch();
     error ChainMismatch(uint64 chainId);
 
-    constructor(address _authority) AccessManaged(_authority) { }
+    constructor(address _authority) MessagingEndpoint(_authority) { }
 
     /// TODO: Decide the EIP712 domain name and version. Currently "Transit Hub" and "1".
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -56,21 +42,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
-    }
-
-    // ========================================= ADMIN =========================================
-
-    function setMessagingAdapter(IMessagingAdapter adapter) external restricted {
-        messagingAdapter = adapter;
-        emit MessagingAdapterUpdated(address(adapter));
-    }
-
-    function pause() external restricted {
-        _pause();
-    }
-
-    function unpause() external restricted {
-        _unpause();
     }
 
     // ========================================= LEDGER =========================================
@@ -95,7 +66,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     function withdrawWithSignature(
         WithdrawRequest[] calldata requests,
         bytes[] calldata signatures,
-        Warehouse.BridgeData calldata data
+        BridgeData calldata data
     )
         external
         payable
@@ -108,7 +79,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
         uint64 assetChainId = requests[0].assetChainId;
         withdrawIds = new bytes32[](requests.length);
-        Warehouse.TransferMessage[] memory messages = new Warehouse.TransferMessage[](requests.length);
+        TransferMessage[] memory messages = new TransferMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawRequest calldata request = requests[i];
@@ -124,7 +95,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
             _transfer(request.owner, address(0), assetChainId, address(request.asset), request.amount);
 
-            messages[i] = Warehouse.TransferMessage({
+            messages[i] = TransferMessage({
                 asset: address(request.asset),
                 nonce: ++outboundNonce,
                 amount: request.amount,
@@ -134,11 +105,8 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
             emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
         }
 
-        bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(messages));
-
-        IMessagingAdapter adapter = messagingAdapter;
-        if (address(adapter) == address(0)) revert UnknownAdapter();
-        bytes32 messageId = adapter.send{ value: msg.value }(assetChainId, data.messageGas, payload);
+        bytes32 messageId =
+            _sendMessage(assetChainId, data.messageGas, MessageType.Withdrawal, abi.encode(messages));
 
         for (uint256 i; i < messages.length; i++) {
             emit MessageSent(messageId, messages[i].amount, messages[i].to);
@@ -147,20 +115,16 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     // ========================================= ADAPTER ========================================
 
-    function receiveMessage(uint64 chainId, bytes calldata payload) external restricted nonReentrant {
-        (Warehouse.MessageType messageType, bytes memory body) = abi.decode(payload, (Warehouse.MessageType, bytes));
-
-        if (messageType == Warehouse.MessageType.Deposit) {
-            _receiveTransfer(chainId, abi.decode(body, (Warehouse.TransferMessage)));
+    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
+        if (messageType == MessageType.Deposit) {
+            _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
         } else {
             assert(false);
         }
     }
 
-    function _receiveTransfer(uint64 sourceChainId, Warehouse.TransferMessage memory message) internal {
-        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        if (messageConsumed[sourceChainId][message.nonce]) revert MessageReplay();
-        messageConsumed[sourceChainId][message.nonce] = true;
+    function _receiveTransfer(uint64 sourceChainId, TransferMessage memory message) internal {
+        _consume(sourceChainId, message.nonce);
 
         _requireNotPaused();
 

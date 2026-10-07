@@ -8,6 +8,7 @@ import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
+import { MessagingEndpoint } from "../src/messaging/MessagingEndpoint.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
@@ -127,14 +128,14 @@ contract TransitTestBase is Test {
         Warehouse warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = Warehouse.setMessagingAdapter.selector;
+        adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
-        pauseSels[0] = Warehouse.pause.selector;
-        pauseSels[1] = Warehouse.unpause.selector;
+        pauseSels[0] = MessagingEndpoint.pause.selector;
+        pauseSels[1] = MessagingEndpoint.unpause.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Warehouse.receiveMessage.selector;
+        receiveSels[0] = MessagingEndpoint.receiveMessage.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -157,7 +158,7 @@ contract TransitTestBase is Test {
             authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
 
             bytes4[] memory hubAdminSels = new bytes4[](1);
-            hubAdminSels[0] = Hub.setMessagingAdapter.selector;
+            hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory withdrawSels = new bytes4[](1);
@@ -165,8 +166,8 @@ contract TransitTestBase is Test {
             authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);
-            hubPauseSels[0] = Hub.pause.selector;
-            hubPauseSels[1] = Hub.unpause.selector;
+            hubPauseSels[0] = MessagingEndpoint.pause.selector;
+            hubPauseSels[1] = MessagingEndpoint.unpause.selector;
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
             hub.setMessagingAdapter(adapters[chain]);
@@ -267,10 +268,10 @@ contract TransitTestBase is Test {
         vm.stopPrank();
     }
 
-    function _depositData(uint64 chain) internal view returns (Warehouse.BridgeData memory) {
+    function _depositData(uint64 chain) internal view returns (MessagingEndpoint.BridgeData memory) {
         return chain == hubID
-            ? Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 0, "")
-            : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
+            ? MessagingEndpoint.BridgeData(hubID, address(0), ERC20(address(0)), 0, "")
+            : MessagingEndpoint.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
     }
 
     function _withdrawOnChain(

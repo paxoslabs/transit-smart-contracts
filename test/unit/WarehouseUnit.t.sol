@@ -7,6 +7,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
 import { Hub } from "../../src/Hub.sol";
+import { MessagingEndpoint } from "../../src/messaging/MessagingEndpoint.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
@@ -43,10 +44,10 @@ contract WarehouseUnitTest is Test {
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = Warehouse.setMessagingAdapter.selector;
+        adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory hubAdminSels = new bytes4[](1);
-        hubAdminSels[0] = Hub.setMessagingAdapter.selector;
+        hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory withdrawSels = new bytes4[](1);
         withdrawSels[0] = Hub.withdrawWithSignature.selector;
@@ -70,7 +71,7 @@ contract WarehouseUnitTest is Test {
 
     function _authorizeHub() internal {
         bytes4[] memory sels = new bytes4[](1);
-        sels[0] = Hub.receiveMessage.selector;
+        sels[0] = MessagingEndpoint.receiveMessage.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(hub), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), sels, MESSAGING_ADAPTER_ROLE);
@@ -80,8 +81,8 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
     }
 
-    function _noBridge() internal pure returns (Warehouse.BridgeData memory) {
-        return Warehouse.BridgeData(HUB, address(0), ERC20(address(0)), 0, "");
+    function _noBridge() internal pure returns (MessagingEndpoint.BridgeData memory) {
+        return MessagingEndpoint.BridgeData(HUB, address(0), ERC20(address(0)), 0, "");
     }
 
     function _deposit(address user, uint256 amount) internal {
@@ -149,13 +150,13 @@ contract WarehouseUnitTest is Test {
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0));
 
         bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = Warehouse.setMessagingAdapter.selector;
+        warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Hub.receiveMessage.selector;
+        receiveSels[0] = MessagingEndpoint.receiveMessage.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
@@ -176,7 +177,7 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
         spokeWarehouse.deposit(
-            usdg, 100e6, alice, Warehouse.BridgeData(HUB, address(0), ERC20(address(0)), 200_000, "")
+            usdg, 100e6, alice, MessagingEndpoint.BridgeData(HUB, address(0), ERC20(address(0)), 200_000, "")
         );
         vm.stopPrank();
 
@@ -196,7 +197,7 @@ contract WarehouseUnitTest is Test {
         MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0));
 
         bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = Warehouse.setMessagingAdapter.selector;
+        warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
 
@@ -213,7 +214,7 @@ contract WarehouseUnitTest is Test {
         SafeTransferLib.safeApprove(address(usdc), address(spokeWarehouse), 1e6);
         vm.expectRevert(abi.encodeWithSelector(MessagingAdapter.PeerNotSet.selector, otherSpoke));
         spokeWarehouse.deposit(
-            usdc, 1e6, alice, Warehouse.BridgeData(otherSpoke, address(0), ERC20(address(0)), 200_000, "")
+            usdc, 1e6, alice, MessagingEndpoint.BridgeData(otherSpoke, address(0), ERC20(address(0)), 200_000, "")
         );
         vm.stopPrank();
     }
@@ -222,8 +223,8 @@ contract WarehouseUnitTest is Test {
 
     function testOnlyWarehouseCanMint() public {
         bytes memory payload = abi.encode(
-            Warehouse.MessageType.Deposit,
-            abi.encode(Warehouse.TransferMessage({ asset: address(usdc), nonce: 1, amount: 1e6, to: mallory }))
+            MessagingEndpoint.MessageType.Deposit,
+            abi.encode(MessagingEndpoint.TransferMessage({ asset: address(usdc), nonce: 1, amount: 1e6, to: mallory }))
         );
         vm.prank(mallory);
         vm.expectRevert();
@@ -284,9 +285,9 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonAdapterReverts() public {
-        Warehouse.TransferMessage[] memory m = new Warehouse.TransferMessage[](1);
-        m[0] = Warehouse.TransferMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
-        bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(m));
+        MessagingEndpoint.TransferMessage[] memory m = new MessagingEndpoint.TransferMessage[](1);
+        m[0] = MessagingEndpoint.TransferMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+        bytes memory payload = abi.encode(MessagingEndpoint.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
         vm.expectRevert();
