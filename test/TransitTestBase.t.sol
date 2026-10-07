@@ -47,6 +47,7 @@ contract TransitTestBase is Test {
     uint256 solverPk;
     address vault;
     uint256 vaultPk;
+    address surplusRecipient;
 
     uint64[] spokeIDs;
     uint64 hubID;
@@ -84,7 +85,7 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubID);
-        terminal = new Terminal(address(authorities[hubID]), hub);
+        terminal = new Terminal(address(authorities[hubID]), hub, surplusRecipient);
         _grantTerminalRole();
 
         _wireChains();
@@ -266,6 +267,7 @@ contract TransitTestBase is Test {
         (admin, adminPk) = makeAddrAndKey("admin");
         (solver, solverPk) = makeAddrAndKey("solver");
         (vault, vaultPk) = makeAddrAndKey("vault");
+        surplusRecipient = makeAddr("surplusRecipient");
     }
 
     function _vaultOf(uint64) internal view returns (address) {

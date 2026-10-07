@@ -8,7 +8,7 @@ import { Hub } from "./warehouse/Hub.sol";
 
 contract Terminal is AccessManaged, EIP712 {
 
-    /// TODO: Decide the remaining Order fields. validTo and feeAmount are the obvious candidates.
+    /// TODO: Decide the remaining Order fields. validTo is the obvious candidate.
     struct Order {
         uint64 sellTokenChainId;
         address sellToken;
@@ -33,6 +33,7 @@ contract Terminal is AccessManaged, EIP712 {
     );
 
     Hub public immutable hub;
+    address public immutable SURPLUS_RECIPIENT;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
 
@@ -42,8 +43,9 @@ contract Terminal is AccessManaged, EIP712 {
     error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
 
-    constructor(address _authority, Hub _hub) AccessManaged(_authority) {
+    constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
         hub = _hub;
+        SURPLUS_RECIPIENT = _surplusRecipient;
     }
 
     /// TODO: Decide the EIP712 domain name and version. Currently "Transit Terminal" and "1".
@@ -55,8 +57,6 @@ contract Terminal is AccessManaged, EIP712 {
         return _domainSeparator();
     }
 
-    /// TODO: Decide what happens to trade surplus. Since this is not UCP, a batch can over-collateralize and
-    /// the excess stays in this contract with nothing to claim it. Leaving it here for now.
     function settle(Fill[] calldata fills) external restricted {
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
@@ -83,6 +83,14 @@ contract Terminal is AccessManaged, EIP712 {
             hub.move(
                 address(this), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
             );
+        }
+
+        for (uint256 i; i < fills.length; i++) {
+            Order calldata order = fills[i].order;
+            uint256 surplus = hub.balanceOf(address(this), order.sellTokenChainId, order.sellToken);
+            if (surplus > 0) {
+                hub.move(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
+            }
         }
     }
 
