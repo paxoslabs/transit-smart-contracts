@@ -30,25 +30,19 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     IMessagingAdapter public messagingAdapter;
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
-    mapping(uint64 chainId => Warehouse.Chain) public chains;
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event MessagingAdapterUpdated(address indexed adapter);
-    event ChainAdded(uint64 indexed chainId, Warehouse.Chain chain);
-    event ChainRemoved(uint64 indexed chainId);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
     event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
     event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
-    error UnknownSourceChain(uint64 chainId);
     error BadSignature();
     error WithdrawReplay();
     error MessageReplay();
     error UnknownAdapter();
-    error MessagesNotAllowedFrom(uint64 chainId);
-    error MessagesNotAllowedTo(uint64 chainId);
     error ZeroAddress();
     error LengthMismatch();
     error ChainMismatch(uint64 chainId);
@@ -77,33 +71,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     function unpause() external restricted {
         _unpause();
-    }
-
-    function addChain(
-        uint64 chainId,
-        bool allowMessagesFrom,
-        bool allowMessagesTo
-    )
-        external
-        restricted
-    {
-        if (chainId == 0) revert UnknownSourceChain(chainId);
-        Warehouse.Chain memory chain = Warehouse.Chain(allowMessagesFrom, allowMessagesTo, true);
-        chains[chainId] = chain;
-        emit ChainAdded(chainId, chain);
-    }
-
-    function removeChain(uint64 chainId) external restricted {
-        delete chains[chainId];
-        emit ChainRemoved(chainId);
-    }
-
-    function setAllowMessagesFromChain(uint64 chainId, bool allowed) external restricted {
-        chains[chainId].allowMessagesFrom = allowed;
-    }
-
-    function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
-        chains[chainId].allowMessagesTo = allowed;
     }
 
     // ========================================= LEDGER =========================================
@@ -167,8 +134,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
             emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
         }
 
-        _checkRoute(assetChainId);
-
         bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(messages));
 
         IMessagingAdapter adapter = messagingAdapter;
@@ -183,10 +148,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted nonReentrant {
-        Warehouse.Chain memory chain = chains[chainId];
-        if (!chain.registered) revert UnknownSourceChain(chainId);
-        if (!chain.allowMessagesFrom) revert MessagesNotAllowedFrom(chainId);
-
         (Warehouse.MessageType messageType, bytes memory body) = abi.decode(payload, (Warehouse.MessageType, bytes));
 
         if (messageType == Warehouse.MessageType.Deposit) {
@@ -232,10 +193,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         if (from != address(0)) balanceOf[from][assetChainId][asset] -= amount;
         if (to != address(0)) balanceOf[to][assetChainId][asset] += amount;
         emit Transfer(from, to, assetChainId, asset, amount);
-    }
-
-    function _checkRoute(uint64 chainId) internal view {
-        if (!chains[chainId].allowMessagesTo) revert MessagesNotAllowedTo(chainId);
     }
 
 }

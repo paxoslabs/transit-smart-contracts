@@ -116,12 +116,9 @@ contract TransitTestBase is Test {
     function _addRoute(uint64 onChain, uint64 remoteChain, address remoteAdapter) internal {
         _selectChain(onChain);
         vm.startPrank(admin);
-        if (onChain == hubID) {
-            hub.addChain(remoteChain, true, true);
-        } else {
-            warehouses[onChain].addChain(remoteChain, true, true);
-        }
-        adapters[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteAdapter))), remoteChain, 200_000, 0);
+        adapters[onChain].setPeer(
+            remoteChain, bytes32(uint256(uint160(remoteAdapter))), remoteChain, 200_000, 0, true, true
+        );
         vm.stopPrank();
     }
 
@@ -129,11 +126,8 @@ contract TransitTestBase is Test {
         TransitAuthority authority = authorities[chain];
         Warehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](4);
+        bytes4[] memory adminSels = new bytes4[](1);
         adminSels[0] = Warehouse.setMessagingAdapter.selector;
-        adminSels[1] = Warehouse.addChain.selector;
-        adminSels[2] = Warehouse.setAllowMessagesFromChain.selector;
-        adminSels[3] = Warehouse.setAllowMessagesToChain.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Warehouse.pause.selector;
@@ -142,9 +136,12 @@ contract TransitTestBase is Test {
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Warehouse.receiveMessage.selector;
 
-        bytes4[] memory peerSels = new bytes4[](2);
+        bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
         peerSels[1] = MessagingAdapter.setChainGasLimit.selector;
+        peerSels[2] = MessagingAdapter.removePeer.selector;
+        peerSels[3] = MessagingAdapter.setAllowMessagesFromChain.selector;
+        peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
@@ -159,12 +156,8 @@ contract TransitTestBase is Test {
         if (chain == hubID) {
             authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
 
-            bytes4[] memory hubAdminSels = new bytes4[](5);
+            bytes4[] memory hubAdminSels = new bytes4[](1);
             hubAdminSels[0] = Hub.setMessagingAdapter.selector;
-            hubAdminSels[1] = Hub.addChain.selector;
-            hubAdminSels[2] = Hub.removeChain.selector;
-            hubAdminSels[3] = Hub.setAllowMessagesFromChain.selector;
-            hubAdminSels[4] = Hub.setAllowMessagesToChain.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory withdrawSels = new bytes4[](1);
@@ -176,9 +169,7 @@ contract TransitTestBase is Test {
             hubPauseSels[1] = Hub.unpause.selector;
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
-            hub.addChain(hubID, true, true);
             hub.setMessagingAdapter(adapters[chain]);
-            warehouse.addChain(hubID, true, true);
         }
         warehouse.setMessagingAdapter(adapters[chain]);
         vm.stopPrank();

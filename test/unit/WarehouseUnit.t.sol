@@ -42,13 +42,11 @@ contract WarehouseUnitTest is Test {
         local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse));
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](2);
+        bytes4[] memory adminSels = new bytes4[](1);
         adminSels[0] = Warehouse.setMessagingAdapter.selector;
-        adminSels[1] = Warehouse.addChain.selector;
 
-        bytes4[] memory hubAdminSels = new bytes4[](2);
+        bytes4[] memory hubAdminSels = new bytes4[](1);
         hubAdminSels[0] = Hub.setMessagingAdapter.selector;
-        hubAdminSels[1] = Hub.addChain.selector;
 
         bytes4[] memory withdrawSels = new bytes4[](1);
         withdrawSels[0] = Hub.withdrawWithSignature.selector;
@@ -77,9 +75,7 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), sels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
-        hub.addChain(HUB, true, true);
         hub.setMessagingAdapter(local);
-        warehouse.addChain(HUB, true, true);
         warehouse.setMessagingAdapter(local);
         vm.stopPrank();
     }
@@ -152,9 +148,8 @@ contract WarehouseUnitTest is Test {
         vm.chainId(HUB);
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0));
 
-        bytes4[] memory warehouseSels = new bytes4[](2);
+        bytes4[] memory warehouseSels = new bytes4[](1);
         warehouseSels[0] = Warehouse.setMessagingAdapter.selector;
-        warehouseSels[1] = Warehouse.addChain.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -171,11 +166,9 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
         spokeWarehouse.setMessagingAdapter(spokeAdapter);
-        spokeWarehouse.addChain(HUB, true, true);
-        spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0);
+        spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0, true, true);
 
-        hub.addChain(SPOKE, true, true);
-        hubAdapter.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE, 200_000, 0);
+        hubAdapter.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE, 200_000, 0, true, true);
         vm.stopPrank();
 
         vm.chainId(SPOKE);
@@ -200,13 +193,27 @@ contract WarehouseUnitTest is Test {
     function testSpokeDepositToNonHubReverts() public {
         vm.chainId(SPOKE);
         Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
+        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0));
 
+        bytes4[] memory warehouseSels = new bytes4[](1);
+        warehouseSels[0] = Warehouse.setMessagingAdapter.selector;
+        bytes4[] memory peerSels = new bytes4[](1);
+        peerSels[0] = MessagingAdapter.setPeer.selector;
+
+        vm.startPrank(admin);
+        authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
+        spokeWarehouse.setMessagingAdapter(spokeAdapter);
+        spokeAdapter.setPeer(HUB, bytes32(uint256(1)), HUB, 200_000, 0, true, true);
+        vm.stopPrank();
+
+        uint64 otherSpoke = 999;
         deal(address(usdc), alice, 1e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdc), address(spokeWarehouse), 1e6);
-        vm.expectRevert(abi.encodeWithSelector(Warehouse.MessagesNotAllowedTo.selector, SPOKE));
+        vm.expectRevert(abi.encodeWithSelector(MessagingAdapter.PeerNotSet.selector, otherSpoke));
         spokeWarehouse.deposit(
-            usdc, 1e6, alice, Warehouse.BridgeData(SPOKE, address(0), ERC20(address(0)), 200_000, "")
+            usdc, 1e6, alice, Warehouse.BridgeData(otherSpoke, address(0), ERC20(address(0)), 200_000, "")
         );
         vm.stopPrank();
     }

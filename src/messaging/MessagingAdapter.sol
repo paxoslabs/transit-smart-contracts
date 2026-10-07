@@ -12,6 +12,8 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         uint256 remoteId;
         uint64 messageGasLimit;
         uint64 minimumMessageGas;
+        bool allowMessagesFrom;
+        bool allowMessagesTo;
     }
 
     address public immutable endpoint;
@@ -21,8 +23,15 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
 
     event PeerSet(
-        uint64 indexed chainId, bytes32 peer, uint256 remoteId, uint64 messageGasLimit, uint64 minimumMessageGas
+        uint64 indexed chainId,
+        bytes32 peer,
+        uint256 remoteId,
+        uint64 messageGasLimit,
+        uint64 minimumMessageGas,
+        bool allowMessagesFrom,
+        bool allowMessagesTo
     );
+    event PeerRemoved(uint64 indexed chainId);
     event MessageSent(uint64 indexed chainId, bytes32 indexed messageId, bytes payload);
     event MessageReceived(uint64 indexed chainId, bytes32 sender, bytes payload);
 
@@ -33,6 +42,8 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     error GasLimitExceeded();
     error GasTooLow();
     error NoFee();
+    error MessagesNotAllowedFrom(uint64 chainId);
+    error MessagesNotAllowedTo(uint64 chainId);
 
     constructor(address _authority, address _endpoint, address _localEndpoint) AccessManaged(_authority) {
         endpoint = _endpoint;
@@ -44,15 +55,34 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         bytes32 peer,
         uint256 remoteId,
         uint64 messageGasLimit,
-        uint64 minimumMessageGas
+        uint64 minimumMessageGas,
+        bool allowMessagesFrom,
+        bool allowMessagesTo
     )
         external
         restricted
     {
         if (messageGasLimit == 0) revert ZeroMessageGasLimit();
-        peers[chainId] = PeerConfig(peer, remoteId, messageGasLimit, minimumMessageGas);
+        peers[chainId] =
+            PeerConfig(peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
         chainIdForRemoteId[remoteId] = chainId;
-        emit PeerSet(chainId, peer, remoteId, messageGasLimit, minimumMessageGas);
+        emit PeerSet(
+            chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo
+        );
+    }
+
+    function removePeer(uint64 chainId) external restricted {
+        delete chainIdForRemoteId[peers[chainId].remoteId];
+        delete peers[chainId];
+        emit PeerRemoved(chainId);
+    }
+
+    function setAllowMessagesFromChain(uint64 chainId, bool allowed) external restricted {
+        peers[chainId].allowMessagesFrom = allowed;
+    }
+
+    function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
+        peers[chainId].allowMessagesTo = allowed;
     }
 
     function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
@@ -83,6 +113,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
             if (msg.sender != endpoint) revert OnlyEndpoint();
 
             PeerConfig memory peer = _peerOf(chainId);
+            if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
             if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
             if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
 
@@ -105,6 +136,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     function _receive(uint64 chainId, bytes32 sender, bytes memory payload) internal {
         PeerConfig memory peer = _peerOf(chainId);
         if (peer.peer != sender) revert UnauthorizedPeer(chainId, sender);
+        if (!peer.allowMessagesFrom) revert MessagesNotAllowedFrom(chainId);
 
         emit MessageReceived(chainId, sender, payload);
 
