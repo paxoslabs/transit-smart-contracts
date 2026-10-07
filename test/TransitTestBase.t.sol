@@ -160,10 +160,7 @@ contract TransitTestBase is Test {
         authority.grantRole(SOLVER_ROLE, solver);
 
         if (chain == hubID) {
-            bytes4[] memory hubSels = new bytes4[](2);
-            hubSels[0] = Hub.enter.selector;
-            hubSels[1] = Hub.exit.selector;
-            authority.setTargetFunctionRole(address(hub), hubSels, WAREHOUSE_ROLE);
+            authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(warehouse));
 
             bytes4[] memory hubAdminSels = new bytes4[](7);
             hubAdminSels[0] = Hub.setWarehouse.selector;
@@ -188,6 +185,7 @@ contract TransitTestBase is Test {
             hub.setWarehouse(warehouse);
             hub.setSendModule(modules[chain]);
             hub.setWithdrawSigner(withdrawSigner);
+            hub.addChain(hubID, true, false);
         } else {
             warehouse.setSendModule(modules[chain]);
         }

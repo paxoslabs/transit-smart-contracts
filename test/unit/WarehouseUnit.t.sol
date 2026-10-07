@@ -73,11 +73,13 @@ contract WarehouseUnitTest is Test {
     }
 
     function _authorizeHub() internal {
-        bytes4[] memory sels = new bytes4[](2);
-        sels[0] = Hub.enter.selector;
-        sels[1] = Hub.exit.selector;
-        vm.prank(admin);
-        authority.setTargetFunctionRole(address(hub), sels, WAREHOUSE_ROLE);
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = Hub.receiveMessage.selector;
+        vm.startPrank(admin);
+        authority.setTargetFunctionRole(address(hub), sels, CROSSCHAIN_MODULE_ROLE);
+        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(warehouse));
+        hub.addChain(HUB, true, false);
+        vm.stopPrank();
     }
 
     function _noBridge() internal pure returns (Warehouse.BridgeData memory) {
@@ -203,16 +205,13 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- hub auth
 
     function testOnlyWarehouseCanMint() public {
+        bytes memory payload = abi.encode(
+            Warehouse.MessageType.Transfer,
+            abi.encode(Warehouse.TransferMessage({ asset: address(usdc), nonce: 1, amount: 1e6, to: mallory }))
+        );
         vm.prank(mallory);
         vm.expectRevert();
-        hub.enter(mallory, HUB, address(usdc), 1e6);
-    }
-
-    function testOnlyWarehouseCanBurn() public {
-        _deposit(alice, 100e6);
-        vm.prank(mallory);
-        vm.expectRevert();
-        hub.exit(alice, HUB, address(usdc), 100e6);
+        hub.receiveMessage(HUB, payload);
     }
 
     // ---------------------------------------------------------------- withdraw

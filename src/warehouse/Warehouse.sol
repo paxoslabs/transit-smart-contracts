@@ -138,23 +138,23 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
         shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
+        bytes memory payload = abi.encode(
+            MessageType.Transfer,
+            abi.encode(
+                TransferMessage({
+                    asset: address(asset),
+                    nonce: ++outboundNonce,
+                    amount: shares,
+                    to: to
+                })
+            )
+        );
+
         if (assetChainId == hubChainId) {
-            hub.enter(to, assetChainId, address(asset), shares);
+            hub.receiveMessage(assetChainId, payload);
         } else {
             if (data.chainId != hubChainId) revert DestinationNotHub();
             _checkRoute(data);
-
-            bytes memory payload = abi.encode(
-                MessageType.Transfer,
-                abi.encode(
-                    TransferMessage({
-                        asset: address(asset),
-                        nonce: ++outboundNonce,
-                        amount: shares,
-                        to: to
-                    })
-                )
-            );
 
             CrosschainAdapter module = sendModule;
             if (address(module) == address(0)) revert UnknownModule();
