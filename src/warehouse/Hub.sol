@@ -39,9 +39,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
 
-    event Enter(address indexed to, uint64 indexed assetChainId, address indexed asset, uint256 amount);
-    event Exit(address indexed from, uint64 indexed assetChainId, address indexed asset, uint256 amount);
-    event Move(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
+    event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event WarehouseUpdated(address indexed warehouse);
     event WithdrawSignerUpdated(address indexed withdrawSigner);
     event SendModuleUpdated(address indexed module);
@@ -59,6 +57,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     error UnknownModule();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
+    error ZeroAddress();
 
     constructor(address _authority) AccessManaged(_authority) { }
 
@@ -125,11 +124,19 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     // ========================================= LEDGER =========================================
 
-    function move(address from, address to, uint64 assetChainId, address asset, uint256 amount) external restricted {
+    function transferFrom(
+        address from,
+        address to,
+        uint64 assetChainId,
+        address asset,
+        uint256 amount
+    )
+        external
+        restricted
+    {
         _requireNotPaused();
-        balanceOf[from][assetChainId][asset] -= amount;
-        balanceOf[to][assetChainId][asset] += amount;
-        emit Move(from, to, assetChainId, asset, amount);
+        if (from == address(0) || to == address(0)) revert ZeroAddress();
+        _transfer(from, to, assetChainId, asset, amount);
     }
 
     // ========================================= USER =========================================
@@ -156,7 +163,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         }
         withdrawUsed[withdrawId] = true;
 
-        _exit(request.owner, request.assetChainId, address(request.asset), request.amount);
+        _transfer(request.owner, address(0), request.assetChainId, address(request.asset), request.amount);
 
         if (request.assetChainId == uint64(block.chainid)) {
             warehouse.release(request.asset, request.to, request.amount);
@@ -164,7 +171,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
             _checkRoute(request.assetChainId);
 
             bytes memory payload = abi.encode(
-                Warehouse.MessageType.Transfer,
+                Warehouse.MessageType.Withdrawal,
                 abi.encode(
                     Warehouse.TransferMessage({
                         asset: address(request.asset),
@@ -194,7 +201,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
         (Warehouse.MessageType messageType, bytes memory body) = abi.decode(payload, (Warehouse.MessageType, bytes));
 
-        if (messageType == Warehouse.MessageType.Transfer) {
+        if (messageType == Warehouse.MessageType.Deposit) {
             _receiveTransfer(chainId, abi.decode(body, (Warehouse.TransferMessage)));
         } else {
             assert(false);
@@ -206,7 +213,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
         _requireNotPaused();
 
-        _enter(message.to, sourceChainId, message.asset, message.amount);
+        _transfer(address(0), message.to, sourceChainId, message.asset, message.amount);
 
         emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
@@ -232,14 +239,10 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     // ========================================= INTERNAL =========================================
 
-    function _enter(address to, uint64 assetChainId, address asset, uint256 amount) internal {
-        balanceOf[to][assetChainId][asset] += amount;
-        emit Enter(to, assetChainId, asset, amount);
-    }
-
-    function _exit(address from, uint64 assetChainId, address asset, uint256 amount) internal {
-        balanceOf[from][assetChainId][asset] -= amount;
-        emit Exit(from, assetChainId, asset, amount);
+    function _transfer(address from, address to, uint64 assetChainId, address asset, uint256 amount) internal {
+        if (from != address(0)) balanceOf[from][assetChainId][asset] -= amount;
+        if (to != address(0)) balanceOf[to][assetChainId][asset] += amount;
+        emit Transfer(from, to, assetChainId, asset, amount);
     }
 
     function _consume(uint64 sourceChainId, uint256 nonce) internal {

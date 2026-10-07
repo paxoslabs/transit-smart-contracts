@@ -26,7 +26,8 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
     }
 
     enum MessageType {
-        Transfer
+        Deposit,
+        Withdrawal
     }
 
     struct TransferMessage {
@@ -139,7 +140,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
         bytes memory payload = abi.encode(
-            MessageType.Transfer,
+            MessageType.Deposit,
             abi.encode(
                 TransferMessage({
                     asset: address(asset),
@@ -187,7 +188,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
         (MessageType messageType, bytes memory body) = abi.decode(payload, (MessageType, bytes));
 
-        if (messageType == MessageType.Transfer) {
+        if (messageType == MessageType.Withdrawal) {
             _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
         } else {
             assert(false);

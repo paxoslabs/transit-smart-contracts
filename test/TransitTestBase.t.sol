@@ -194,7 +194,7 @@ contract TransitTestBase is Test {
 
     function _grantTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](1);
-        moveSels[0] = Hub.move.selector;
+        moveSels[0] = Hub.transferFrom.selector;
 
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);

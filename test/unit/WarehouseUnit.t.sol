@@ -206,7 +206,7 @@ contract WarehouseUnitTest is Test {
 
     function testOnlyWarehouseCanMint() public {
         bytes memory payload = abi.encode(
-            Warehouse.MessageType.Transfer,
+            Warehouse.MessageType.Deposit,
             abi.encode(Warehouse.TransferMessage({ asset: address(usdc), nonce: 1, amount: 1e6, to: mallory }))
         );
         vm.prank(mallory);
@@ -282,7 +282,7 @@ contract WarehouseUnitTest is Test {
         Warehouse.TransferMessage memory m = Warehouse.TransferMessage({
             asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice
         });
-        bytes memory payload = abi.encode(Warehouse.MessageType.Transfer, abi.encode(m));
+        bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
         vm.expectRevert();

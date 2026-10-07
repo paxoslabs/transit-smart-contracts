@@ -75,14 +75,14 @@ contract Terminal is AccessManaged, EIP712 {
             filledAmount[orderHash] = filled;
 
             address owner = _recoverOrderOwner(orderHash, fill.signature);
-            HUB.move(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
+            HUB.transferFrom(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
 
             emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
         }
 
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
-            HUB.move(
+            HUB.transferFrom(
                 address(this), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
             );
         }
@@ -91,7 +91,7 @@ contract Terminal is AccessManaged, EIP712 {
             Order calldata order = fills[i].order;
             uint256 surplus = HUB.balanceOf(address(this), order.sellTokenChainId, order.sellToken);
             if (surplus > 0) {
-                HUB.move(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
+                HUB.transferFrom(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
             }
         }
     }
