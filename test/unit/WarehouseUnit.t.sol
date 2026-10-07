@@ -103,8 +103,7 @@ contract WarehouseUnitTest is Test {
             assetChainId: HUB,
             amount: amount,
             to: owner,
-            nonce: ++withdrawNonce,
-            deadline: block.timestamp + 1 days
+            nonce: ++withdrawNonce
         });
     }
 
@@ -261,17 +260,6 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(backend);
         vm.expectRevert(Hub.WithdrawReplay.selector);
-        _withdraw(req, sig);
-    }
-
-    function testWithdrawExpiredReverts() public {
-        _deposit(alice, 100e6);
-        Hub.WithdrawRequest memory req = _request(alice, 100e6);
-        bytes memory sig = _sign(req, alicePk);
-
-        vm.warp(req.deadline + 1);
-        vm.prank(backend);
-        vm.expectRevert(Hub.Expired.selector);
         _withdraw(req, sig);
     }
 

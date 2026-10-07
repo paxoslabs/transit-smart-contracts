@@ -19,11 +19,10 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         uint256 amount;
         address to;
         uint256 nonce;
-        uint256 deadline;
     }
 
     bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
-        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce,uint256 deadline)"
+        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
     );
 
     uint256 public outboundNonce;
@@ -45,7 +44,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     error UnknownSourceChain(uint64 chainId);
     error BadSignature();
-    error Expired();
     error WithdrawReplay();
     error MessageReplay();
     error UnknownAdapter();
@@ -148,7 +146,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         for (uint256 i; i < requests.length; i++) {
             WithdrawRequest calldata request = requests[i];
             if (request.assetChainId != assetChainId) revert ChainMismatch(request.assetChainId);
-            if (block.timestamp > request.deadline) revert Expired();
 
             bytes32 withdrawId = hashWithdrawRequest(request);
             if (withdrawUsed[withdrawId]) revert WithdrawReplay();
@@ -223,8 +220,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
                     request.assetChainId,
                     request.amount,
                     request.to,
-                    request.nonce,
-                    request.deadline
+                    request.nonce
                 )
             )
         );

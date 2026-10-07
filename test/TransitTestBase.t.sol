@@ -324,8 +324,7 @@ contract TransitTestBase is Test {
             assetChainId: chain,
             amount: amount,
             to: user,
-            nonce: ++withdrawNonce,
-            deadline: block.timestamp + 1 days
+            nonce: ++withdrawNonce
         });
     }
 
