@@ -59,7 +59,7 @@ contract HappyPaths is TransitTestBase {
         orders[1] = bobOrder;
 
         vm.startPrank(solver);
-        terminal.settle(orders);
+        terminal.settle(hub.settlementEpoch(), orders);
         vm.stopPrank();
 
         assertEq(_hubBalance(alice, hubID, usdg), amount, "settle: alice did not receive usdg");

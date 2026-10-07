@@ -37,13 +37,16 @@ contract Terminal is AccessManaged, EIP712 {
     address public immutable SURPLUS_RECIPIENT;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
+    mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
 
     event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
+    event CancelRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
 
     error Expired(bytes32 orderHash);
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
+    error Cancelled(bytes32 orderHash);
 
     constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
         HUB = _hub;
@@ -59,7 +62,14 @@ contract Terminal is AccessManaged, EIP712 {
         return _domainSeparator();
     }
 
-    function settle(Fill[] calldata fills) external restricted {
+    function requestCancel(bytes32 orderHash) external {
+        if (cancelledFrom[msg.sender][orderHash] != 0) return;
+        uint256 effectiveAtEpoch = HUB.settlementEpoch() + 1;
+        cancelledFrom[msg.sender][orderHash] = effectiveAtEpoch;
+        emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
+    }
+
+    function settle(uint256 epoch, Fill[] calldata fills) external restricted {
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
             Order calldata order = fill.order;
@@ -77,6 +87,8 @@ contract Terminal is AccessManaged, EIP712 {
             filledAmount[orderHash] = filled;
 
             address owner = _recoverOrderOwner(orderHash, fill.signature);
+            uint256 cancelled = cancelledFrom[owner][orderHash];
+            if (cancelled != 0 && epoch >= cancelled) revert Cancelled(orderHash);
             HUB.transferFrom(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
 
             emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
@@ -96,6 +108,8 @@ contract Terminal is AccessManaged, EIP712 {
                 HUB.transferFrom(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
             }
         }
+
+        HUB.advanceEpoch(epoch);
     }
 
     function _hashOrder(Order calldata order) internal view returns (bytes32) {

@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
+import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
@@ -17,15 +18,30 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 nonce;
     }
 
+    struct PendingWithdrawal {
+        uint256 amount;
+        address to;
+        uint256 effectiveAtEpoch;
+    }
+
     bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
         "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
+    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingWithdrawal))) public
+        pendingWithdrawal;
+
+    uint256 public settlementEpoch;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
+    event EpochAdvanced(uint256 epoch);
+    event WithdrawalRequested(
+        address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
+    );
+    event WithdrawalExecuted(address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to);
 
     error BadSignature();
     error WithdrawReplay();
@@ -33,6 +49,9 @@ contract Hub is MessagingEndpoint, EIP712 {
     error LengthMismatch();
     error EmptyBatch();
     error ChainMismatch(uint64 chainId);
+    error BadEpoch(uint256 epoch);
+    error NotEffective();
+    error InsufficientBalance();
 
     constructor(address _authority) MessagingEndpoint(_authority) { }
 
@@ -59,7 +78,16 @@ contract Hub is MessagingEndpoint, EIP712 {
     {
         _requireNotPaused();
         if (from == address(0) || to == address(0)) revert ZeroAddress();
+        if (balanceOf[from][assetChainId][asset] < _reserved(from, assetChainId, asset) + amount) {
+            revert InsufficientBalance();
+        }
         _transfer(from, to, assetChainId, asset, amount);
+    }
+
+    function advanceEpoch(uint256 epoch) external restricted {
+        if (epoch != settlementEpoch) revert BadEpoch(epoch);
+        settlementEpoch = epoch + 1;
+        emit EpochAdvanced(epoch + 1);
     }
 
     // ========================================= USER =========================================
@@ -115,6 +143,38 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
+    function requestWithdrawal(uint64 assetChainId, address asset, uint256 amount, address to) external {
+        uint256 effectiveAtEpoch = settlementEpoch + 1;
+        pendingWithdrawal[msg.sender][assetChainId][asset] = PendingWithdrawal(amount, to, effectiveAtEpoch);
+        emit WithdrawalRequested(msg.sender, assetChainId, asset, amount, to, effectiveAtEpoch);
+    }
+
+    function executeWithdrawal(
+        address owner,
+        uint64 assetChainId,
+        address asset,
+        uint64 messageGas
+    )
+        external
+        payable
+        nonReentrant
+    {
+        _requireNotPaused();
+        PendingWithdrawal memory pending = pendingWithdrawal[owner][assetChainId][asset];
+        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) revert NotEffective();
+        delete pendingWithdrawal[owner][assetChainId][asset];
+
+        uint256 amount = FixedPointMathLib.min(pending.amount, balanceOf[owner][assetChainId][asset]);
+        _transfer(owner, address(0), assetChainId, asset, amount);
+
+        TransferMessage[] memory messages = new TransferMessage[](1);
+        messages[0] = TransferMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: pending.to });
+        bytes32 messageId = _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+
+        emit MessageSent(messageId, amount, pending.to);
+        emit WithdrawalExecuted(owner, assetChainId, asset, amount, pending.to);
+    }
+
     // ========================================= ADAPTER ========================================
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
@@ -154,6 +214,12 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     // ========================================= INTERNAL =========================================
+
+    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256) {
+        PendingWithdrawal storage pending = pendingWithdrawal[user][assetChainId][asset];
+        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) return 0;
+        return pending.amount;
+    }
 
     function _transfer(address from, address to, uint64 assetChainId, address asset, uint256 amount) internal {
         if (from != address(0)) balanceOf[from][assetChainId][asset] -= amount;
