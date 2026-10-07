@@ -2,13 +2,14 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Hub } from "./Hub.sol";
 import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 
-contract Warehouse is AccessManaged, ReentrancyGuard {
+contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
     struct BridgeData {
         uint64 chainId;
@@ -39,7 +40,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
 
     address public immutable vault;
     Hub public immutable hub;
-    bool public isPaused;
     uint256 public outboundNonce;
 
     CrosschainAdapter public sendModule;
@@ -48,7 +48,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
 
     event SendModuleUpdated(address indexed module);
-    event PauseSet(bool isPaused);
     event ChainAdded(uint64 indexed chainId, Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
@@ -56,7 +55,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
     event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
-    error Paused();
     error UnknownSourceChain(uint64 chainId);
     error VaultUnset();
     error ZeroAssets();
@@ -81,9 +79,12 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         emit SendModuleUpdated(address(module));
     }
 
-    function setPaused(bool paused) external restricted {
-        isPaused = paused;
-        emit PauseSet(paused);
+    function pause() external restricted {
+        _pause();
+    }
+
+    function unpause() external restricted {
+        _unpause();
     }
 
     function addChain(
@@ -129,7 +130,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         nonReentrant
         returns (uint256 shares)
     {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
 
         uint64 assetChainId = uint64(block.chainid);
@@ -204,7 +205,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     // ========================================= INTERNAL =========================================
 
     function _release(address asset, address to, uint256 amount) internal {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         SafeTransferLib.safeTransferFrom(asset, vault, to, amount);
         emit Release(asset, to, amount);
     }

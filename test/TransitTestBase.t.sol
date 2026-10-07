@@ -134,8 +134,9 @@ contract TransitTestBase is Test {
         adminSels[2] = Warehouse.setAllowMessagesFromChain.selector;
         adminSels[3] = Warehouse.setAllowMessagesToChain.selector;
 
-        bytes4[] memory pauseSels = new bytes4[](1);
-        pauseSels[0] = Warehouse.setPaused.selector;
+        bytes4[] memory pauseSels = new bytes4[](2);
+        pauseSels[0] = Warehouse.pause.selector;
+        pauseSels[1] = Warehouse.unpause.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Warehouse.receiveMessage.selector;
@@ -173,8 +174,9 @@ contract TransitTestBase is Test {
             hubAdminSels[6] = Hub.setAllowMessagesToChain.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
-            bytes4[] memory hubPauseSels = new bytes4[](1);
-            hubPauseSels[0] = Hub.setPaused.selector;
+            bytes4[] memory hubPauseSels = new bytes4[](2);
+            hubPauseSels[0] = Hub.pause.selector;
+            hubPauseSels[1] = Hub.unpause.selector;
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
             bytes4[] memory releaseSels = new bytes4[](1);

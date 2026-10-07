@@ -2,6 +2,7 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
@@ -9,7 +10,7 @@ import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { Warehouse } from "./Warehouse.sol";
 import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
 
-contract Hub is AccessManaged, EIP712, ReentrancyGuard {
+contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     /// TODO: Decide the final WithdrawRequest fields. owner + nonce + deadline are what close the
     /// replay hole; requiring msg.sender == owner blocks gasless relayers.
@@ -29,7 +30,6 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
 
     Warehouse public warehouse;
     address public withdrawSigner;
-    bool public isPaused;
     uint256 public outboundNonce;
 
     CrosschainAdapter public sendModule;
@@ -45,14 +45,12 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     event WarehouseUpdated(address indexed warehouse);
     event WithdrawSignerUpdated(address indexed withdrawSigner);
     event SendModuleUpdated(address indexed module);
-    event PauseSet(bool isPaused);
     event ChainAdded(uint64 indexed chainId, Warehouse.Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
     event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
     event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
-    error Paused();
     error UnknownSourceChain(uint64 chainId);
     error BadSignature();
     error Expired();
@@ -90,9 +88,12 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
         emit SendModuleUpdated(address(module));
     }
 
-    function setPaused(bool paused) external restricted {
-        isPaused = paused;
-        emit PauseSet(paused);
+    function pause() external restricted {
+        _pause();
+    }
+
+    function unpause() external restricted {
+        _unpause();
     }
 
     function addChain(
@@ -125,18 +126,18 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     // ========================================= LEDGER =========================================
 
     function enter(address to, uint64 assetChainId, address asset, uint256 amount) external restricted {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         _enter(to, assetChainId, asset, amount);
     }
 
     /// TODO: exit has no caller now that withdraws burn inside Hub. Remove?
     function exit(address from, uint64 assetChainId, address asset, uint256 amount) external restricted {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         _exit(from, assetChainId, asset, amount);
     }
 
     function move(address from, address to, uint64 assetChainId, address asset, uint256 amount) external restricted {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         balanceOf[from][assetChainId][asset] -= amount;
         balanceOf[to][assetChainId][asset] += amount;
         emit Move(from, to, assetChainId, asset, amount);
@@ -155,7 +156,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
         nonReentrant
         returns (bytes32 withdrawId)
     {
-        if (isPaused) revert Paused();
+        _requireNotPaused();
         if (block.timestamp > request.deadline) revert Expired();
         if (msg.sender != request.owner) revert BadSignature();
 
@@ -214,7 +215,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard {
     function _receiveTransfer(uint64 sourceChainId, Warehouse.TransferMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
-        if (isPaused) revert Paused();
+        _requireNotPaused();
 
         _enter(message.to, sourceChainId, message.asset, message.amount);
 
