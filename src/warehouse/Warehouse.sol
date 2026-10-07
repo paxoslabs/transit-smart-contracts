@@ -6,8 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { Hub } from "./Hub.sol";
-import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
+import { IMessagingAdapter } from "./crosschain/IMessagingAdapter.sol";
 
 contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
@@ -37,18 +36,15 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
         address to;
     }
 
-    uint64 public immutable hubChainId;
-
     address public immutable vault;
-    Hub public immutable hub;
     uint256 public outboundNonce;
 
-    CrosschainAdapter public sendModule;
+    IMessagingAdapter public messagingAdapter;
 
     mapping(uint64 chainId => Chain) public chains;
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
 
-    event SendModuleUpdated(address indexed module);
+    event MessagingAdapterUpdated(address indexed adapter);
     event ChainAdded(uint64 indexed chainId, Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
@@ -60,24 +56,20 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
     error VaultUnset();
     error ZeroAssets();
     error MessageReplay();
-    error UnknownModule();
+    error UnknownAdapter();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
-    error DestinationNotHub();
 
-    /// TODO: Decide how the hub is wired. Currently an immutable constructor arg, address(0) on spokes.
-    constructor(address _authority, uint64 _hubChainId, address _vault, Hub _hub) AccessManaged(_authority) {
+    constructor(address _authority, address _vault) AccessManaged(_authority) {
         if (_vault == address(0)) revert VaultUnset();
-        hubChainId = _hubChainId;
         vault = _vault;
-        hub = _hub;
     }
 
     // ========================================= ADMIN =========================================
 
-    function setSendModule(CrosschainAdapter module) external restricted {
-        sendModule = module;
-        emit SendModuleUpdated(address(module));
+    function setMessagingAdapter(IMessagingAdapter adapter) external restricted {
+        messagingAdapter = adapter;
+        emit MessagingAdapterUpdated(address(adapter));
     }
 
     function pause() external restricted {
@@ -134,8 +126,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
         _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
 
-        uint64 assetChainId = uint64(block.chainid);
-
         shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
@@ -151,35 +141,24 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
             )
         );
 
-        if (assetChainId == hubChainId) {
-            hub.receiveMessage(assetChainId, payload);
-        } else {
-            if (data.chainId != hubChainId) revert DestinationNotHub();
-            _checkRoute(data);
+        _checkRoute(data);
 
-            CrosschainAdapter module = sendModule;
-            if (address(module) == address(0)) revert UnknownModule();
-            bytes32 messageId = module.send{ value: msg.value }(hubChainId, data.messageGas, payload);
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        bytes32 messageId = adapter.send{ value: msg.value }(data.chainId, data.messageGas, payload);
 
-            emit MessageSent(messageId, shares, to);
-        }
+        emit MessageSent(messageId, shares, to);
 
         emit Deposit(address(asset), msg.sender, to, amount);
     }
 
     function quoteBridge(BridgeData calldata data, bytes calldata payload) external view returns (uint256 fee) {
-        CrosschainAdapter module = sendModule;
-        if (address(module) == address(0)) revert UnknownModule();
-        return module.quote(data.chainId, data.messageGas, payload);
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        return adapter.quote(data.chainId, data.messageGas, payload);
     }
 
-    // ========================================= HUB =========================================
-
-    function release(ERC20 asset, address to, uint256 amount) external restricted nonReentrant {
-        _release(address(asset), to, amount);
-    }
-
-    // ========================================= MODULE =========================================
+    // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted nonReentrant {
         Chain memory chain = chains[chainId];
@@ -216,7 +195,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard, Pausable {
 
     function _consume(uint64 sourceChainId, uint256 nonce) internal {
         /// TODO: Decide whether a duplicate should revert or no-op. Reverting strands the losing
-        /// protocol's delivery in its retry queue forever when both modules deliver the same message,
+        /// protocol's delivery in its retry queue forever when both adapters deliver the same message,
         /// which is the expected steady state.
         if (messageConsumed[sourceChainId][nonce]) revert MessageReplay();
         messageConsumed[sourceChainId][nonce] = true;

@@ -8,7 +8,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { Warehouse } from "./Warehouse.sol";
-import { CrosschainAdapter } from "./crosschain/CrosschainAdapter.sol";
+import { IMessagingAdapter } from "./crosschain/IMessagingAdapter.sol";
 
 contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
@@ -26,10 +26,9 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce,uint256 deadline)"
     );
 
-    Warehouse public warehouse;
     uint256 public outboundNonce;
 
-    CrosschainAdapter public sendModule;
+    IMessagingAdapter public messagingAdapter;
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
     mapping(uint64 chainId => Warehouse.Chain) public chains;
@@ -37,8 +36,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
-    event WarehouseUpdated(address indexed warehouse);
-    event SendModuleUpdated(address indexed module);
+    event MessagingAdapterUpdated(address indexed adapter);
     event ChainAdded(uint64 indexed chainId, Warehouse.Chain chain);
     event ChainRemoved(uint64 indexed chainId);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
@@ -50,7 +48,7 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
     error Expired();
     error WithdrawReplay();
     error MessageReplay();
-    error UnknownModule();
+    error UnknownAdapter();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
     error ZeroAddress();
@@ -70,14 +68,9 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
     // ========================================= ADMIN =========================================
 
-    function setWarehouse(Warehouse _warehouse) external restricted {
-        warehouse = _warehouse;
-        emit WarehouseUpdated(address(_warehouse));
-    }
-
-    function setSendModule(CrosschainAdapter module) external restricted {
-        sendModule = module;
-        emit SendModuleUpdated(address(module));
+    function setMessagingAdapter(IMessagingAdapter adapter) external restricted {
+        messagingAdapter = adapter;
+        emit MessagingAdapterUpdated(address(adapter));
     }
 
     function pause() external restricted {
@@ -149,10 +142,8 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
         if (requests.length != signatures.length) revert LengthMismatch();
 
         uint64 assetChainId = requests[0].assetChainId;
-        bool local = assetChainId == uint64(block.chainid);
         withdrawIds = new bytes32[](requests.length);
-        Warehouse.TransferMessage[] memory messages;
-        if (!local) messages = new Warehouse.TransferMessage[](requests.length);
+        Warehouse.TransferMessage[] memory messages = new Warehouse.TransferMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawRequest calldata request = requests[i];
@@ -169,36 +160,30 @@ contract Hub is AccessManaged, EIP712, ReentrancyGuard, Pausable {
 
             _transfer(request.owner, address(0), assetChainId, address(request.asset), request.amount);
 
-            if (local) {
-                warehouse.release(request.asset, request.to, request.amount);
-            } else {
-                messages[i] = Warehouse.TransferMessage({
-                    asset: address(request.asset),
-                    nonce: ++outboundNonce,
-                    amount: request.amount,
-                    to: request.to
-                });
-            }
+            messages[i] = Warehouse.TransferMessage({
+                asset: address(request.asset),
+                nonce: ++outboundNonce,
+                amount: request.amount,
+                to: request.to
+            });
 
             emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
         }
 
-        if (!local) {
-            _checkRoute(assetChainId);
+        _checkRoute(assetChainId);
 
-            bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(messages));
+        bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(messages));
 
-            CrosschainAdapter module = sendModule;
-            if (address(module) == address(0)) revert UnknownModule();
-            bytes32 messageId = module.send{ value: msg.value }(assetChainId, data.messageGas, payload);
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        bytes32 messageId = adapter.send{ value: msg.value }(assetChainId, data.messageGas, payload);
 
-            for (uint256 i; i < messages.length; i++) {
-                emit MessageSent(messageId, messages[i].amount, messages[i].to);
-            }
+        for (uint256 i; i < messages.length; i++) {
+            emit MessageSent(messageId, messages[i].amount, messages[i].to);
         }
     }
 
-    // ========================================= MODULE =========================================
+    // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted nonReentrant {
         Warehouse.Chain memory chain = chains[chainId];

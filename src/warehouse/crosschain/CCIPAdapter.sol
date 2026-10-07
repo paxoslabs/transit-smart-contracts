@@ -4,16 +4,17 @@ pragma solidity ^0.8.37;
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
-import { CrosschainAdapter } from "./CrosschainAdapter.sol";
+import { MessagingAdapter } from "./MessagingAdapter.sol";
 
-contract CCIPAdapter is CrosschainAdapter, CCIPReceiver {
+contract CCIPAdapter is MessagingAdapter, CCIPReceiver {
 
     constructor(
         address _authority,
         address _endpoint,
+        address _localEndpoint,
         address _router
     )
-        CrosschainAdapter(_authority, _endpoint)
+        MessagingAdapter(_authority, _endpoint, _localEndpoint)
         CCIPReceiver(_router)
     { }
 

@@ -7,10 +7,10 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../../src/warehouse/Warehouse.sol";
 import { Hub } from "../../src/warehouse/Hub.sol";
-import { MockCrosschainModule } from "../mocks/MockCrosschainModule.sol";
-import { CrosschainAdapter } from "../../src/warehouse/crosschain/CrosschainAdapter.sol";
+import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
+import { MessagingAdapter } from "../../src/warehouse/crosschain/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, WAREHOUSE_ROLE, CROSSCHAIN_MODULE_ROLE, HUB_ROLE, SOLVER_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE } from "../../src/helpers/Constants.sol";
 
 contract WarehouseUnitTest is Test {
 
@@ -21,6 +21,7 @@ contract WarehouseUnitTest is Test {
     Warehouse warehouse;
     ERC20 usdc;
     Hub hub;
+    MockMessagingAdapter local;
 
     address admin = makeAddr("admin");
     address vault = makeAddr("vault");
@@ -37,32 +38,26 @@ contract WarehouseUnitTest is Test {
 
         authority = new TransitAuthority(admin);
         hub = new Hub(address(authority));
-        warehouse = new Warehouse(address(authority), HUB, vault, hub);
+        warehouse = new Warehouse(address(authority), vault);
+        local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse));
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = Warehouse.setSendModule.selector;
+        bytes4[] memory adminSels = new bytes4[](2);
+        adminSels[0] = Warehouse.setMessagingAdapter.selector;
+        adminSels[1] = Warehouse.addChain.selector;
 
-        bytes4[] memory hubAdminSels = new bytes4[](3);
-        hubAdminSels[0] = Hub.setWarehouse.selector;
-        hubAdminSels[1] = Hub.setSendModule.selector;
-        hubAdminSels[2] = Hub.addChain.selector;
+        bytes4[] memory hubAdminSels = new bytes4[](2);
+        hubAdminSels[0] = Hub.setMessagingAdapter.selector;
+        hubAdminSels[1] = Hub.addChain.selector;
 
         bytes4[] memory withdrawSels = new bytes4[](1);
         withdrawSels[0] = Hub.withdrawWithSignature.selector;
 
-        bytes4[] memory releaseSels = new bytes4[](1);
-        releaseSels[0] = Warehouse.release.selector;
-
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), releaseSels, HUB_ROLE);
         authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
         authority.grantRole(SOLVER_ROLE, backend);
-        authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
-        authority.grantRole(HUB_ROLE, address(hub));
-        hub.setWarehouse(warehouse);
         vm.stopPrank();
 
         _authorizeHub();
@@ -79,14 +74,18 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory sels = new bytes4[](1);
         sels[0] = Hub.receiveMessage.selector;
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(hub), sels, CROSSCHAIN_MODULE_ROLE);
-        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(warehouse));
-        hub.addChain(HUB, true, false);
+        authority.setTargetFunctionRole(address(hub), sels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), sels, MESSAGING_ADAPTER_ROLE);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
+        hub.addChain(HUB, true, true);
+        hub.setMessagingAdapter(local);
+        warehouse.addChain(HUB, true, true);
+        warehouse.setMessagingAdapter(local);
         vm.stopPrank();
     }
 
     function _noBridge() internal pure returns (Warehouse.BridgeData memory) {
-        return Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "");
+        return Warehouse.BridgeData(HUB, address(0), ERC20(address(0)), 0, "");
     }
 
     function _deposit(address user, uint256 amount) internal {
@@ -147,19 +146,19 @@ contract WarehouseUnitTest is Test {
 
     function testSpokeDepositCreditsHub() public {
         vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, Hub(address(0)));
-        MockCrosschainModule spokeModule = new MockCrosschainModule(address(authority), address(spokeWarehouse));
+        Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
+        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0));
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
         vm.chainId(HUB);
-        MockCrosschainModule hubModule = new MockCrosschainModule(address(authority), address(hub));
+        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0));
 
         bytes4[] memory warehouseSels = new bytes4[](2);
-        warehouseSels[0] = Warehouse.setSendModule.selector;
+        warehouseSels[0] = Warehouse.setMessagingAdapter.selector;
         warehouseSels[1] = Warehouse.addChain.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
-        peerSels[0] = CrosschainAdapter.setPeer.selector;
+        peerSels[0] = MessagingAdapter.setPeer.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Hub.receiveMessage.selector;
@@ -167,17 +166,17 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeModule), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hubModule), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hub), receiveSels, CROSSCHAIN_MODULE_ROLE);
-        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(hubModule));
+        authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(hubAdapter), peerSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
-        spokeWarehouse.setSendModule(spokeModule);
+        spokeWarehouse.setMessagingAdapter(spokeAdapter);
         spokeWarehouse.addChain(HUB, true, true);
-        spokeModule.setPeer(HUB, bytes32(uint256(uint160(address(hubModule)))), HUB, 200_000, 0);
+        spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0);
 
         hub.addChain(SPOKE, true, true);
-        hubModule.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeModule)))), SPOKE, 200_000, 0);
+        hubAdapter.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE, 200_000, 0);
         vm.stopPrank();
 
         vm.chainId(SPOKE);
@@ -190,23 +189,23 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
 
         assertEq(usdg.balanceOf(vault), 100e6, "spoke deposit: vault did not receive usdg");
-        bytes[] memory queued = spokeModule.pending();
+        bytes[] memory queued = spokeAdapter.pending();
         assertEq(queued.length, 1, "spoke deposit: no Transfer message queued to hub");
 
         vm.chainId(HUB);
-        hubModule.deliver(SPOKE, bytes32(uint256(uint160(address(spokeModule)))), queued[0]);
+        hubAdapter.deliver(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), queued[0]);
 
         assertEq(hub.balanceOf(alice, SPOKE, address(usdg)), 100e6, "spoke deposit: hub did not credit alice");
     }
 
     function testSpokeDepositToNonHubReverts() public {
         vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), HUB, vault, Hub(address(0)));
+        Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
 
         deal(address(usdc), alice, 1e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdc), address(spokeWarehouse), 1e6);
-        vm.expectRevert(Warehouse.DestinationNotHub.selector);
+        vm.expectRevert(abi.encodeWithSelector(Warehouse.MessagesNotAllowedTo.selector, SPOKE));
         spokeWarehouse.deposit(
             usdc, 1e6, alice, Warehouse.BridgeData(SPOKE, address(0), ERC20(address(0)), 200_000, "")
         );
@@ -289,7 +288,7 @@ contract WarehouseUnitTest is Test {
 
     // ---------------------------------------------------------------- messages
 
-    function testReceiveMessageFromNonModuleReverts() public {
+    function testReceiveMessageFromNonAdapterReverts() public {
         Warehouse.TransferMessage[] memory m = new Warehouse.TransferMessage[](1);
         m[0] = Warehouse.TransferMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
         bytes memory payload = abi.encode(Warehouse.MessageType.Withdrawal, abi.encode(m));

@@ -8,16 +8,14 @@ import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
 import { Warehouse } from "../src/warehouse/Warehouse.sol";
 import { Hub } from "../src/warehouse/Hub.sol";
-import { CrosschainAdapter } from "../src/warehouse/crosschain/CrosschainAdapter.sol";
-import { MockCrosschainModule } from "./mocks/MockCrosschainModule.sol";
+import { MessagingAdapter } from "../src/warehouse/crosschain/MessagingAdapter.sol";
+import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
     ADMIN_ROLE,
     PAUSER_ROLE,
-    WAREHOUSE_ROLE,
-    CROSSCHAIN_MODULE_ROLE,
+    MESSAGING_ADAPTER_ROLE,
     SOLVER_ROLE,
-    TERMINAL_ROLE,
-    HUB_ROLE
+    TERMINAL_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -55,7 +53,7 @@ contract TransitTestBase is Test {
     Hub hub;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
-    mapping(uint64 => MockCrosschainModule) modules;
+    mapping(uint64 => MockMessagingAdapter) adapters;
 
     mapping(uint64 => uint256) forkOf;
 
@@ -95,13 +93,14 @@ contract TransitTestBase is Test {
 
         TransitAuthority authority = new TransitAuthority(admin);
         if (chain == hubID) hub = new Hub(address(authority));
-        Warehouse warehouse = new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : Hub(address(0)));
-        MockCrosschainModule module =
-            new MockCrosschainModule(address(authority), chain == hubID ? address(hub) : address(warehouse));
+        Warehouse warehouse = new Warehouse(address(authority), vault);
+        MockMessagingAdapter adapter = chain == hubID
+            ? new MockMessagingAdapter(address(authority), address(hub), address(warehouse))
+            : new MockMessagingAdapter(address(authority), address(warehouse), address(0));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
-        modules[chain] = module;
+        adapters[chain] = adapter;
 
         _grantRoles(chain);
     }
@@ -109,17 +108,20 @@ contract TransitTestBase is Test {
     function _wireChains() internal {
         for (uint256 i; i < spokeIDs.length; i++) {
             uint64 spoke = spokeIDs[i];
-            _addRoute(spoke, hubID, address(modules[hubID]));
-            _addRoute(hubID, spoke, address(modules[spoke]));
+            _addRoute(spoke, hubID, address(adapters[hubID]));
+            _addRoute(hubID, spoke, address(adapters[spoke]));
         }
     }
 
-    function _addRoute(uint64 onChain, uint64 remoteChain, address remoteModule) internal {
+    function _addRoute(uint64 onChain, uint64 remoteChain, address remoteAdapter) internal {
         _selectChain(onChain);
         vm.startPrank(admin);
-        if (onChain == hubID) hub.addChain(remoteChain, true, true);
-        else warehouses[onChain].addChain(remoteChain, true, true);
-        modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain, 200_000, 0);
+        if (onChain == hubID) {
+            hub.addChain(remoteChain, true, true);
+        } else {
+            warehouses[onChain].addChain(remoteChain, true, true);
+        }
+        adapters[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteAdapter))), remoteChain, 200_000, 0);
         vm.stopPrank();
     }
 
@@ -128,7 +130,7 @@ contract TransitTestBase is Test {
         Warehouse warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](4);
-        adminSels[0] = Warehouse.setSendModule.selector;
+        adminSels[0] = Warehouse.setMessagingAdapter.selector;
         adminSels[1] = Warehouse.addChain.selector;
         adminSels[2] = Warehouse.setAllowMessagesFromChain.selector;
         adminSels[3] = Warehouse.setAllowMessagesToChain.selector;
@@ -141,32 +143,28 @@ contract TransitTestBase is Test {
         receiveSels[0] = Warehouse.receiveMessage.selector;
 
         bytes4[] memory peerSels = new bytes4[](2);
-        peerSels[0] = CrosschainAdapter.setPeer.selector;
-        peerSels[1] = CrosschainAdapter.setChainGasLimit.selector;
+        peerSels[0] = MessagingAdapter.setPeer.selector;
+        peerSels[1] = MessagingAdapter.setChainGasLimit.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(
-            chain == hubID ? address(hub) : address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE
-        );
-        authority.setTargetFunctionRole(address(modules[chain]), peerSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), receiveSels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(adapters[chain]), peerSels, ADMIN_ROLE);
 
-        authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
-        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(modules[chain]));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(adapters[chain]));
         authority.grantRole(PAUSER_ROLE, admin);
         authority.grantRole(SOLVER_ROLE, solver);
 
         if (chain == hubID) {
-            authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(warehouse));
+            authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
 
-            bytes4[] memory hubAdminSels = new bytes4[](6);
-            hubAdminSels[0] = Hub.setWarehouse.selector;
-            hubAdminSels[1] = Hub.setSendModule.selector;
-            hubAdminSels[2] = Hub.addChain.selector;
-            hubAdminSels[3] = Hub.removeChain.selector;
-            hubAdminSels[4] = Hub.setAllowMessagesFromChain.selector;
-            hubAdminSels[5] = Hub.setAllowMessagesToChain.selector;
+            bytes4[] memory hubAdminSels = new bytes4[](5);
+            hubAdminSels[0] = Hub.setMessagingAdapter.selector;
+            hubAdminSels[1] = Hub.addChain.selector;
+            hubAdminSels[2] = Hub.removeChain.selector;
+            hubAdminSels[3] = Hub.setAllowMessagesFromChain.selector;
+            hubAdminSels[4] = Hub.setAllowMessagesToChain.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory withdrawSels = new bytes4[](1);
@@ -178,17 +176,11 @@ contract TransitTestBase is Test {
             hubPauseSels[1] = Hub.unpause.selector;
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
-            bytes4[] memory releaseSels = new bytes4[](1);
-            releaseSels[0] = Warehouse.release.selector;
-            authority.setTargetFunctionRole(address(warehouse), releaseSels, HUB_ROLE);
-            authority.grantRole(HUB_ROLE, address(hub));
-
-            hub.setWarehouse(warehouse);
-            hub.setSendModule(modules[chain]);
-            hub.addChain(hubID, true, false);
-        } else {
-            warehouse.setSendModule(modules[chain]);
+            hub.addChain(hubID, true, true);
+            hub.setMessagingAdapter(adapters[chain]);
+            warehouse.addChain(hubID, true, true);
         }
+        warehouse.setMessagingAdapter(adapters[chain]);
         vm.stopPrank();
     }
 
@@ -286,7 +278,7 @@ contract TransitTestBase is Test {
 
     function _depositData(uint64 chain) internal view returns (Warehouse.BridgeData memory) {
         return chain == hubID
-            ? Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "")
+            ? Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 0, "")
             : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
     }
 

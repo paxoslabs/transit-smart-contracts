@@ -2,9 +2,10 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { IMessagingAdapter } from "./IMessagingAdapter.sol";
 import { ICrosschainReceiver } from "./ICrosschainReceiver.sol";
 
-abstract contract CrosschainAdapter is AccessManaged {
+abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
     struct PeerConfig {
         bytes32 peer;
@@ -14,6 +15,7 @@ abstract contract CrosschainAdapter is AccessManaged {
     }
 
     address public immutable endpoint;
+    address public immutable localEndpoint;
 
     mapping(uint64 chainId => PeerConfig) public peers;
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
@@ -30,14 +32,11 @@ abstract contract CrosschainAdapter is AccessManaged {
     error ZeroMessageGasLimit();
     error GasLimitExceeded();
     error GasTooLow();
+    error NoFee();
 
-    constructor(address _authority, address _endpoint) AccessManaged(_authority) {
+    constructor(address _authority, address _endpoint, address _localEndpoint) AccessManaged(_authority) {
         endpoint = _endpoint;
-    }
-
-    modifier onlyEndpoint() {
-        if (msg.sender != endpoint) revert OnlyEndpoint();
-        _;
+        localEndpoint = _localEndpoint;
     }
 
     function setPeer(
@@ -61,8 +60,6 @@ abstract contract CrosschainAdapter is AccessManaged {
         peers[chainId].messageGasLimit = messageGasLimit;
     }
 
-    function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view virtual returns (uint256 fee);
-
     function send(
         uint64 chainId,
         uint64 gasLimit,
@@ -70,14 +67,27 @@ abstract contract CrosschainAdapter is AccessManaged {
     )
         external
         payable
-        onlyEndpoint
         returns (bytes32 messageId)
     {
-        PeerConfig memory peer = _peerOf(chainId);
-        if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
-        if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
+        if (chainId == block.chainid) {
+            if (msg.value != 0) revert NoFee();
 
-        messageId = _send(chainId, gasLimit, peer, payload);
+            address target;
+            if (msg.sender == endpoint) target = localEndpoint;
+            else if (msg.sender == localEndpoint) target = endpoint;
+            else revert OnlyEndpoint();
+
+            messageId = keccak256(payload);
+            ICrosschainReceiver(target).receiveMessage(chainId, payload);
+        } else {
+            if (msg.sender != endpoint) revert OnlyEndpoint();
+
+            PeerConfig memory peer = _peerOf(chainId);
+            if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
+            if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
+
+            messageId = _send(chainId, gasLimit, peer, payload);
+        }
 
         emit MessageSent(chainId, messageId, payload);
     }
