@@ -7,7 +7,7 @@ import { Hub } from "./warehouse/Hub.sol";
 
 contract Terminal is EIP712 {
 
-    /// TODO: Decide the remaining Order fields. validTo, feeAmount and partiallyFillable are the obvious candidates.
+    /// TODO: Decide the remaining Order fields. validTo and feeAmount are the obvious candidates.
     struct Order {
         uint64 sellTokenChainId;
         address sellToken;
@@ -17,22 +17,27 @@ contract Terminal is EIP712 {
         uint256 buyAmount;
         address receiver;
         bytes32 salt;
+        bool partiallyFillable;
     }
 
-    struct SignedOrder {
+    struct Fill {
         Order order;
         bytes signature;
+        uint256 sellFilled;
+        uint256 buyFilled;
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,bytes32 salt)"
+        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,bytes32 salt,bool partiallyFillable)"
     );
 
     Hub public immutable hub;
 
-    mapping(bytes32 orderHash => bool) public filled;
+    mapping(bytes32 orderHash => uint256) public filledAmount;
 
-    error OrderFilled(bytes32 orderHash);
+    error Overfill(bytes32 orderHash);
+    error NotPartiallyFillable(bytes32 orderHash);
+    error LimitPrice(bytes32 orderHash);
 
     constructor(Hub _hub) {
         hub = _hub;
@@ -50,19 +55,30 @@ contract Terminal is EIP712 {
     /// TODO: Decide what happens to trade surplus. Since this is not UCP, a batch can over-collateralize and
     /// the excess stays in this contract with nothing to claim it. Leaving it here for now.
     /// TODO: Decide solver access control. settle is unguarded, so anyone can call it.
-    function settle(SignedOrder[] calldata orders) external {
-        for (uint256 i; i < orders.length; i++) {
-            Order calldata order = orders[i].order;
+    function settle(Fill[] calldata fills) external {
+        for (uint256 i; i < fills.length; i++) {
+            Fill calldata fill = fills[i];
+            Order calldata order = fill.order;
             bytes32 orderHash = _hashOrder(order);
-            if (filled[orderHash]) revert OrderFilled(orderHash);
-            filled[orderHash] = true;
-            address owner = _recoverOrderOwner(orderHash, orders[i].signature);
-            hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, order.sellAmount);
+
+            uint256 filled = filledAmount[orderHash] + fill.sellFilled;
+            if (filled > order.sellAmount) revert Overfill(orderHash);
+            if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
+                revert NotPartiallyFillable(orderHash);
+            }
+            /// TODO: Decide overflow handling. These products revert for amounts above ~2^128; fullMulDiv avoids it.
+            if (fill.buyFilled * order.sellAmount < fill.sellFilled * order.buyAmount) revert LimitPrice(orderHash);
+            filledAmount[orderHash] = filled;
+
+            address owner = _recoverOrderOwner(orderHash, fill.signature);
+            hub.move(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
         }
 
-        for (uint256 i; i < orders.length; i++) {
-            Order calldata order = orders[i].order;
-            hub.move(address(this), order.receiver, order.buyTokenChainId, order.buyToken, order.buyAmount);
+        for (uint256 i; i < fills.length; i++) {
+            Fill calldata fill = fills[i];
+            hub.move(
+                address(this), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
+            );
         }
     }
 
@@ -78,7 +94,8 @@ contract Terminal is EIP712 {
                     order.sellAmount,
                     order.buyAmount,
                     order.receiver,
-                    order.salt
+                    order.salt,
+                    order.partiallyFillable
                 )
             )
         );

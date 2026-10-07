@@ -96,8 +96,7 @@ contract TransitTestBase is Test {
 
         TransitAuthority authority = new TransitAuthority(admin);
         if (chain == hubID) hub = new Hub(address(authority));
-        Warehouse warehouse =
-            new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : Hub(address(0)));
+        Warehouse warehouse = new Warehouse(address(authority), hubID, vault, chain == hubID ? hub : Hub(address(0)));
         MockCrosschainModule module =
             new MockCrosschainModule(address(authority), chain == hubID ? address(hub) : address(warehouse));
 
@@ -333,7 +332,7 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(Terminal.Order memory order, uint256 pk) internal view returns (Terminal.SignedOrder memory) {
+    function _signOrder(Terminal.Order memory order, uint256 pk) internal view returns (Terminal.Fill memory) {
         bytes32 structHash = keccak256(
             abi.encode(
                 terminal.ORDER_TYPEHASH(),
@@ -344,12 +343,13 @@ contract TransitTestBase is Test {
                 order.sellAmount,
                 order.buyAmount,
                 order.receiver,
-                order.salt
+                order.salt,
+                order.partiallyFillable
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", terminal.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
-        return Terminal.SignedOrder(order, abi.encodePacked(r, s, v));
+        return Terminal.Fill(order, abi.encodePacked(r, s, v), order.sellAmount, order.buyAmount);
     }
 
 }
