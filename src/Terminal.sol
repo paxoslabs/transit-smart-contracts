@@ -8,7 +8,6 @@ import { Hub } from "./warehouse/Hub.sol";
 
 contract Terminal is AccessManaged, EIP712 {
 
-    /// TODO: Decide the remaining Order fields. validTo is the obvious candidate.
     struct Order {
         uint64 sellTokenChainId;
         address sellToken;
@@ -17,6 +16,7 @@ contract Terminal is AccessManaged, EIP712 {
         uint256 sellAmount;
         uint256 buyAmount;
         address receiver;
+        uint256 expiresAt;
         bytes32 salt;
         bool partiallyFillable;
     }
@@ -29,7 +29,7 @@ contract Terminal is AccessManaged, EIP712 {
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,bytes32 salt,bool partiallyFillable)"
+        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
     );
 
     Hub public immutable HUB;
@@ -39,6 +39,7 @@ contract Terminal is AccessManaged, EIP712 {
 
     event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
 
+    error Expired(bytes32 orderHash);
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
@@ -63,6 +64,7 @@ contract Terminal is AccessManaged, EIP712 {
             Order calldata order = fill.order;
             bytes32 orderHash = _hashOrder(order);
 
+            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
             uint256 filled = filledAmount[orderHash] + fill.sellFilled;
             if (filled > order.sellAmount) revert Overfill(orderHash);
             if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
@@ -106,6 +108,7 @@ contract Terminal is AccessManaged, EIP712 {
                     order.sellAmount,
                     order.buyAmount,
                     order.receiver,
+                    order.expiresAt,
                     order.salt,
                     order.partiallyFillable
                 )

@@ -351,6 +351,7 @@ contract TransitTestBase is Test {
                 order.sellAmount,
                 order.buyAmount,
                 order.receiver,
+                order.expiresAt,
                 order.salt,
                 order.partiallyFillable
             )
