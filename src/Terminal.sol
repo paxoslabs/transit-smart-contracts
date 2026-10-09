@@ -29,6 +29,12 @@ contract Terminal is AccessManaged, EIP712 {
         uint256 buyFilled;
     }
 
+    struct Fee {
+        address asset;
+        uint64 assetChainId;
+        uint256 amount;
+    }
+
     bytes32 public constant ORDER_TYPEHASH = keccak256(
         "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
     );
@@ -69,7 +75,8 @@ contract Terminal is AccessManaged, EIP712 {
         emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
     }
 
-    function settle(uint256 epoch, Fill[] calldata fills) external restricted {
+    function settle(uint256 epoch, Fill[] calldata fills, Fee[] calldata fees) external restricted {
+        Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](fills.length * 2 + fees.length);
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
             Order calldata order = fill.order;
@@ -89,25 +96,25 @@ contract Terminal is AccessManaged, EIP712 {
             address owner = _recoverOrderOwner(orderHash, fill.signature);
             uint256 cancelled = cancelledFrom[owner][orderHash];
             if (cancelled != 0 && epoch >= cancelled) revert Cancelled(orderHash);
-            HUB.transferFrom(owner, address(this), order.sellTokenChainId, order.sellToken, fill.sellFilled);
+            deltas[i] = Hub.TransferDelta(owner, address(0), order.sellTokenChainId, order.sellToken, fill.sellFilled);
 
             emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
         }
 
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
-            HUB.transferFrom(
-                address(this), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
+            deltas[fills.length + i] = Hub.TransferDelta(
+                address(0), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
             );
         }
 
-        for (uint256 i; i < fills.length; i++) {
-            Order calldata order = fills[i].order;
-            uint256 surplus = HUB.balanceOf(address(this), order.sellTokenChainId, order.sellToken);
-            if (surplus > 0) {
-                HUB.transferFrom(address(this), SURPLUS_RECIPIENT, order.sellTokenChainId, order.sellToken, surplus);
-            }
+        for (uint256 i; i < fees.length; i++) {
+            Fee calldata fee = fees[i];
+            deltas[fills.length * 2 + i] =
+                Hub.TransferDelta(address(0), SURPLUS_RECIPIENT, fee.assetChainId, fee.asset, fee.amount);
         }
+
+        HUB.transferAmong(deltas);
 
         HUB.advanceEpoch(epoch);
     }
