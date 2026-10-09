@@ -97,15 +97,10 @@ contract Terminal is AccessManaged, EIP712 {
             uint256 cancelled = cancelledFrom[owner][orderHash];
             if (cancelled != 0 && epoch >= cancelled) revert Cancelled(orderHash);
             deltas[i] = Hub.TransferDelta(owner, address(0), order.sellTokenChainId, order.sellToken, fill.sellFilled);
+            deltas[fills.length + i] =
+                Hub.TransferDelta(address(0), order.receiver, order.buyTokenChainId, order.buyToken, fill.buyFilled);
 
             emit Filled(orderHash, owner, fill.sellFilled, fill.buyFilled);
-        }
-
-        for (uint256 i; i < fills.length; i++) {
-            Fill calldata fill = fills[i];
-            deltas[fills.length + i] = Hub.TransferDelta(
-                address(0), fill.order.receiver, fill.order.buyTokenChainId, fill.order.buyToken, fill.buyFilled
-            );
         }
 
         for (uint256 i; i < fees.length; i++) {
