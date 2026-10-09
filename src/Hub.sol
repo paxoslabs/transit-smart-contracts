@@ -34,6 +34,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         pendingWithdrawal;
 
     uint256 public settlementEpoch;
+    uint256 public lastEpochAdvancedAt;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
@@ -53,7 +54,9 @@ contract Hub is MessagingEndpoint, EIP712 {
     error NotEffective();
     error InsufficientBalance();
 
-    constructor(address _authority) MessagingEndpoint(_authority) { }
+    constructor(address _authority) MessagingEndpoint(_authority) {
+        lastEpochAdvancedAt = block.timestamp;
+    }
 
     /// TODO: Decide the EIP712 domain name and version. Currently "Transit Hub" and "1".
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -84,9 +87,11 @@ contract Hub is MessagingEndpoint, EIP712 {
         _transfer(from, to, assetChainId, asset, amount);
     }
 
-    function advanceEpoch(uint256 epoch) external restricted {
+    function advanceEpoch(uint256 epoch) external {
+        if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
         if (epoch != settlementEpoch) revert BadEpoch(epoch);
         settlementEpoch = epoch + 1;
+        lastEpochAdvancedAt = block.timestamp;
         emit EpochAdvanced(epoch + 1);
     }
 
