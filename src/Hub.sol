@@ -24,6 +24,14 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 effectiveAtEpoch;
     }
 
+    struct TransferDelta {
+        address from;
+        address to;
+        uint64 assetChainId;
+        address asset;
+        uint256 amount;
+    }
+
     bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
         "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
     );
@@ -53,6 +61,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error BadEpoch(uint256 epoch);
     error NotEffective();
     error InsufficientBalance();
+    error NotZeroSum();
 
     constructor(address _authority) MessagingEndpoint(_authority) {
         lastEpochAdvancedAt = block.timestamp;
@@ -85,6 +94,39 @@ contract Hub is MessagingEndpoint, EIP712 {
             revert InsufficientBalance();
         }
         _transfer(from, to, assetChainId, asset, amount);
+    }
+
+    function transferAmong(TransferDelta[] calldata deltas) external restricted {
+        _requireNotPaused();
+        uint64[] memory chainIds = new uint64[](deltas.length);
+        address[] memory assets = new address[](deltas.length);
+        uint256[] memory debits = new uint256[](deltas.length);
+        uint256[] memory credits = new uint256[](deltas.length);
+        uint256 count;
+        for (uint256 i; i < deltas.length; i++) {
+            TransferDelta calldata delta = deltas[i];
+            uint256 j;
+            while (j < count && (chainIds[j] != delta.assetChainId || assets[j] != delta.asset)) j++;
+            if (j == count) {
+                chainIds[j] = delta.assetChainId;
+                assets[j] = delta.asset;
+                count++;
+            }
+            if (delta.from != address(0)) {
+                if (
+                    balanceOf[delta.from][delta.assetChainId][delta.asset]
+                        < _reserved(delta.from, delta.assetChainId, delta.asset) + delta.amount
+                ) {
+                    revert InsufficientBalance();
+                }
+                debits[j] += delta.amount;
+            }
+            if (delta.to != address(0)) credits[j] += delta.amount;
+            _transfer(delta.from, delta.to, delta.assetChainId, delta.asset, delta.amount);
+        }
+        for (uint256 j; j < count; j++) {
+            if (debits[j] != credits[j]) revert NotZeroSum();
+        }
     }
 
     function advanceEpoch(uint256 epoch) external {
