@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Terminal } from "../src/Terminal.sol";
+import { OrderRegistry } from "../src/OrderRegistry.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
@@ -51,6 +52,7 @@ contract TransitTestBase is Test {
     uint256 withdrawNonce;
 
     Terminal terminal;
+    OrderRegistry orderRegistry;
     Hub hub;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
@@ -82,7 +84,8 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubID);
-        terminal = new Terminal(address(authorities[hubID]), hub, surplusRecipient);
+        orderRegistry = new OrderRegistry(address(authorities[hubID]), hub);
+        terminal = new Terminal(address(authorities[hubID]), hub, orderRegistry, surplusRecipient);
         _grantTerminalRole();
 
         _wireChains();
@@ -184,6 +187,10 @@ contract TransitTestBase is Test {
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
         authorities[hubID].grantRole(TERMINAL_ROLE, address(terminal));
+
+        bytes4[] memory fillSels = new bytes4[](1);
+        fillSels[0] = OrderRegistry.fill.selector;
+        authorities[hubID].setTargetFunctionRole(address(orderRegistry), fillSels, TERMINAL_ROLE);
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = Terminal.settle.selector;
@@ -325,10 +332,10 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(Terminal.Order memory order, uint256 pk) internal view returns (Terminal.Fill memory) {
+    function _signOrder(OrderRegistry.Order memory order, uint256 pk) internal view returns (Terminal.Fill memory) {
         bytes32 structHash = keccak256(
             abi.encode(
-                terminal.ORDER_TYPEHASH(),
+                orderRegistry.ORDER_TYPEHASH(),
                 order.sellTokenChainId,
                 order.sellToken,
                 order.buyTokenChainId,
@@ -341,7 +348,7 @@ contract TransitTestBase is Test {
                 order.partiallyFillable
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", terminal.DOMAIN_SEPARATOR(), structHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", orderRegistry.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return Terminal.Fill(order, abi.encodePacked(r, s, v), order.sellAmount, order.buyAmount);
     }

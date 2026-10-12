@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Terminal } from "../../src/Terminal.sol";
+import { OrderRegistry } from "../../src/OrderRegistry.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 
 contract HappyPaths is TransitTestBase {
@@ -42,13 +43,13 @@ contract HappyPaths is TransitTestBase {
         _selectChain(hubID);
 
         Terminal.Fill memory aliceOrder = _signOrder(
-            Terminal.Order(
+            OrderRegistry.Order(
                 hubID, address(usdc), hubID, address(usdg), amount, amount, alice, block.timestamp, bytes32(uint256(1)), false
             ),
             alicePk
         );
         Terminal.Fill memory bobOrder = _signOrder(
-            Terminal.Order(
+            OrderRegistry.Order(
                 hubID, address(usdg), hubID, address(usdc), amount, amount, bob, block.timestamp, bytes32(uint256(2)), false
             ),
             bobPk

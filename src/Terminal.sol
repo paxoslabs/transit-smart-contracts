@@ -2,30 +2,16 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { EIP712 } from "solady/utils/EIP712.sol";
-import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { Hub } from "./Hub.sol";
+import { OrderRegistry } from "./OrderRegistry.sol";
 
-contract Terminal is AccessManaged, EIP712 {
+contract Terminal is AccessManaged {
 
     using FixedPointMathLib for uint256;
 
-    struct Order {
-        uint64 sellTokenChainId;
-        address sellToken;
-        uint64 buyTokenChainId;
-        address buyToken;
-        uint256 sellAmount;
-        uint256 buyAmount;
-        address receiver;
-        uint256 expiresAt;
-        bytes32 salt;
-        bool partiallyFillable;
-    }
-
     struct Fill {
-        Order order;
+        OrderRegistry.Order order;
         bytes signature;
         uint256 sellFilled;
         uint256 buyFilled;
@@ -37,67 +23,42 @@ contract Terminal is AccessManaged, EIP712 {
         uint256 amount;
     }
 
-    bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
-    );
-
     uint256 public constant MAX_BPS = 10_000;
 
     Hub public immutable HUB;
+    OrderRegistry public immutable ORDER_REGISTRY;
     address public immutable SURPLUS_RECIPIENT;
 
     uint256 public maxFeeSlippage;
 
-    mapping(bytes32 orderHash => uint256) public filledAmount;
-    mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
-
     event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
-    event CancelRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
 
-    error Expired(bytes32 orderHash);
-    error Overfill(bytes32 orderHash);
-    error NotPartiallyFillable(bytes32 orderHash);
     error LimitPrice(bytes32 orderHash);
-    error Cancelled(bytes32 orderHash);
 
-    constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
+    constructor(
+        address _authority,
+        Hub _hub,
+        OrderRegistry _orderRegistry,
+        address _surplusRecipient
+    )
+        AccessManaged(_authority)
+    {
         HUB = _hub;
+        ORDER_REGISTRY = _orderRegistry;
         SURPLUS_RECIPIENT = _surplusRecipient;
-    }
-
-    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Terminal" and "1".
-    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
-        return ("Transit Terminal", "1");
-    }
-
-    function DOMAIN_SEPARATOR() external view returns (bytes32) {
-        return _domainSeparator();
     }
 
     function setMaxFeeSlippage(uint256 _maxFeeSlippage) external restricted {
         maxFeeSlippage = _maxFeeSlippage;
     }
 
-    function requestCancel(bytes32 orderHash) external {
-        if (cancelledFrom[msg.sender][orderHash] != 0) return;
-        uint256 effectiveAtEpoch = HUB.settlementEpoch() + 1;
-        cancelledFrom[msg.sender][orderHash] = effectiveAtEpoch;
-        emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
-    }
-
     function settle(uint256 epoch, Fill[] calldata fills, Fee[] calldata fees) external restricted {
         Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](fills.length * 2 + fees.length);
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
-            Order calldata order = fill.order;
-            bytes32 orderHash = _hashOrder(order);
+            OrderRegistry.Order calldata order = fill.order;
+            (bytes32 orderHash, address owner) = ORDER_REGISTRY.fill(order, fill.signature, fill.sellFilled);
 
-            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
-            uint256 filled = filledAmount[orderHash] + fill.sellFilled;
-            if (filled > order.sellAmount) revert Overfill(orderHash);
-            if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
-                revert NotPartiallyFillable(orderHash);
-            }
             if (
                 fill.buyFilled
                     < fill.sellFilled
@@ -106,11 +67,6 @@ contract Terminal is AccessManaged, EIP712 {
             ) {
                 revert LimitPrice(orderHash);
             }
-            filledAmount[orderHash] = filled;
-
-            address owner = _recoverOrderOwner(orderHash, fill.signature);
-            uint256 cancelled = cancelledFrom[owner][orderHash];
-            if (cancelled != 0 && epoch >= cancelled) revert Cancelled(orderHash);
             deltas[i] = Hub.TransferDelta(owner, address(0), order.sellTokenChainId, order.sellToken, fill.sellFilled);
             deltas[fills.length + i] =
                 Hub.TransferDelta(address(0), order.receiver, order.buyTokenChainId, order.buyToken, fill.buyFilled);
@@ -127,30 +83,6 @@ contract Terminal is AccessManaged, EIP712 {
         HUB.transferAmong(deltas);
 
         HUB.advanceEpoch(epoch);
-    }
-
-    function _hashOrder(Order calldata order) internal view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    ORDER_TYPEHASH,
-                    order.sellTokenChainId,
-                    order.sellToken,
-                    order.buyTokenChainId,
-                    order.buyToken,
-                    order.sellAmount,
-                    order.buyAmount,
-                    order.receiver,
-                    order.expiresAt,
-                    order.salt,
-                    order.partiallyFillable
-                )
-            )
-        );
-    }
-
-    function _recoverOrderOwner(bytes32 orderHash, bytes calldata signature) internal view returns (address) {
-        return ECDSA.recoverCalldata(orderHash, signature);
     }
 
 }
