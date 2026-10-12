@@ -9,6 +9,8 @@ import { Hub } from "./Hub.sol";
 
 contract Terminal is AccessManaged, EIP712 {
 
+    using FixedPointMathLib for uint256;
+
     struct Order {
         uint64 sellTokenChainId;
         address sellToken;
@@ -39,8 +41,12 @@ contract Terminal is AccessManaged, EIP712 {
         "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
     );
 
+    uint256 public constant MAX_BPS = 10_000;
+
     Hub public immutable HUB;
     address public immutable SURPLUS_RECIPIENT;
+
+    uint256 public maxFeeSlippage;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
     mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
@@ -68,6 +74,10 @@ contract Terminal is AccessManaged, EIP712 {
         return _domainSeparator();
     }
 
+    function setMaxFeeSlippage(uint256 _maxFeeSlippage) external restricted {
+        maxFeeSlippage = _maxFeeSlippage;
+    }
+
     function requestCancel(bytes32 orderHash) external {
         if (cancelledFrom[msg.sender][orderHash] != 0) return;
         uint256 effectiveAtEpoch = HUB.settlementEpoch() + 1;
@@ -88,7 +98,12 @@ contract Terminal is AccessManaged, EIP712 {
             if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
                 revert NotPartiallyFillable(orderHash);
             }
-            if (fill.buyFilled < FixedPointMathLib.fullMulDivUp(fill.sellFilled, order.buyAmount, order.sellAmount)) {
+            if (
+                fill.buyFilled
+                    < fill.sellFilled
+                        .fullMulDivUp(order.buyAmount, order.sellAmount)
+                        .fullMulDivUp(MAX_BPS - maxFeeSlippage, MAX_BPS)
+            ) {
                 revert LimitPrice(orderHash);
             }
             filledAmount[orderHash] = filled;
