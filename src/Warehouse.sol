@@ -5,6 +5,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { OrderRegistry } from "./OrderRegistry.sol";
 
 contract Warehouse is MessagingEndpoint {
 
@@ -50,6 +51,11 @@ contract Warehouse is MessagingEndpoint {
         emit MessageSent(messageId, shares, to);
 
         emit Deposit(address(asset), msg.sender, to, amount);
+    }
+
+    function preApprove(OrderRegistry.Order calldata order, uint64 messageGas) external payable nonReentrant {
+        _requireNotPaused();
+        _sendMessage(_hubChainId(), messageGas, MessageType.PreApproval, abi.encode(msg.sender, order));
     }
 
     function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {

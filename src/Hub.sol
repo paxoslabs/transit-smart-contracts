@@ -6,6 +6,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { OrderRegistry } from "./OrderRegistry.sol";
 
 contract Hub is MessagingEndpoint, EIP712 {
 
@@ -41,12 +42,15 @@ contract Hub is MessagingEndpoint, EIP712 {
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingWithdrawal))) public
         pendingWithdrawal;
 
+    OrderRegistry public orderRegistry;
+
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
     event EpochAdvanced(uint256 epoch);
+    event OrderRegistryUpdated(address indexed orderRegistry);
     event WithdrawalRequested(
         address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
     );
@@ -74,6 +78,11 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
+    }
+
+    function setOrderRegistry(OrderRegistry _orderRegistry) external restricted {
+        orderRegistry = _orderRegistry;
+        emit OrderRegistryUpdated(address(_orderRegistry));
     }
 
     // ========================================= LEDGER =========================================
@@ -227,6 +236,9 @@ contract Hub is MessagingEndpoint, EIP712 {
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
         if (messageType == MessageType.Deposit) {
             _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
+        } else if (messageType == MessageType.PreApproval) {
+            (address owner, OrderRegistry.Order memory order) = abi.decode(body, (address, OrderRegistry.Order));
+            orderRegistry.preApproveFor(owner, order);
         } else {
             assert(false);
         }

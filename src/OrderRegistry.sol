@@ -62,9 +62,11 @@ contract OrderRegistry is AccessManaged, EIP712 {
     }
 
     function preApprove(Order calldata order) external {
-        bytes32 orderHash = hashOrder(order);
-        preApproved[msg.sender][orderHash] = true;
-        emit PreApproved(msg.sender, orderHash, order);
+        _preApprove(msg.sender, order);
+    }
+
+    function preApproveFor(address owner, Order calldata order) external restricted {
+        _preApprove(owner, order);
     }
 
     function fill(
@@ -93,6 +95,12 @@ contract OrderRegistry is AccessManaged, EIP712 {
         }
         uint256 cancelled = cancelledFrom[owner][orderHash];
         if (cancelled != 0 && HUB.settlementEpoch() >= cancelled) revert Cancelled(orderHash);
+    }
+
+    function _preApprove(address owner, Order calldata order) internal {
+        bytes32 orderHash = hashOrder(order);
+        preApproved[owner][orderHash] = true;
+        emit PreApproved(owner, orderHash, order);
     }
 
     function hashOrder(Order calldata order) public view returns (bytes32) {

@@ -17,7 +17,8 @@ import {
     PAUSER_ROLE,
     MESSAGING_ADAPTER_ROLE,
     SOLVER_ROLE,
-    TERMINAL_ROLE
+    TERMINAL_ROLE,
+    HUB_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -174,6 +175,10 @@ contract TransitTestBase is Test {
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
             hub.setMessagingAdapter(adapters[chain]);
+
+            bytes4[] memory registrySels = new bytes4[](1);
+            registrySels[0] = Hub.setOrderRegistry.selector;
+            authority.setTargetFunctionRole(address(hub), registrySels, ADMIN_ROLE);
         }
         warehouse.setMessagingAdapter(adapters[chain]);
         vm.stopPrank();
@@ -191,6 +196,12 @@ contract TransitTestBase is Test {
         bytes4[] memory fillSels = new bytes4[](1);
         fillSels[0] = OrderRegistry.fill.selector;
         authorities[hubID].setTargetFunctionRole(address(orderRegistry), fillSels, TERMINAL_ROLE);
+
+        bytes4[] memory preApproveSels = new bytes4[](1);
+        preApproveSels[0] = OrderRegistry.preApproveFor.selector;
+        authorities[hubID].setTargetFunctionRole(address(orderRegistry), preApproveSels, HUB_ROLE);
+        authorities[hubID].grantRole(HUB_ROLE, address(hub));
+        hub.setOrderRegistry(orderRegistry);
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = Terminal.settle.selector;

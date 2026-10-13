@@ -11,7 +11,8 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
 
     enum MessageType {
         Deposit,
-        Withdrawal
+        Withdrawal,
+        PreApproval
     }
 
     struct TransferMessage {
