@@ -30,13 +30,16 @@ contract OrderRegistry is AccessManaged, EIP712 {
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
     mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
+    mapping(address owner => mapping(bytes32 orderHash => bool)) public preApproved;
 
     event CancelRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
+    event PreApproved(address indexed owner, bytes32 indexed orderHash, Order order);
 
     error Expired(bytes32 orderHash);
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
     error Cancelled(bytes32 orderHash);
+    error NotPreApproved(bytes32 orderHash);
 
     constructor(address _authority, Hub _hub) AccessManaged(_authority) {
         HUB = _hub;
@@ -58,6 +61,12 @@ contract OrderRegistry is AccessManaged, EIP712 {
         emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
     }
 
+    function preApprove(Order calldata order) external {
+        bytes32 orderHash = hashOrder(order);
+        preApproved[msg.sender][orderHash] = true;
+        emit PreApproved(msg.sender, orderHash, order);
+    }
+
     function fill(
         Order calldata order,
         bytes calldata signature,
@@ -75,7 +84,13 @@ contract OrderRegistry is AccessManaged, EIP712 {
         if (!order.partiallyFillable && sellFilled != order.sellAmount) revert NotPartiallyFillable(orderHash);
         filledAmount[orderHash] = filled;
 
-        owner = ECDSA.recoverCalldata(orderHash, signature);
+        // 20-byte signature is the owner's address: pre-approved order. Otherwise ECDSA.
+        if (signature.length == 20) {
+            owner = address(bytes20(signature));
+            if (!preApproved[owner][orderHash]) revert NotPreApproved(orderHash);
+        } else {
+            owner = ECDSA.recoverCalldata(orderHash, signature);
+        }
         uint256 cancelled = cancelledFrom[owner][orderHash];
         if (cancelled != 0 && HUB.settlementEpoch() >= cancelled) revert Cancelled(orderHash);
     }
