@@ -17,6 +17,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 amount;
         uint256 maxFee;
         uint256 nonce;
+        uint256 deadline;
+        bool partiallyFillable;
     }
 
     struct WithdrawalRequest {
@@ -27,6 +29,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 amount;
         uint256 maxFee;
         uint256 nonce;
+        uint256 deadline;
+        bool partiallyFillable;
     }
 
     struct Reservation {
@@ -44,11 +48,11 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce)"
+        "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce)"
+        "WithdrawalRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
@@ -82,6 +86,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error InsufficientBalance();
     error NotZeroSum();
     error ExceedsMaxFee();
+    error Expired();
 
     constructor(address _authority) MessagingEndpoint(_authority) {
         lastEpochAdvancedAt = block.timestamp;
@@ -189,6 +194,8 @@ contract Hub is MessagingEndpoint, EIP712 {
             requestStatus[transferId] = EXECUTED;
             emit TransferRequested(transferId, request, settlementEpoch);
 
+            if (block.timestamp > request.deadline) revert Expired();
+
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
             if (fees[i] != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
@@ -230,6 +237,8 @@ contract Hub is MessagingEndpoint, EIP712 {
             requestStatus[withdrawId] = EXECUTED;
             emit WithdrawalRequested(withdrawId, request, settlementEpoch);
             withdrawIds[i] = withdrawId;
+
+            if (block.timestamp > request.deadline) revert Expired();
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
@@ -274,9 +283,15 @@ contract Hub is MessagingEndpoint, EIP712 {
         _consumeRequest(requestId);
         _release(request.owner, request.assetChainId, request.asset, request.amount);
 
+        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
+        if (block.timestamp > request.deadline) {
+            emit TransferExecuted(requestId, 0);
+            return;
+        }
+
         uint256 amount =
             FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
-        /// TODO: Decide fee on partial execution. Currently min(maxFee, executed amount).
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
         uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
         if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
         amount -= fee;
@@ -303,9 +318,15 @@ contract Hub is MessagingEndpoint, EIP712 {
         _consumeRequest(requestId);
         _release(request.owner, request.assetChainId, request.asset, request.amount);
 
+        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
+        if (block.timestamp > request.deadline) {
+            emit WithdrawalExecuted(requestId, 0);
+            return;
+        }
+
         uint256 amount =
             FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
-        /// TODO: Decide fee on partial execution. Currently min(maxFee, executed amount).
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
         uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
         if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
         amount -= fee;
@@ -356,7 +377,9 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.asset,
                     request.amount,
                     request.maxFee,
-                    request.nonce
+                    request.nonce,
+                    request.deadline,
+                    request.partiallyFillable
                 )
             )
         );
@@ -373,7 +396,9 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.asset,
                     request.amount,
                     request.maxFee,
-                    request.nonce
+                    request.nonce,
+                    request.deadline,
+                    request.partiallyFillable
                 )
             )
         );

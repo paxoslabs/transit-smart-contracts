@@ -345,7 +345,9 @@ contract TransitTestBase is Test {
             asset: address(asset),
             amount: amount,
             maxFee: 0,
-            nonce: ++withdrawNonce
+            nonce: ++withdrawNonce,
+            deadline: type(uint256).max,
+            partiallyFillable: true
         });
     }
 
