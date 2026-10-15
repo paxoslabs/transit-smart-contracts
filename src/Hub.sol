@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { ERC20 } from "solady/tokens/ERC20.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
@@ -20,9 +19,9 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 nonce;
     }
 
-    struct WithdrawRequest {
+    struct WithdrawalRequest {
         address owner;
-        ERC20 asset;
+        address asset;
         uint64 assetChainId;
         uint256 amount;
         uint256 maxFee;
@@ -30,16 +29,10 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 nonce;
     }
 
-    struct PendingTransfer {
-        uint256 amount;
-        address to;
-        uint256 effectiveAtEpoch;
-    }
-
-    struct PendingWithdrawal {
-        uint256 amount;
-        address to;
-        uint256 effectiveAtEpoch;
+    struct Reservation {
+        uint256 effective;
+        uint256 pending;
+        uint256 pendingEpoch;
     }
 
     struct TransferDelta {
@@ -54,17 +47,15 @@ contract Hub is MessagingEndpoint, EIP712 {
         "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce)"
     );
 
-    bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
-        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,uint256 maxFee,address to,uint256 nonce)"
+    bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
+        "WithdrawalRequest(address owner,address asset,uint64 assetChainId,uint256 amount,uint256 maxFee,address to,uint256 nonce)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
-    mapping(bytes32 transferId => bool) public transferUsed;
-    mapping(bytes32 withdrawId => bool) public withdrawUsed;
-    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingTransfer))) public
-        pendingTransfer;
-    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingWithdrawal))) public
-        pendingWithdrawal;
+    uint256 public constant EXECUTED = type(uint256).max;
+
+    mapping(bytes32 requestId => uint256 status) public requestStatus;
+    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => Reservation))) public reservation;
 
     OrderRegistry public orderRegistry;
 
@@ -72,17 +63,12 @@ contract Hub is MessagingEndpoint, EIP712 {
     uint256 public lastEpochAdvancedAt;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
-    event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
     event EpochAdvanced(uint256 epoch);
     event OrderRegistryUpdated(address indexed orderRegistry);
-    event TransferRequested(
-        address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
-    );
-    event TransferExecuted(address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to);
-    event WithdrawalRequested(
-        address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
-    );
-    event WithdrawalExecuted(address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to);
+    event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
+    event TransferExecuted(bytes32 indexed requestId, uint256 amount);
+    event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
+    event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
     error BadSignature();
     error TransferReplay();
@@ -93,6 +79,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error ChainMismatch(uint64 chainId);
     error BadEpoch(uint256 epoch);
     error NotEffective();
+    error NotOwner();
     error InsufficientBalance();
     error NotZeroSum();
     error ExceedsMaxFee();
@@ -196,21 +183,24 @@ contract Hub is MessagingEndpoint, EIP712 {
             if (request.to == address(0)) revert ZeroAddress();
 
             bytes32 transferId = hashTransferRequest(request);
-            if (transferUsed[transferId]) revert TransferReplay();
+            if (requestStatus[transferId] != 0) revert TransferReplay();
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, transferId, signatures[i])) {
                 revert BadSignature();
             }
-            transferUsed[transferId] = true;
+            requestStatus[transferId] = EXECUTED;
+            emit TransferRequested(transferId, request, settlementEpoch);
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
             _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
             _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount - fees[i]);
+
+            emit TransferExecuted(transferId, request.amount - fees[i]);
         }
     }
 
     function facilitateWithdraw(
-        WithdrawRequest[] calldata requests,
+        WithdrawalRequest[] calldata requests,
         bytes[] calldata signatures,
         uint256[] calldata fees,
         uint64 messageGas
@@ -230,31 +220,32 @@ contract Hub is MessagingEndpoint, EIP712 {
         TransferMessage[] memory messages = new TransferMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
-            WithdrawRequest calldata request = requests[i];
+            WithdrawalRequest calldata request = requests[i];
             if (request.assetChainId != assetChainId) revert ChainMismatch(request.assetChainId);
 
-            bytes32 withdrawId = hashWithdrawRequest(request);
-            if (withdrawUsed[withdrawId]) revert WithdrawReplay();
+            bytes32 withdrawId = hashWithdrawalRequest(request);
+            if (requestStatus[withdrawId] != 0) revert WithdrawReplay();
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signatures[i])) {
                 revert BadSignature();
             }
-            withdrawUsed[withdrawId] = true;
+            requestStatus[withdrawId] = EXECUTED;
+            emit WithdrawalRequested(withdrawId, request, settlementEpoch);
             withdrawIds[i] = withdrawId;
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            _transfer(request.owner, msg.sender, assetChainId, address(request.asset), fees[i]);
+            _transfer(request.owner, msg.sender, assetChainId, request.asset, fees[i]);
             uint256 amount = request.amount - fees[i];
-            _transfer(request.owner, address(0), assetChainId, address(request.asset), amount);
+            _transfer(request.owner, address(0), assetChainId, request.asset, amount);
 
             messages[i] = TransferMessage({
-                asset: address(request.asset),
+                asset: request.asset,
                 nonce: ++outboundNonce,
                 amount: amount,
                 to: request.to
             });
 
-            emit Withdraw(withdrawId, address(request.asset), request.to, amount);
+            emit WithdrawalExecuted(withdrawId, amount);
         }
 
         bytes32 messageId =
@@ -265,55 +256,61 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function requestTransfer(uint64 assetChainId, address asset, uint256 amount, address to) external {
-        if (to == address(0)) revert ZeroAddress();
+    function requestTransfer(TransferRequest calldata request) external {
+        if (request.owner != msg.sender) revert NotOwner();
+        if (request.to == address(0)) revert ZeroAddress();
+        bytes32 requestId = hashTransferRequest(request);
+        if (requestStatus[requestId] != 0) revert TransferReplay();
+
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        pendingTransfer[msg.sender][assetChainId][asset] = PendingTransfer(amount, to, effectiveAtEpoch);
-        emit TransferRequested(msg.sender, assetChainId, asset, amount, to, effectiveAtEpoch);
+        requestStatus[requestId] = effectiveAtEpoch;
+        _reserve(request.owner, request.assetChainId, request.asset, request.amount);
+
+        emit TransferRequested(requestId, request, effectiveAtEpoch);
     }
 
-    function executeTransfer(address owner, uint64 assetChainId, address asset) external nonReentrant {
+    function executeTransfer(TransferRequest calldata request) external nonReentrant {
         _requireNotPaused();
-        PendingTransfer memory pending = pendingTransfer[owner][assetChainId][asset];
-        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) revert NotEffective();
-        delete pendingTransfer[owner][assetChainId][asset];
+        bytes32 requestId = hashTransferRequest(request);
+        _consumeRequest(requestId);
+        _release(request.owner, request.assetChainId, request.asset, request.amount);
 
-        uint256 amount = FixedPointMathLib.min(pending.amount, balanceOf[owner][assetChainId][asset]);
-        _transfer(owner, pending.to, assetChainId, asset, amount);
+        uint256 amount =
+            FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        _transfer(request.owner, request.to, request.assetChainId, request.asset, amount);
 
-        emit TransferExecuted(owner, assetChainId, asset, amount, pending.to);
+        emit TransferExecuted(requestId, amount);
     }
 
-    function requestWithdrawal(uint64 assetChainId, address asset, uint256 amount, address to) external {
+    function requestWithdrawal(WithdrawalRequest calldata request) external {
+        if (request.owner != msg.sender) revert NotOwner();
+        bytes32 requestId = hashWithdrawalRequest(request);
+        if (requestStatus[requestId] != 0) revert WithdrawReplay();
+
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        pendingWithdrawal[msg.sender][assetChainId][asset] = PendingWithdrawal(amount, to, effectiveAtEpoch);
-        emit WithdrawalRequested(msg.sender, assetChainId, asset, amount, to, effectiveAtEpoch);
+        requestStatus[requestId] = effectiveAtEpoch;
+        _reserve(request.owner, request.assetChainId, request.asset, request.amount);
+
+        emit WithdrawalRequested(requestId, request, effectiveAtEpoch);
     }
 
-    function executeWithdrawal(
-        address owner,
-        uint64 assetChainId,
-        address asset,
-        uint64 messageGas
-    )
-        external
-        payable
-        nonReentrant
-    {
+    function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable nonReentrant {
         _requireNotPaused();
-        PendingWithdrawal memory pending = pendingWithdrawal[owner][assetChainId][asset];
-        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) revert NotEffective();
-        delete pendingWithdrawal[owner][assetChainId][asset];
+        bytes32 requestId = hashWithdrawalRequest(request);
+        _consumeRequest(requestId);
+        _release(request.owner, request.assetChainId, request.asset, request.amount);
 
-        uint256 amount = FixedPointMathLib.min(pending.amount, balanceOf[owner][assetChainId][asset]);
-        _transfer(owner, address(0), assetChainId, asset, amount);
+        uint256 amount =
+            FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        _transfer(request.owner, address(0), request.assetChainId, request.asset, amount);
 
         TransferMessage[] memory messages = new TransferMessage[](1);
-        messages[0] = TransferMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: pending.to });
-        bytes32 messageId = _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+        messages[0] = TransferMessage({ asset: request.asset, nonce: ++outboundNonce, amount: amount, to: request.to });
+        bytes32 messageId =
+            _sendMessage(request.assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
 
-        emit MessageSent(messageId, amount, pending.to);
-        emit WithdrawalExecuted(owner, assetChainId, asset, amount, pending.to);
+        emit MessageSent(messageId, amount, request.to);
+        emit WithdrawalExecuted(requestId, amount);
     }
 
     // ========================================= ADAPTER ========================================
@@ -358,13 +355,13 @@ contract Hub is MessagingEndpoint, EIP712 {
         );
     }
 
-    function hashWithdrawRequest(WithdrawRequest calldata request) public view returns (bytes32) {
+    function hashWithdrawalRequest(WithdrawalRequest calldata request) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    WITHDRAW_REQUEST_TYPEHASH,
+                    WITHDRAWAL_REQUEST_TYPEHASH,
                     request.owner,
-                    address(request.asset),
+                    request.asset,
                     request.assetChainId,
                     request.amount,
                     request.maxFee,
@@ -377,12 +374,40 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= INTERNAL =========================================
 
-    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256 reserved) {
-        PendingTransfer storage transfer = pendingTransfer[user][assetChainId][asset];
-        if (transfer.effectiveAtEpoch != 0 && settlementEpoch >= transfer.effectiveAtEpoch) reserved += transfer.amount;
-        PendingWithdrawal storage withdrawal = pendingWithdrawal[user][assetChainId][asset];
-        if (withdrawal.effectiveAtEpoch != 0 && settlementEpoch >= withdrawal.effectiveAtEpoch) {
-            reserved += withdrawal.amount;
+    function _consumeRequest(bytes32 requestId) internal {
+        uint256 status = requestStatus[requestId];
+        if (status == 0 || status == EXECUTED || settlementEpoch < status) revert NotEffective();
+        requestStatus[requestId] = EXECUTED;
+    }
+
+    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256) {
+        Reservation storage res = reservation[user][assetChainId][asset];
+        if (res.pendingEpoch <= settlementEpoch) return res.effective + res.pending;
+        return res.effective;
+    }
+
+    function _reserve(address user, uint64 assetChainId, address asset, uint256 amount) internal {
+        Reservation storage res = _rollReservation(user, assetChainId, asset);
+        res.pending += amount;
+        res.pendingEpoch = settlementEpoch + 1;
+    }
+
+    function _release(address user, uint64 assetChainId, address asset, uint256 amount) internal {
+        _rollReservation(user, assetChainId, asset).effective -= amount;
+    }
+
+    function _rollReservation(
+        address user,
+        uint64 assetChainId,
+        address asset
+    )
+        internal
+        returns (Reservation storage res)
+    {
+        res = reservation[user][assetChainId][asset];
+        if (res.pendingEpoch <= settlementEpoch) {
+            res.effective += res.pending;
+            res.pending = 0;
         }
     }
 

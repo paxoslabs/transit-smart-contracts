@@ -96,10 +96,10 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
     }
 
-    function _request(address owner, uint256 amount) internal returns (Hub.WithdrawRequest memory) {
-        return Hub.WithdrawRequest({
+    function _request(address owner, uint256 amount) internal returns (Hub.WithdrawalRequest memory) {
+        return Hub.WithdrawalRequest({
             owner: owner,
-            asset: usdc,
+            asset: address(usdc),
             assetChainId: HUB,
             amount: amount,
             maxFee: 0,
@@ -108,8 +108,8 @@ contract WarehouseUnitTest is Test {
         });
     }
 
-    function _withdraw(Hub.WithdrawRequest memory req, bytes memory sig) internal {
-        Hub.WithdrawRequest[] memory reqs = new Hub.WithdrawRequest[](1);
+    function _withdraw(Hub.WithdrawalRequest memory req, bytes memory sig) internal {
+        Hub.WithdrawalRequest[] memory reqs = new Hub.WithdrawalRequest[](1);
         reqs[0] = req;
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
@@ -117,8 +117,8 @@ contract WarehouseUnitTest is Test {
         hub.facilitateWithdraw(reqs, sigs, fees, 0);
     }
 
-    function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashWithdrawRequest(req));
+    function _sign(Hub.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashWithdrawalRequest(req));
         return abi.encodePacked(r, s, v);
     }
 
@@ -216,7 +216,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 
@@ -230,7 +230,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
@@ -241,7 +241,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        Hub.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
@@ -254,7 +254,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawRequest memory req = _request(alice, 100e6);
+        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 

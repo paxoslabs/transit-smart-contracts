@@ -316,10 +316,10 @@ contract TransitTestBase is Test {
         require(chain == hubID, "can only atomically withdraw on Hub");
 
         _selectChain(hubID);
-        Hub.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
+        Hub.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
-        Hub.WithdrawRequest[] memory requests = new Hub.WithdrawRequest[](1);
+        Hub.WithdrawalRequest[] memory requests = new Hub.WithdrawalRequest[](1);
         requests[0] = request;
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
@@ -329,18 +329,18 @@ contract TransitTestBase is Test {
         withdrawId = hub.facilitateWithdraw(requests, signatures, fees, _messageGas(hubID))[0];
     }
 
-    function _withdrawRequestFor(
+    function _withdrawalRequestFor(
         address user,
         uint256 amount,
         ERC20 asset,
         uint64 chain
     )
         internal
-        returns (Hub.WithdrawRequest memory)
+        returns (Hub.WithdrawalRequest memory)
     {
-        return Hub.WithdrawRequest({
+        return Hub.WithdrawalRequest({
             owner: user,
-            asset: asset,
+            asset: address(asset),
             assetChainId: chain,
             amount: amount,
             maxFee: 0,
@@ -349,8 +349,8 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(Hub.WithdrawRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = hub.hashWithdrawRequest(request);
+    function _signWithdraw(Hub.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
+        bytes32 digest = hub.hashWithdrawalRequest(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
