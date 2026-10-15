@@ -191,7 +191,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
+            if (fees[i] != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
             _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount - fees[i]);
 
             emit TransferExecuted(transferId, request.amount - fees[i]);
@@ -233,7 +233,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            _transfer(request.owner, msg.sender, assetChainId, request.asset, fees[i]);
+            if (fees[i] != 0) _transfer(request.owner, msg.sender, assetChainId, request.asset, fees[i]);
             uint256 amount = request.amount - fees[i];
             _transfer(request.owner, address(0), assetChainId, request.asset, amount);
 
@@ -276,6 +276,10 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         uint256 amount =
             FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        /// TODO: Decide fee on partial execution. Currently min(maxFee, executed amount).
+        uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
+        if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
+        amount -= fee;
         _transfer(request.owner, request.to, request.assetChainId, request.asset, amount);
 
         emit TransferExecuted(requestId, amount);
@@ -301,6 +305,10 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         uint256 amount =
             FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        /// TODO: Decide fee on partial execution. Currently min(maxFee, executed amount).
+        uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
+        if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
+        amount -= fee;
         _transfer(request.owner, address(0), request.assetChainId, request.asset, amount);
 
         TransferMessage[] memory messages = new TransferMessage[](1);
