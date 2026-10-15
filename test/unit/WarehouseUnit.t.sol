@@ -43,8 +43,9 @@ contract WarehouseUnitTest is Test {
         local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse), HUB);
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](1);
+        bytes4[] memory adminSels = new bytes4[](2);
         adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        adminSels[1] = Warehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory hubAdminSels = new bytes4[](1);
         hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
@@ -57,6 +58,7 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
         authority.grantRole(SOLVER_ROLE, backend);
+        warehouse.setAssetWhitelisted(_list(address(usdc)), true);
         vm.stopPrank();
 
         _authorizeHub();
@@ -67,6 +69,11 @@ contract WarehouseUnitTest is Test {
 
     function _asset(string memory name_, string memory symbol_, uint8 decimals_) internal returns (ERC20) {
         return ERC20(address(new MockERC20(name_, symbol_, decimals_)));
+    }
+
+    function _list(address asset) internal pure returns (address[] memory assets) {
+        assets = new address[](1);
+        assets[0] = asset;
     }
 
     function _authorizeHub() internal {
@@ -124,8 +131,10 @@ contract WarehouseUnitTest is Test {
         assertEq(usdc.balanceOf(address(warehouse)), 0, "deposit: warehouse must never hold funds");
     }
 
-    function testDepositAnyAssetCreditsHub() public {
+    function testDepositWhitelistedAssetCreditsHub() public {
         ERC20 other = _asset("Other", "OTH", 18);
+        vm.prank(admin);
+        warehouse.setAssetWhitelisted(_list(address(other)), true);
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
@@ -145,8 +154,9 @@ contract WarehouseUnitTest is Test {
         vm.chainId(HUB);
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0), HUB);
 
-        bytes4[] memory warehouseSels = new bytes4[](1);
+        bytes4[] memory warehouseSels = new bytes4[](2);
         warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        warehouseSels[1] = Warehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -163,6 +173,7 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
         spokeWarehouse.setMessagingAdapter(spokeAdapter);
+        spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);
         spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0, true, true);
 
         hubAdapter.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE, 200_000, 0, true, true);

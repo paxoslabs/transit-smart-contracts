@@ -131,8 +131,9 @@ contract TransitTestBase is Test {
         TransitAuthority authority = authorities[chain];
         Warehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](1);
+        bytes4[] memory adminSels = new bytes4[](2);
         adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        adminSels[1] = Warehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = MessagingEndpoint.pause.selector;
@@ -225,6 +226,15 @@ contract TransitTestBase is Test {
         for (uint256 i; i < assets.length; i++) {
             if (address(assets[i]) == address(0)) continue;
             SafeTransferLib.safeApprove(address(assets[i]), address(warehouses[chain]), type(uint256).max);
+        }
+        vm.stopPrank();
+
+        vm.startPrank(admin);
+        for (uint256 i; i < assets.length; i++) {
+            if (address(assets[i]) == address(0)) continue;
+            address[] memory list = new address[](1);
+            list[0] = address(assets[i]);
+            warehouses[chain].setAssetWhitelisted(list, true);
         }
         vm.stopPrank();
     }

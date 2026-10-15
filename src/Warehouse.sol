@@ -11,19 +11,29 @@ contract Warehouse is MessagingEndpoint {
 
     address public immutable vault;
 
+    mapping(address asset => bool) public assetWhitelisted;
+
     event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
 
     error VaultUnset();
     error ZeroAssets();
+    error AssetNotWhitelisted();
 
     constructor(address _authority, address _vault) MessagingEndpoint(_authority) {
         if (_vault == address(0)) revert VaultUnset();
         vault = _vault;
     }
 
+    // ========================================= ADMIN =========================================
+
+    function setAssetWhitelisted(address[] calldata assets, bool allowed) external restricted {
+        for (uint256 i; i < assets.length; i++) {
+            assetWhitelisted[assets[i]] = allowed;
+        }
+    }
+
     // ========================================= USER =========================================
 
-    /// TODO: Decide whether admins need a per-asset deny-list now that any ERC20 is accepted.
     function deposit(
         ERC20 asset,
         uint256 amount,
@@ -37,6 +47,7 @@ contract Warehouse is MessagingEndpoint {
     {
         _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
+        if (!assetWhitelisted[address(asset)]) revert AssetNotWhitelisted();
 
         shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
