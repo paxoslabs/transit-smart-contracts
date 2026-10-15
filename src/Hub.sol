@@ -265,14 +265,18 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     function requestTransfer(TransferRequest calldata request) external {
-        if (request.owner != msg.sender) revert NotOwner();
+        _requestTransfer(msg.sender, request);
+    }
+
+    function _requestTransfer(address sender, TransferRequest memory request) internal {
+        if (sender != request.owner) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = hashTransferRequest(request);
         if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(request.owner, request.assetChainId, request.asset, request.amount);
+        _reserve(sender, request.assetChainId, request.asset, request.amount);
 
         emit TransferRequested(requestId, request, effectiveAtEpoch);
     }
@@ -301,13 +305,17 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     function requestWithdrawal(WithdrawalRequest calldata request) external {
-        if (request.owner != msg.sender) revert NotOwner();
+        _requestWithdrawal(msg.sender, request);
+    }
+
+    function _requestWithdrawal(address sender, WithdrawalRequest memory request) internal {
+        if (sender != request.owner) revert NotOwner();
         bytes32 requestId = hashWithdrawalRequest(request);
         if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(request.owner, request.assetChainId, request.asset, request.amount);
+        _reserve(sender, request.assetChainId, request.asset, request.amount);
 
         emit WithdrawalRequested(requestId, request, effectiveAtEpoch);
     }
@@ -349,6 +357,12 @@ contract Hub is MessagingEndpoint, EIP712 {
         } else if (messageType == MessageType.PreApproval) {
             (address owner, OrderRegistry.Order memory order) = abi.decode(body, (address, OrderRegistry.Order));
             orderRegistry.preApproveFor(owner, order);
+        } else if (messageType == MessageType.TransferRequest) {
+            (address owner, TransferRequest memory request) = abi.decode(body, (address, TransferRequest));
+            _requestTransfer(owner, request);
+        } else if (messageType == MessageType.WithdrawalRequest) {
+            (address owner, WithdrawalRequest memory request) = abi.decode(body, (address, WithdrawalRequest));
+            _requestWithdrawal(owner, request);
         } else {
             assert(false);
         }
@@ -366,7 +380,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= VIEWS =========================================
 
-    function hashTransferRequest(TransferRequest calldata request) public view returns (bytes32) {
+    function hashTransferRequest(TransferRequest memory request) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
@@ -385,7 +399,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         );
     }
 
-    function hashWithdrawalRequest(WithdrawalRequest calldata request) public view returns (bytes32) {
+    function hashWithdrawalRequest(WithdrawalRequest memory request) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
