@@ -99,11 +99,11 @@ contract WarehouseUnitTest is Test {
     function _request(address owner, uint256 amount) internal returns (Hub.WithdrawalRequest memory) {
         return Hub.WithdrawalRequest({
             owner: owner,
-            asset: address(usdc),
+            to: owner,
             assetChainId: HUB,
+            asset: address(usdc),
             amount: amount,
             maxFee: 0,
-            to: owner,
             nonce: ++withdrawNonce
         });
     }

@@ -340,11 +340,11 @@ contract TransitTestBase is Test {
     {
         return Hub.WithdrawalRequest({
             owner: user,
-            asset: address(asset),
+            to: user,
             assetChainId: chain,
+            asset: address(asset),
             amount: amount,
             maxFee: 0,
-            to: user,
             nonce: ++withdrawNonce
         });
     }

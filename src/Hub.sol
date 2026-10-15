@@ -21,11 +21,11 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     struct WithdrawalRequest {
         address owner;
-        address asset;
+        address to;
         uint64 assetChainId;
+        address asset;
         uint256 amount;
         uint256 maxFee;
-        address to;
         uint256 nonce;
     }
 
@@ -48,7 +48,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     );
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(address owner,address asset,uint64 assetChainId,uint256 amount,uint256 maxFee,address to,uint256 nonce)"
+        "WithdrawalRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
@@ -360,11 +360,11 @@ contract Hub is MessagingEndpoint, EIP712 {
                 abi.encode(
                     WITHDRAWAL_REQUEST_TYPEHASH,
                     request.owner,
-                    request.asset,
+                    request.to,
                     request.assetChainId,
+                    request.asset,
                     request.amount,
                     request.maxFee,
-                    request.to,
                     request.nonce
                 )
             )
