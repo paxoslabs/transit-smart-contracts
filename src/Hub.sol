@@ -166,7 +166,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= USER =========================================
 
-    function transferWithSignature(
+    function facilitateTransfer(
         TransferRequest[] calldata requests,
         bytes[] calldata signatures,
         uint256[] calldata fees
@@ -197,7 +197,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function withdrawWithSignature(
+    function facilitateWithdraw(
         WithdrawRequest[] calldata requests,
         bytes[] calldata signatures,
         uint256[] calldata fees,

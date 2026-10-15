@@ -51,7 +51,7 @@ contract WarehouseUnitTest is Test {
         hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory withdrawSels = new bytes4[](1);
-        withdrawSels[0] = Hub.withdrawWithSignature.selector;
+        withdrawSels[0] = Hub.facilitateWithdraw.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
@@ -114,7 +114,7 @@ contract WarehouseUnitTest is Test {
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
         uint256[] memory fees = new uint256[](1);
-        hub.withdrawWithSignature(reqs, sigs, fees, 0);
+        hub.facilitateWithdraw(reqs, sigs, fees, 0);
     }
 
     function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {

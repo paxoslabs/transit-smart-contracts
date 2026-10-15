@@ -167,7 +167,7 @@ contract TransitTestBase is Test {
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory withdrawSels = new bytes4[](1);
-            withdrawSels[0] = Hub.withdrawWithSignature.selector;
+            withdrawSels[0] = Hub.facilitateWithdraw.selector;
             authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);
@@ -326,7 +326,7 @@ contract TransitTestBase is Test {
         uint256[] memory fees = new uint256[](1);
 
         vm.prank(solver);
-        withdrawId = hub.withdrawWithSignature(requests, signatures, fees, _messageGas(hubID))[0];
+        withdrawId = hub.facilitateWithdraw(requests, signatures, fees, _messageGas(hubID))[0];
     }
 
     function _withdrawRequestFor(
