@@ -102,6 +102,7 @@ contract WarehouseUnitTest is Test {
             asset: usdc,
             assetChainId: HUB,
             amount: amount,
+            maxFee: 0,
             to: owner,
             nonce: ++withdrawNonce
         });
@@ -112,7 +113,8 @@ contract WarehouseUnitTest is Test {
         reqs[0] = req;
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        hub.withdrawWithSignature(reqs, sigs, 0);
+        uint256[] memory fees = new uint256[](1);
+        hub.withdrawWithSignature(reqs, sigs, fees, 0);
     }
 
     function _sign(Hub.WithdrawRequest memory req, uint256 pk) internal view returns (bytes memory) {

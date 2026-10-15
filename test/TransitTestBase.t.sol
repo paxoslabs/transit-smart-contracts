@@ -323,9 +323,10 @@ contract TransitTestBase is Test {
         requests[0] = request;
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
+        uint256[] memory fees = new uint256[](1);
 
         vm.prank(solver);
-        withdrawId = hub.withdrawWithSignature(requests, signatures, _messageGas(hubID))[0];
+        withdrawId = hub.withdrawWithSignature(requests, signatures, fees, _messageGas(hubID))[0];
     }
 
     function _withdrawRequestFor(
@@ -342,6 +343,7 @@ contract TransitTestBase is Test {
             asset: asset,
             assetChainId: chain,
             amount: amount,
+            maxFee: 0,
             to: user,
             nonce: ++withdrawNonce
         });

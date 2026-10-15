@@ -16,6 +16,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint64 assetChainId;
         address asset;
         uint256 amount;
+        uint256 maxFee;
         uint256 nonce;
     }
 
@@ -24,6 +25,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         ERC20 asset;
         uint64 assetChainId;
         uint256 amount;
+        uint256 maxFee;
         address to;
         uint256 nonce;
     }
@@ -43,11 +45,11 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 nonce)"
+        "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce)"
     );
 
     bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
-        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
+        "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,uint256 maxFee,address to,uint256 nonce)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
@@ -81,6 +83,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error NotEffective();
     error InsufficientBalance();
     error NotZeroSum();
+    error ExceedsMaxFee();
 
     constructor(address _authority) MessagingEndpoint(_authority) {
         lastEpochAdvancedAt = block.timestamp;
@@ -165,7 +168,8 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function transferWithSignature(
         TransferRequest[] calldata requests,
-        bytes[] calldata signatures
+        bytes[] calldata signatures,
+        uint256[] calldata fees
     )
         external
         restricted
@@ -173,7 +177,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     {
         _requireNotPaused();
         if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length) revert LengthMismatch();
+        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
 
         for (uint256 i; i < requests.length; i++) {
             TransferRequest calldata request = requests[i];
@@ -186,13 +190,17 @@ contract Hub is MessagingEndpoint, EIP712 {
             }
             transferUsed[transferId] = true;
 
-            _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount);
+            /// TODO: Decide fee recipient. Currently msg.sender.
+            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
+            _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
+            _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount - fees[i]);
         }
     }
 
     function withdrawWithSignature(
         WithdrawRequest[] calldata requests,
         bytes[] calldata signatures,
+        uint256[] calldata fees,
         uint64 messageGas
     )
         external
@@ -203,7 +211,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     {
         _requireNotPaused();
         if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length) revert LengthMismatch();
+        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
 
         uint64 assetChainId = requests[0].assetChainId;
         withdrawIds = new bytes32[](requests.length);
@@ -221,16 +229,20 @@ contract Hub is MessagingEndpoint, EIP712 {
             withdrawUsed[withdrawId] = true;
             withdrawIds[i] = withdrawId;
 
-            _transfer(request.owner, address(0), assetChainId, address(request.asset), request.amount);
+            /// TODO: Decide fee recipient. Currently msg.sender.
+            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
+            _transfer(request.owner, msg.sender, assetChainId, address(request.asset), fees[i]);
+            uint256 amount = request.amount - fees[i];
+            _transfer(request.owner, address(0), assetChainId, address(request.asset), amount);
 
             messages[i] = TransferMessage({
                 asset: address(request.asset),
                 nonce: ++outboundNonce,
-                amount: request.amount,
+                amount: amount,
                 to: request.to
             });
 
-            emit Withdraw(withdrawId, address(request.asset), request.to, request.amount);
+            emit Withdraw(withdrawId, address(request.asset), request.to, amount);
         }
 
         bytes32 messageId =
@@ -308,6 +320,7 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.assetChainId,
                     request.asset,
                     request.amount,
+                    request.maxFee,
                     request.nonce
                 )
             )
@@ -323,6 +336,7 @@ contract Hub is MessagingEndpoint, EIP712 {
                     address(request.asset),
                     request.assetChainId,
                     request.amount,
+                    request.maxFee,
                     request.to,
                     request.nonce
                 )
