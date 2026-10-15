@@ -30,6 +30,12 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 nonce;
     }
 
+    struct PendingTransfer {
+        uint256 amount;
+        address to;
+        uint256 effectiveAtEpoch;
+    }
+
     struct PendingWithdrawal {
         uint256 amount;
         address to;
@@ -55,6 +61,8 @@ contract Hub is MessagingEndpoint, EIP712 {
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
     mapping(bytes32 transferId => bool) public transferUsed;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
+    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingTransfer))) public
+        pendingTransfer;
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingWithdrawal))) public
         pendingWithdrawal;
 
@@ -67,6 +75,10 @@ contract Hub is MessagingEndpoint, EIP712 {
     event Withdraw(bytes32 indexed withdrawId, address indexed asset, address indexed to, uint256 amount);
     event EpochAdvanced(uint256 epoch);
     event OrderRegistryUpdated(address indexed orderRegistry);
+    event TransferRequested(
+        address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
+    );
+    event TransferExecuted(address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to);
     event WithdrawalRequested(
         address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to, uint256 effectiveAtEpoch
     );
@@ -253,6 +265,25 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
+    function requestTransfer(uint64 assetChainId, address asset, uint256 amount, address to) external {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 effectiveAtEpoch = settlementEpoch + 1;
+        pendingTransfer[msg.sender][assetChainId][asset] = PendingTransfer(amount, to, effectiveAtEpoch);
+        emit TransferRequested(msg.sender, assetChainId, asset, amount, to, effectiveAtEpoch);
+    }
+
+    function executeTransfer(address owner, uint64 assetChainId, address asset) external nonReentrant {
+        _requireNotPaused();
+        PendingTransfer memory pending = pendingTransfer[owner][assetChainId][asset];
+        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) revert NotEffective();
+        delete pendingTransfer[owner][assetChainId][asset];
+
+        uint256 amount = FixedPointMathLib.min(pending.amount, balanceOf[owner][assetChainId][asset]);
+        _transfer(owner, pending.to, assetChainId, asset, amount);
+
+        emit TransferExecuted(owner, assetChainId, asset, amount, pending.to);
+    }
+
     function requestWithdrawal(uint64 assetChainId, address asset, uint256 amount, address to) external {
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         pendingWithdrawal[msg.sender][assetChainId][asset] = PendingWithdrawal(amount, to, effectiveAtEpoch);
@@ -346,10 +377,13 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= INTERNAL =========================================
 
-    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256) {
-        PendingWithdrawal storage pending = pendingWithdrawal[user][assetChainId][asset];
-        if (pending.effectiveAtEpoch == 0 || settlementEpoch < pending.effectiveAtEpoch) return 0;
-        return pending.amount;
+    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256 reserved) {
+        PendingTransfer storage transfer = pendingTransfer[user][assetChainId][asset];
+        if (transfer.effectiveAtEpoch != 0 && settlementEpoch >= transfer.effectiveAtEpoch) reserved += transfer.amount;
+        PendingWithdrawal storage withdrawal = pendingWithdrawal[user][assetChainId][asset];
+        if (withdrawal.effectiveAtEpoch != 0 && settlementEpoch >= withdrawal.effectiveAtEpoch) {
+            reserved += withdrawal.amount;
+        }
     }
 
     function _transfer(address from, address to, uint64 assetChainId, address asset, uint256 amount) internal {
