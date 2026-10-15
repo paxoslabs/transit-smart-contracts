@@ -248,7 +248,7 @@ contract WarehouseUnitTest is Test {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(Hub.WithdrawReplay.selector);
+        vm.expectRevert(Hub.RequestReplay.selector);
         _withdraw(req, sig);
     }
 

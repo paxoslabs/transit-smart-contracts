@@ -71,8 +71,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
     error BadSignature();
-    error TransferReplay();
-    error WithdrawReplay();
+    error RequestReplay();
     error ZeroAddress();
     error LengthMismatch();
     error EmptyBatch();
@@ -183,7 +182,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             if (request.to == address(0)) revert ZeroAddress();
 
             bytes32 transferId = hashTransferRequest(request);
-            if (requestStatus[transferId] != 0) revert TransferReplay();
+            if (requestStatus[transferId] != 0) revert RequestReplay();
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, transferId, signatures[i])) {
                 revert BadSignature();
             }
@@ -224,7 +223,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             if (request.assetChainId != assetChainId) revert ChainMismatch(request.assetChainId);
 
             bytes32 withdrawId = hashWithdrawalRequest(request);
-            if (requestStatus[withdrawId] != 0) revert WithdrawReplay();
+            if (requestStatus[withdrawId] != 0) revert RequestReplay();
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signatures[i])) {
                 revert BadSignature();
             }
@@ -260,7 +259,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         if (request.owner != msg.sender) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = hashTransferRequest(request);
-        if (requestStatus[requestId] != 0) revert TransferReplay();
+        if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
@@ -285,7 +284,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     function requestWithdrawal(WithdrawalRequest calldata request) external {
         if (request.owner != msg.sender) revert NotOwner();
         bytes32 requestId = hashWithdrawalRequest(request);
-        if (requestStatus[requestId] != 0) revert WithdrawReplay();
+        if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
