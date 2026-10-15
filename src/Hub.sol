@@ -10,6 +10,15 @@ import { OrderRegistry } from "./OrderRegistry.sol";
 
 contract Hub is MessagingEndpoint, EIP712 {
 
+    struct TransferRequest {
+        address owner;
+        address to;
+        uint64 assetChainId;
+        address asset;
+        uint256 amount;
+        uint256 nonce;
+    }
+
     struct WithdrawRequest {
         address owner;
         ERC20 asset;
@@ -33,11 +42,16 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 amount;
     }
 
+    bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
+        "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 nonce)"
+    );
+
     bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256(
         "WithdrawRequest(address owner,address asset,uint64 assetChainId,uint256 amount,address to,uint256 nonce)"
     );
 
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
+    mapping(bytes32 transferId => bool) public transferUsed;
     mapping(bytes32 withdrawId => bool) public withdrawUsed;
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => PendingWithdrawal))) public
         pendingWithdrawal;
@@ -57,6 +71,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     event WithdrawalExecuted(address indexed owner, uint64 assetChainId, address indexed asset, uint256 amount, address to);
 
     error BadSignature();
+    error TransferReplay();
     error WithdrawReplay();
     error ZeroAddress();
     error LengthMismatch();
@@ -147,6 +162,33 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     // ========================================= USER =========================================
+
+    function transferWithSignature(
+        TransferRequest[] calldata requests,
+        bytes[] calldata signatures
+    )
+        external
+        restricted
+        nonReentrant
+    {
+        _requireNotPaused();
+        if (requests.length == 0) revert EmptyBatch();
+        if (requests.length != signatures.length) revert LengthMismatch();
+
+        for (uint256 i; i < requests.length; i++) {
+            TransferRequest calldata request = requests[i];
+            if (request.to == address(0)) revert ZeroAddress();
+
+            bytes32 transferId = hashTransferRequest(request);
+            if (transferUsed[transferId]) revert TransferReplay();
+            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, transferId, signatures[i])) {
+                revert BadSignature();
+            }
+            transferUsed[transferId] = true;
+
+            _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount);
+        }
+    }
 
     function withdrawWithSignature(
         WithdrawRequest[] calldata requests,
@@ -255,6 +297,22 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     // ========================================= VIEWS =========================================
+
+    function hashTransferRequest(TransferRequest calldata request) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    TRANSFER_REQUEST_TYPEHASH,
+                    request.owner,
+                    request.to,
+                    request.assetChainId,
+                    request.asset,
+                    request.amount,
+                    request.nonce
+                )
+            )
+        );
+    }
 
     function hashWithdrawRequest(WithdrawRequest calldata request) public view returns (bytes32) {
         return _hashTypedData(
