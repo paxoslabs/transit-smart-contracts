@@ -8,4 +8,3 @@ bytes32 constant MANAGER_ROLE = bytes32(uint256(0x04));
 bytes32 constant MESSAGING_ADAPTER_ROLE = bytes32(uint256(0x05));
 bytes32 constant SOLVER_ROLE = bytes32(uint256(0x06));
 bytes32 constant TERMINAL_ROLE = bytes32(uint256(0x07));
-bytes32 constant HUB_ROLE = bytes32(uint256(0x08));

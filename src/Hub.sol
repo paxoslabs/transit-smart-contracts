@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
-import { OrderRegistry } from "./OrderRegistry.sol";
 
 contract Hub is MessagingEndpoint, EIP712 {
+
+    struct Order {
+        uint64 sellTokenChainId;
+        address sellToken;
+        uint64 buyTokenChainId;
+        address buyToken;
+        uint256 sellAmount;
+        uint256 buyAmount;
+        address receiver;
+        uint256 expiresAt;
+        bytes32 salt;
+        bool partiallyFillable;
+    }
 
     struct TransferRequest {
         address owner;
@@ -47,6 +60,10 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 amount;
     }
 
+    bytes32 public constant ORDER_TYPEHASH = keccak256(
+        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
+    );
+
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
         "TransferRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
@@ -61,14 +78,17 @@ contract Hub is MessagingEndpoint, EIP712 {
     mapping(bytes32 requestId => uint256 status) public requestStatus;
     mapping(address user => mapping(uint64 assetChainId => mapping(address asset => Reservation))) public reservation;
 
-    OrderRegistry public orderRegistry;
+    mapping(bytes32 orderHash => uint256) public filledAmount;
+    mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
+    mapping(address owner => mapping(bytes32 orderHash => bool)) public preApproved;
 
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event EpochAdvanced(uint256 epoch);
-    event OrderRegistryUpdated(address indexed orderRegistry);
+    event CancelRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
+    event PreApproved(address indexed owner, bytes32 indexed orderHash, Order order);
     event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
     event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
@@ -86,7 +106,11 @@ contract Hub is MessagingEndpoint, EIP712 {
     error InsufficientBalance();
     error NotZeroSum();
     error ExceedsMaxFee();
-    error Expired();
+    error Expired(bytes32 id);
+    error Overfill(bytes32 orderHash);
+    error NotPartiallyFillable(bytes32 orderHash);
+    error Cancelled(bytes32 orderHash);
+    error NotPreApproved(bytes32 orderHash);
 
     constructor(address _authority) MessagingEndpoint(_authority) {
         lastEpochAdvancedAt = block.timestamp;
@@ -99,11 +123,6 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
-    }
-
-    function setOrderRegistry(OrderRegistry _orderRegistry) external restricted {
-        orderRegistry = _orderRegistry;
-        emit OrderRegistryUpdated(address(_orderRegistry));
     }
 
     // ========================================= LEDGER =========================================
@@ -167,6 +186,49 @@ contract Hub is MessagingEndpoint, EIP712 {
         emit EpochAdvanced(epoch + 1);
     }
 
+    // ========================================= ORDERS =========================================
+
+    function requestCancel(bytes32 orderHash) external {
+        if (cancelledFrom[msg.sender][orderHash] != 0) return;
+        uint256 effectiveAtEpoch = settlementEpoch + 1;
+        cancelledFrom[msg.sender][orderHash] = effectiveAtEpoch;
+        emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
+    }
+
+    function fill(
+        Order calldata order,
+        bytes calldata signature,
+        uint256 sellFilled
+    )
+        external
+        restricted
+        returns (bytes32 orderHash, address owner)
+    {
+        orderHash = hashOrder(order);
+
+        if (block.timestamp > order.expiresAt) revert Expired(orderHash);
+        uint256 filled = filledAmount[orderHash] + sellFilled;
+        if (filled > order.sellAmount) revert Overfill(orderHash);
+        if (!order.partiallyFillable && sellFilled != order.sellAmount) revert NotPartiallyFillable(orderHash);
+        filledAmount[orderHash] = filled;
+
+        // 20-byte signature is the owner's address: pre-approved order. Otherwise ECDSA.
+        if (signature.length == 20) {
+            owner = address(bytes20(signature));
+            if (!preApproved[owner][orderHash]) revert NotPreApproved(orderHash);
+        } else {
+            owner = ECDSA.recoverCalldata(orderHash, signature);
+        }
+        uint256 cancelled = cancelledFrom[owner][orderHash];
+        if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
+    }
+
+    function _preApprove(address owner, Order memory order) internal {
+        bytes32 orderHash = hashOrder(order);
+        preApproved[owner][orderHash] = true;
+        emit PreApproved(owner, orderHash, order);
+    }
+
     // ========================================= USER =========================================
 
     function facilitateTransfer(
@@ -194,7 +256,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             requestStatus[transferId] = EXECUTED;
             emit TransferRequested(transferId, request, settlementEpoch);
 
-            if (block.timestamp > request.deadline) revert Expired();
+            if (block.timestamp > request.deadline) revert Expired(transferId);
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
@@ -238,7 +300,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             emit WithdrawalRequested(withdrawId, request, settlementEpoch);
             withdrawIds[i] = withdrawId;
 
-            if (block.timestamp > request.deadline) revert Expired();
+            if (block.timestamp > request.deadline) revert Expired(withdrawId);
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
@@ -355,8 +417,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         if (messageType == MessageType.Deposit) {
             _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
         } else if (messageType == MessageType.PreApproval) {
-            (address owner, OrderRegistry.Order memory order) = abi.decode(body, (address, OrderRegistry.Order));
-            orderRegistry.preApproveFor(owner, order);
+            (address owner, Order memory order) = abi.decode(body, (address, Order));
+            _preApprove(owner, order);
         } else if (messageType == MessageType.TransferRequest) {
             (address owner, TransferRequest memory request) = abi.decode(body, (address, TransferRequest));
             _requestTransfer(owner, request);
@@ -379,6 +441,26 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     // ========================================= VIEWS =========================================
+
+    function hashOrder(Order memory order) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    ORDER_TYPEHASH,
+                    order.sellTokenChainId,
+                    order.sellToken,
+                    order.buyTokenChainId,
+                    order.buyToken,
+                    order.sellAmount,
+                    order.buyAmount,
+                    order.receiver,
+                    order.expiresAt,
+                    order.salt,
+                    order.partiallyFillable
+                )
+            )
+        );
+    }
 
     function hashTransferRequest(TransferRequest memory request) public view returns (bytes32) {
         return _hashTypedData(

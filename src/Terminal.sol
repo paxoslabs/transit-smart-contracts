@@ -4,12 +4,11 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { Hub } from "./Hub.sol";
-import { OrderRegistry } from "./OrderRegistry.sol";
 
 contract Terminal is AccessManaged {
 
     struct Fill {
-        OrderRegistry.Order order;
+        Hub.Order order;
         bytes signature;
         uint256 sellFilled;
         uint256 buyFilled;
@@ -22,23 +21,14 @@ contract Terminal is AccessManaged {
     }
 
     Hub public immutable HUB;
-    OrderRegistry public immutable ORDER_REGISTRY;
     address public immutable SURPLUS_RECIPIENT;
 
     event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
 
     error LimitPrice(bytes32 orderHash);
 
-    constructor(
-        address _authority,
-        Hub _hub,
-        OrderRegistry _orderRegistry,
-        address _surplusRecipient
-    )
-        AccessManaged(_authority)
-    {
+    constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
         HUB = _hub;
-        ORDER_REGISTRY = _orderRegistry;
         SURPLUS_RECIPIENT = _surplusRecipient;
     }
 
@@ -46,8 +36,8 @@ contract Terminal is AccessManaged {
         Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](fills.length * 2 + fees.length);
         for (uint256 i; i < fills.length; i++) {
             Fill calldata fill = fills[i];
-            OrderRegistry.Order calldata order = fill.order;
-            (bytes32 orderHash, address owner) = ORDER_REGISTRY.fill(order, fill.signature, fill.sellFilled);
+            Hub.Order calldata order = fill.order;
+            (bytes32 orderHash, address owner) = HUB.fill(order, fill.signature, fill.sellFilled);
 
             if (fill.buyFilled < FixedPointMathLib.fullMulDivUp(fill.sellFilled, order.buyAmount, order.sellAmount)) {
                 revert LimitPrice(orderHash);
