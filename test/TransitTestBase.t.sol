@@ -16,7 +16,8 @@ import {
     PAUSER_ROLE,
     MESSAGING_ADAPTER_ROLE,
     SOLVER_ROLE,
-    TERMINAL_ROLE
+    TERMINAL_ROLE,
+    EPOCH_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -178,14 +179,18 @@ contract TransitTestBase is Test {
     }
 
     function _grantTerminalRole() internal {
-        bytes4[] memory moveSels = new bytes4[](3);
+        bytes4[] memory moveSels = new bytes4[](2);
         moveSels[0] = Hub.transferFrom.selector;
-        moveSels[1] = Hub.advanceEpoch.selector;
-        moveSels[2] = Hub.facilitateFill.selector;
+        moveSels[1] = Hub.facilitateFill.selector;
+
+        bytes4[] memory epochSels = new bytes4[](1);
+        epochSels[0] = Hub.advanceEpoch.selector;
 
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
         authorities[hubID].grantRole(TERMINAL_ROLE, address(terminal));
+        authorities[hubID].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
+        authorities[hubID].grantRole(EPOCH_ROLE, address(terminal));
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = Terminal.settle.selector;
