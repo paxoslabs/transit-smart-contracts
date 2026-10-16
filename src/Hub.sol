@@ -195,10 +195,6 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= ORDERS =========================================
 
-    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
-        _requestOrderCancellation(msg.sender, request);
-    }
-
     function _requestOrderCancellation(address sender, OrderCancellationRequest memory request) internal {
         if (sender != request.owner) revert NotOwner();
         if (cancelledFrom[sender][request.orderHash] != 0) return;
@@ -339,10 +335,6 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function requestTransfer(TransferRequest calldata request) external {
-        _requestTransfer(msg.sender, request);
-    }
-
     function _requestTransfer(address sender, TransferRequest memory request) internal {
         if (sender != request.owner) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
@@ -377,10 +369,6 @@ contract Hub is MessagingEndpoint, EIP712 {
         _transfer(request.owner, request.to, request.assetChainId, request.asset, amount);
 
         emit TransferExecuted(requestId, amount);
-    }
-
-    function requestWithdrawal(WithdrawalRequest calldata request) external {
-        _requestWithdrawal(msg.sender, request);
     }
 
     function _requestWithdrawal(address sender, WithdrawalRequest memory request) internal {
