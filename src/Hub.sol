@@ -24,8 +24,6 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     struct Fill {
-        Order order;
-        bytes signature;
         uint256 sellFilled;
         uint256 buyFilled;
     }
@@ -210,36 +208,6 @@ contract Hub is MessagingEndpoint, EIP712 {
         emit OrderCancellationRequested(sender, request.orderHash, effectiveAtEpoch);
     }
 
-    function fill(Fill[] calldata fills) external restricted returns (bytes32[] memory orderHashes) {
-        if (fills.length == 0) revert EmptyBatch();
-
-        orderHashes = new bytes32[](fills.length);
-        for (uint256 i; i < fills.length; i++) {
-            Fill calldata fill = fills[i];
-            Order calldata order = fill.order;
-            bytes32 orderHash = hashOrder(order);
-            orderHashes[i] = orderHash;
-
-            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
-            uint256 filled = filledAmount[orderHash] + fill.sellFilled;
-            if (filled > order.sellAmount) revert Overfill(orderHash);
-            if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
-                revert NotPartiallyFillable(orderHash);
-            }
-            filledAmount[orderHash] = filled;
-
-            address owner = order.owner;
-            // Empty signature: pre-approved order. Otherwise ECDSA.
-            if (fill.signature.length == 0) {
-                if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
-            } else if (ECDSA.recoverCalldata(orderHash, fill.signature) != owner) {
-                revert BadSignature();
-            }
-            uint256 cancelled = cancelledFrom[owner][orderHash];
-            if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
-        }
-    }
-
     function _preApprove(address sender, Order memory order) internal {
         if (sender != order.owner) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
@@ -341,6 +309,43 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         for (uint256 i; i < messages.length; i++) {
             emit MessageSent(messageId, messages[i].amount, messages[i].to);
+        }
+    }
+
+    function facilitateFill(
+        Order[] calldata orders,
+        bytes[] calldata signatures,
+        Fill[] calldata fills
+    )
+        external
+        restricted
+        returns (bytes32[] memory orderHashes)
+    {
+        if (orders.length == 0) revert EmptyBatch();
+        if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
+
+        orderHashes = new bytes32[](orders.length);
+        for (uint256 i; i < orders.length; i++) {
+            Order calldata order = orders[i];
+            bytes32 orderHash = hashOrder(order);
+            orderHashes[i] = orderHash;
+
+            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
+            uint256 sellFilled = fills[i].sellFilled;
+            uint256 filled = filledAmount[orderHash] + sellFilled;
+            if (filled > order.sellAmount) revert Overfill(orderHash);
+            if (!order.partiallyFillable && sellFilled != order.sellAmount) revert NotPartiallyFillable(orderHash);
+            filledAmount[orderHash] = filled;
+
+            address owner = order.owner;
+            // Empty signature: pre-approved order. Otherwise ECDSA.
+            if (signatures[i].length == 0) {
+                if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
+            } else if (ECDSA.recoverCalldata(orderHash, signatures[i]) != owner) {
+                revert BadSignature();
+            }
+            uint256 cancelled = cancelledFrom[owner][orderHash];
+            if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
         }
     }
 

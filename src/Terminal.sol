@@ -25,34 +25,43 @@ contract Terminal is AccessManaged {
         SURPLUS_RECIPIENT = _surplusRecipient;
     }
 
-    function settle(uint256 epoch, Hub.Fill[] calldata fills, Fee[] calldata fees) external restricted {
-        Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](fills.length * 2 + fees.length);
-        if (fills.length != 0) {
-            bytes32[] memory orderHashes = HUB.fill(fills);
+    function settle(
+        uint256 epoch,
+        Hub.Order[] calldata orders,
+        bytes[] calldata signatures,
+        Hub.Fill[] calldata fills,
+        Fee[] calldata fees
+    )
+        external
+        restricted
+    {
+        Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](orders.length * 2 + fees.length);
+        if (orders.length != 0) {
+            bytes32[] memory orderHashes = HUB.facilitateFill(orders, signatures, fills);
 
-            for (uint256 i; i < fills.length; i++) {
-                Hub.Fill calldata fill = fills[i];
-                Hub.Order calldata order = fill.order;
-                bytes32 orderHash = orderHashes[i];
+            for (uint256 i; i < orders.length; i++) {
+                Hub.Order calldata order = orders[i];
 
-                if (fill.buyFilled < FixedPointMathLib.fullMulDivUp(fill.sellFilled, order.buyAmount, order.sellAmount))
-                {
-                    revert LimitPrice(orderHash);
+                if (
+                    fills[i].buyFilled
+                        < FixedPointMathLib.fullMulDivUp(fills[i].sellFilled, order.buyAmount, order.sellAmount)
+                ) {
+                    revert LimitPrice(orderHashes[i]);
                 }
                 deltas[i] = Hub.TransferDelta(
-                    order.owner, address(0), order.sellTokenChainId, order.sellToken, fill.sellFilled
+                    order.owner, address(0), order.sellTokenChainId, order.sellToken, fills[i].sellFilled
                 );
-                deltas[fills.length + i] = Hub.TransferDelta(
-                    address(0), order.receiver, order.buyTokenChainId, order.buyToken, fill.buyFilled
+                deltas[orders.length + i] = Hub.TransferDelta(
+                    address(0), order.receiver, order.buyTokenChainId, order.buyToken, fills[i].buyFilled
                 );
 
-                emit Filled(orderHash, order.owner, fill.sellFilled, fill.buyFilled);
+                emit Filled(orderHashes[i], order.owner, fills[i].sellFilled, fills[i].buyFilled);
             }
         }
 
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
-            deltas[fills.length * 2 + i] =
+            deltas[orders.length * 2 + i] =
                 Hub.TransferDelta(address(0), SURPLUS_RECIPIENT, fee.assetChainId, fee.asset, fee.amount);
         }
 

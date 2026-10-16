@@ -181,7 +181,7 @@ contract TransitTestBase is Test {
         bytes4[] memory moveSels = new bytes4[](3);
         moveSels[0] = Hub.transferFrom.selector;
         moveSels[1] = Hub.advanceEpoch.selector;
-        moveSels[2] = Hub.fill.selector;
+        moveSels[2] = Hub.facilitateFill.selector;
 
         vm.startPrank(admin);
         authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
@@ -340,7 +340,7 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(Hub.Order memory order, uint256 pk) internal view returns (Hub.Fill memory) {
+    function _signOrder(Hub.Order memory order, uint256 pk) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(
             abi.encode(
                 hub.ORDER_TYPEHASH(),
@@ -359,7 +359,7 @@ contract TransitTestBase is Test {
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", hub.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
-        return Hub.Fill(order, abi.encodePacked(r, s, v), order.sellAmount, order.buyAmount);
+        return abi.encodePacked(r, s, v);
     }
 
 }

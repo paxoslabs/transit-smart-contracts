@@ -42,45 +42,44 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubID);
         _selectChain(hubID);
 
-        Hub.Fill memory aliceOrder = _signOrder(
-            Hub.Order(
-                alice,
-                hubID,
-                address(usdc),
-                hubID,
-                address(usdg),
-                amount,
-                amount,
-                alice,
-                block.timestamp,
-                bytes32(uint256(1)),
-                false
-            ),
-            alicePk
+        Hub.Order[] memory orders = new Hub.Order[](2);
+        orders[0] = Hub.Order(
+            alice,
+            hubID,
+            address(usdc),
+            hubID,
+            address(usdg),
+            amount,
+            amount,
+            alice,
+            block.timestamp,
+            bytes32(uint256(1)),
+            false
         );
-        Hub.Fill memory bobOrder = _signOrder(
-            Hub.Order(
-                bob,
-                hubID,
-                address(usdg),
-                hubID,
-                address(usdc),
-                amount,
-                amount,
-                bob,
-                block.timestamp,
-                bytes32(uint256(2)),
-                false
-            ),
-            bobPk
+        orders[1] = Hub.Order(
+            bob,
+            hubID,
+            address(usdg),
+            hubID,
+            address(usdc),
+            amount,
+            amount,
+            bob,
+            block.timestamp,
+            bytes32(uint256(2)),
+            false
         );
 
-        Hub.Fill[] memory orders = new Hub.Fill[](2);
-        orders[0] = aliceOrder;
-        orders[1] = bobOrder;
+        bytes[] memory signatures = new bytes[](2);
+        signatures[0] = _signOrder(orders[0], alicePk);
+        signatures[1] = _signOrder(orders[1], bobPk);
+
+        Hub.Fill[] memory fills = new Hub.Fill[](2);
+        fills[0] = Hub.Fill(amount, amount);
+        fills[1] = Hub.Fill(amount, amount);
 
         vm.startPrank(solver);
-        terminal.settle(hub.settlementEpoch(), orders, new Terminal.Fee[](0));
+        terminal.settle(hub.settlementEpoch(), orders, signatures, fills, new Terminal.Fee[](0));
         vm.stopPrank();
 
         assertEq(_hubBalance(alice, hubID, usdg), amount, "settle: alice did not receive usdg");
