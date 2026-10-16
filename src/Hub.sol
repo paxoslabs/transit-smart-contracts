@@ -10,6 +10,7 @@ import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 contract Hub is MessagingEndpoint, EIP712 {
 
     struct Order {
+        address owner;
         uint64 sellTokenChainId;
         address sellToken;
         uint64 buyTokenChainId;
@@ -61,7 +62,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
+        "Order(address owner,uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
     );
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
@@ -80,7 +81,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
     mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
-    mapping(address owner => mapping(bytes32 orderHash => bool)) public preApproved;
+    mapping(bytes32 orderHash => bool) public preApproved;
 
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
@@ -212,21 +213,22 @@ contract Hub is MessagingEndpoint, EIP712 {
         if (!order.partiallyFillable && sellFilled != order.sellAmount) revert NotPartiallyFillable(orderHash);
         filledAmount[orderHash] = filled;
 
-        // 20-byte signature is the owner's address: pre-approved order. Otherwise ECDSA.
-        if (signature.length == 20) {
-            owner = address(bytes20(signature));
-            if (!preApproved[owner][orderHash]) revert NotPreApproved(orderHash);
-        } else {
-            owner = ECDSA.recoverCalldata(orderHash, signature);
+        owner = order.owner;
+        // Empty signature: pre-approved order. Otherwise ECDSA.
+        if (signature.length == 0) {
+            if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
+        } else if (ECDSA.recoverCalldata(orderHash, signature) != owner) {
+            revert BadSignature();
         }
         uint256 cancelled = cancelledFrom[owner][orderHash];
         if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
     }
 
-    function _preApprove(address owner, Order memory order) internal {
+    function _preApprove(address sender, Order memory order) internal {
+        if (sender != order.owner) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
-        preApproved[owner][orderHash] = true;
-        emit PreApproved(owner, orderHash, order);
+        preApproved[orderHash] = true;
+        emit PreApproved(sender, orderHash, order);
     }
 
     // ========================================= USER =========================================
@@ -447,6 +449,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             keccak256(
                 abi.encode(
                     ORDER_TYPEHASH,
+                    order.owner,
                     order.sellTokenChainId,
                     order.sellToken,
                     order.buyTokenChainId,

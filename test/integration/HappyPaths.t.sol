@@ -44,13 +44,33 @@ contract HappyPaths is TransitTestBase {
 
         Terminal.Fill memory aliceOrder = _signOrder(
             Hub.Order(
-                hubID, address(usdc), hubID, address(usdg), amount, amount, alice, block.timestamp, bytes32(uint256(1)), false
+                alice,
+                hubID,
+                address(usdc),
+                hubID,
+                address(usdg),
+                amount,
+                amount,
+                alice,
+                block.timestamp,
+                bytes32(uint256(1)),
+                false
             ),
             alicePk
         );
         Terminal.Fill memory bobOrder = _signOrder(
             Hub.Order(
-                hubID, address(usdg), hubID, address(usdc), amount, amount, bob, block.timestamp, bytes32(uint256(2)), false
+                bob,
+                hubID,
+                address(usdg),
+                hubID,
+                address(usdc),
+                amount,
+                amount,
+                bob,
+                block.timestamp,
+                bytes32(uint256(2)),
+                false
             ),
             bobPk
         );

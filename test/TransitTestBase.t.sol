@@ -344,6 +344,7 @@ contract TransitTestBase is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 hub.ORDER_TYPEHASH(),
+                order.owner,
                 order.sellTokenChainId,
                 order.sellToken,
                 order.buyTokenChainId,
