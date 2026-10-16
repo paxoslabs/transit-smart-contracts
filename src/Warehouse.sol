@@ -116,14 +116,14 @@ contract Warehouse is MessagingEndpoint {
         if (messageType == MessageType.Withdrawal) {
             TransferMessage[] memory messages = abi.decode(body, (TransferMessage[]));
             for (uint256 i; i < messages.length; i++) {
-                _receiveTransfer(chainId, messages[i]);
+                _receiveWithdrawal(chainId, messages[i]);
             }
         } else {
             assert(false);
         }
     }
 
-    function _receiveTransfer(uint64 sourceChainId, TransferMessage memory message) internal {
+    function _receiveWithdrawal(uint64 sourceChainId, TransferMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
         _requireNotPaused();

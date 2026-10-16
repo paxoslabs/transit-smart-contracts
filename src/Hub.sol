@@ -430,7 +430,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
         if (messageType == MessageType.Deposit) {
-            _receiveTransfer(chainId, abi.decode(body, (TransferMessage)));
+            _receiveDeposit(chainId, abi.decode(body, (TransferMessage)));
         } else if (messageType == MessageType.PreApproval) {
             (address owner, Order memory order) = abi.decode(body, (address, Order));
             _preApprove(owner, order);
@@ -449,7 +449,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function _receiveTransfer(uint64 sourceChainId, TransferMessage memory message) internal {
+    function _receiveDeposit(uint64 sourceChainId, TransferMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
         _requireNotPaused();
