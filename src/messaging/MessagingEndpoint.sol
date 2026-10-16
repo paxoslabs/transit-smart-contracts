@@ -13,6 +13,7 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         Deposit,
         Withdrawal,
         PreApproval,
+        OrderCancellationRequest,
         TransferRequest,
         WithdrawalRequest
     }

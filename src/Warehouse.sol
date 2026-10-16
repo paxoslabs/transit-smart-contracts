@@ -69,6 +69,20 @@ contract Warehouse is MessagingEndpoint {
         _sendMessage(_hubChainId(), messageGas, MessageType.PreApproval, abi.encode(msg.sender, order));
     }
 
+    function requestOrderCancellation(
+        Hub.OrderCancellationRequest calldata request,
+        uint64 messageGas
+    )
+        external
+        payable
+        nonReentrant
+    {
+        _requireNotPaused();
+        _sendMessage(
+            _hubChainId(), messageGas, MessageType.OrderCancellationRequest, abi.encode(msg.sender, request)
+        );
+    }
+
     function requestTransfer(Hub.TransferRequest calldata request, uint64 messageGas) external payable nonReentrant {
         _requireNotPaused();
         _sendMessage(_hubChainId(), messageGas, MessageType.TransferRequest, abi.encode(msg.sender, request));

@@ -23,6 +23,12 @@ contract Hub is MessagingEndpoint, EIP712 {
         bool partiallyFillable;
     }
 
+    /// TODO: Decide fields. Currently owner + orderHash; the full Order would allow keying cancelledFrom by hash alone.
+    struct OrderCancellationRequest {
+        address owner;
+        bytes32 orderHash;
+    }
+
     struct TransferRequest {
         address owner;
         address to;
@@ -88,7 +94,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
     event EpochAdvanced(uint256 epoch);
-    event CancelRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
+    event OrderCancellationRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
     event PreApproved(address indexed owner, bytes32 indexed orderHash, Order order);
     event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
@@ -189,11 +195,16 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= ORDERS =========================================
 
-    function requestCancel(bytes32 orderHash) external {
-        if (cancelledFrom[msg.sender][orderHash] != 0) return;
+    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+        _requestOrderCancellation(msg.sender, request);
+    }
+
+    function _requestOrderCancellation(address sender, OrderCancellationRequest memory request) internal {
+        if (sender != request.owner) revert NotOwner();
+        if (cancelledFrom[sender][request.orderHash] != 0) return;
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        cancelledFrom[msg.sender][orderHash] = effectiveAtEpoch;
-        emit CancelRequested(msg.sender, orderHash, effectiveAtEpoch);
+        cancelledFrom[sender][request.orderHash] = effectiveAtEpoch;
+        emit OrderCancellationRequested(sender, request.orderHash, effectiveAtEpoch);
     }
 
     function fill(
@@ -421,6 +432,10 @@ contract Hub is MessagingEndpoint, EIP712 {
         } else if (messageType == MessageType.PreApproval) {
             (address owner, Order memory order) = abi.decode(body, (address, Order));
             _preApprove(owner, order);
+        } else if (messageType == MessageType.OrderCancellationRequest) {
+            (address owner, OrderCancellationRequest memory request) =
+                abi.decode(body, (address, OrderCancellationRequest));
+            _requestOrderCancellation(owner, request);
         } else if (messageType == MessageType.TransferRequest) {
             (address owner, TransferRequest memory request) = abi.decode(body, (address, TransferRequest));
             _requestTransfer(owner, request);
