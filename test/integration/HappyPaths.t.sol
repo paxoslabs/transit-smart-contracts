@@ -42,7 +42,7 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubID);
         _selectChain(hubID);
 
-        Terminal.Fill memory aliceOrder = _signOrder(
+        Hub.Fill memory aliceOrder = _signOrder(
             Hub.Order(
                 alice,
                 hubID,
@@ -58,7 +58,7 @@ contract HappyPaths is TransitTestBase {
             ),
             alicePk
         );
-        Terminal.Fill memory bobOrder = _signOrder(
+        Hub.Fill memory bobOrder = _signOrder(
             Hub.Order(
                 bob,
                 hubID,
@@ -75,7 +75,7 @@ contract HappyPaths is TransitTestBase {
             bobPk
         );
 
-        Terminal.Fill[] memory orders = new Terminal.Fill[](2);
+        Hub.Fill[] memory orders = new Hub.Fill[](2);
         orders[0] = aliceOrder;
         orders[1] = bobOrder;
 
