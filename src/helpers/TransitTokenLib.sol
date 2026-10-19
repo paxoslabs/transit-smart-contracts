@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.37;
+
+library TransitTokenLib {
+
+    function formatAssetId(uint64 chainId, address asset) internal pure returns (bytes32) {
+        return bytes32(uint256(chainId) << 160 | uint160(asset));
+    }
+
+    function parseAssetId(bytes32 assetId) internal pure returns (uint64 chainId, address asset) {
+        chainId = uint64(uint256(assetId) >> 160);
+        asset = address(uint160(uint256(assetId)));
+    }
+
+}

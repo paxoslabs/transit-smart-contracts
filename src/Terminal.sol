@@ -4,12 +4,12 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { Hub } from "./Hub.sol";
+import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Terminal is AccessManaged {
 
     struct Fee {
-        address asset;
-        uint64 assetChainId;
+        bytes32 assetId;
         uint256 amount;
     }
 
@@ -49,10 +49,16 @@ contract Terminal is AccessManaged {
                     revert LimitPrice(orderHashes[i]);
                 }
                 deltas[i] = Hub.TransferDelta(
-                    order.owner, address(0), order.sellTokenChainId, order.sellToken, fills[i].sellFilled
+                    order.owner,
+                    address(0),
+                    TransitTokenLib.formatAssetId(order.sellTokenChainId, order.sellToken),
+                    fills[i].sellFilled
                 );
                 deltas[orders.length + i] = Hub.TransferDelta(
-                    address(0), order.receiver, order.buyTokenChainId, order.buyToken, fills[i].buyFilled
+                    address(0),
+                    order.receiver,
+                    TransitTokenLib.formatAssetId(order.buyTokenChainId, order.buyToken),
+                    fills[i].buyFilled
                 );
 
                 emit Filled(orderHashes[i], order.owner, fills[i].sellFilled, fills[i].buyFilled);
@@ -62,7 +68,7 @@ contract Terminal is AccessManaged {
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
             deltas[orders.length * 2 + i] =
-                Hub.TransferDelta(address(0), SURPLUS_RECIPIENT, fee.assetChainId, fee.asset, fee.amount);
+                Hub.TransferDelta(address(0), SURPLUS_RECIPIENT, fee.assetId, fee.amount);
         }
 
         HUB.transferAmong(deltas);

@@ -8,6 +8,7 @@ import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
+import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { MessagingEndpoint } from "../src/messaging/MessagingEndpoint.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
@@ -273,7 +274,7 @@ contract TransitTestBase is Test {
     }
 
     function _hubBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
-        return hub.balanceOf(user, assetChain, address(asset));
+        return hub.balanceOf(user, TransitTokenLib.formatAssetId(assetChain, address(asset)));
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {

@@ -5,6 +5,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
+import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
 contract Hub is MessagingEndpoint, EIP712 {
@@ -67,8 +68,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     struct TransferDelta {
         address from;
         address to;
-        uint64 assetChainId;
-        address asset;
+        bytes32 assetId;
         uint256 amount;
     }
 
@@ -84,11 +84,11 @@ contract Hub is MessagingEndpoint, EIP712 {
         "WithdrawalRequest(address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
-    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => uint256))) public balanceOf;
+    mapping(address user => mapping(bytes32 assetId => uint256)) public balanceOf;
     uint256 public constant EXECUTED = type(uint256).max;
 
     mapping(bytes32 requestId => uint256 status) public requestStatus;
-    mapping(address user => mapping(uint64 assetChainId => mapping(address asset => Reservation))) public reservation;
+    mapping(address user => mapping(bytes32 assetId => Reservation)) public reservation;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
     mapping(address owner => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
@@ -97,7 +97,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
-    event Transfer(address indexed from, address indexed to, uint64 assetChainId, address indexed asset, uint256 amount);
+    event Transfer(address indexed from, address indexed to, bytes32 indexed assetId, uint256 amount);
     event EpochAdvanced(uint256 epoch);
     event OrderCancellationRequested(address indexed owner, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
     event PreApproved(address indexed owner, bytes32 indexed orderHash, Order order);
@@ -142,8 +142,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     function transferFrom(
         address from,
         address to,
-        uint64 assetChainId,
-        address asset,
+        bytes32 assetId,
         uint256 amount
     )
         external
@@ -151,39 +150,33 @@ contract Hub is MessagingEndpoint, EIP712 {
     {
         _requireNotPaused();
         if (from == address(0) || to == address(0)) revert ZeroAddress();
-        if (balanceOf[from][assetChainId][asset] < _reserved(from, assetChainId, asset) + amount) {
-            revert InsufficientBalance();
-        }
-        _transfer(from, to, assetChainId, asset, amount);
+        if (balanceOf[from][assetId] < _reserved(from, assetId) + amount) revert InsufficientBalance();
+        _transfer(from, to, assetId, amount);
     }
 
     function transferAmong(TransferDelta[] calldata deltas) external restricted {
         _requireNotPaused();
-        uint64[] memory chainIds = new uint64[](deltas.length);
-        address[] memory assets = new address[](deltas.length);
+        bytes32[] memory assetIds = new bytes32[](deltas.length);
         uint256[] memory debits = new uint256[](deltas.length);
         uint256[] memory credits = new uint256[](deltas.length);
         uint256 count;
         for (uint256 i; i < deltas.length; i++) {
             TransferDelta calldata delta = deltas[i];
+            bytes32 assetId = delta.assetId;
             uint256 j;
-            while (j < count && (chainIds[j] != delta.assetChainId || assets[j] != delta.asset)) j++;
+            while (j < count && assetIds[j] != assetId) j++;
             if (j == count) {
-                chainIds[j] = delta.assetChainId;
-                assets[j] = delta.asset;
+                assetIds[j] = assetId;
                 count++;
             }
             if (delta.from != address(0)) {
-                if (
-                    balanceOf[delta.from][delta.assetChainId][delta.asset]
-                        < _reserved(delta.from, delta.assetChainId, delta.asset) + delta.amount
-                ) {
+                if (balanceOf[delta.from][assetId] < _reserved(delta.from, assetId) + delta.amount) {
                     revert InsufficientBalance();
                 }
                 debits[j] += delta.amount;
             }
             if (delta.to != address(0)) credits[j] += delta.amount;
-            _transfer(delta.from, delta.to, delta.assetChainId, delta.asset, delta.amount);
+            _transfer(delta.from, delta.to, assetId, delta.amount);
         }
         for (uint256 j; j < count; j++) {
             if (debits[j] != credits[j]) revert NotZeroSum();
@@ -244,10 +237,11 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             if (block.timestamp > request.deadline) revert Expired(transferId);
 
+            bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fees[i]);
-            _transfer(request.owner, request.to, request.assetChainId, request.asset, request.amount - fees[i]);
+            if (fees[i] != 0) _transfer(request.owner, msg.sender, assetId, fees[i]);
+            _transfer(request.owner, request.to, assetId, request.amount - fees[i]);
 
             emit TransferExecuted(transferId, request.amount - fees[i]);
         }
@@ -288,11 +282,12 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             if (block.timestamp > request.deadline) revert Expired(withdrawId);
 
+            bytes32 assetId = TransitTokenLib.formatAssetId(assetChainId, request.asset);
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(request.owner, msg.sender, assetChainId, request.asset, fees[i]);
+            if (fees[i] != 0) _transfer(request.owner, msg.sender, assetId, fees[i]);
             uint256 amount = request.amount - fees[i];
-            _transfer(request.owner, address(0), assetChainId, request.asset, amount);
+            _transfer(request.owner, address(0), assetId, amount);
 
             messages[i] = TransferMessage({
                 asset: request.asset,
@@ -357,7 +352,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(sender, request.assetChainId, request.asset, request.amount);
+        _reserve(sender, TransitTokenLib.formatAssetId(request.assetChainId, request.asset), request.amount);
 
         emit TransferRequested(requestId, request, effectiveAtEpoch);
     }
@@ -366,7 +361,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         _requireNotPaused();
         bytes32 requestId = hashTransferRequest(request);
         _consumeRequest(requestId);
-        _release(request.owner, request.assetChainId, request.asset, request.amount);
+        bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
+        _release(request.owner, assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -374,13 +370,12 @@ contract Hub is MessagingEndpoint, EIP712 {
             return;
         }
 
-        uint256 amount =
-            FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[request.owner][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
         uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
-        if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
+        if (fee != 0) _transfer(request.owner, msg.sender, assetId, fee);
         amount -= fee;
-        _transfer(request.owner, request.to, request.assetChainId, request.asset, amount);
+        _transfer(request.owner, request.to, assetId, amount);
 
         emit TransferExecuted(requestId, amount);
     }
@@ -392,7 +387,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(sender, request.assetChainId, request.asset, request.amount);
+        _reserve(sender, TransitTokenLib.formatAssetId(request.assetChainId, request.asset), request.amount);
 
         emit WithdrawalRequested(requestId, request, effectiveAtEpoch);
     }
@@ -401,7 +396,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         _requireNotPaused();
         bytes32 requestId = hashWithdrawalRequest(request);
         _consumeRequest(requestId);
-        _release(request.owner, request.assetChainId, request.asset, request.amount);
+        bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
+        _release(request.owner, assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -409,13 +405,12 @@ contract Hub is MessagingEndpoint, EIP712 {
             return;
         }
 
-        uint256 amount =
-            FixedPointMathLib.min(request.amount, balanceOf[request.owner][request.assetChainId][request.asset]);
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[request.owner][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
         uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
-        if (fee != 0) _transfer(request.owner, msg.sender, request.assetChainId, request.asset, fee);
+        if (fee != 0) _transfer(request.owner, msg.sender, assetId, fee);
         amount -= fee;
-        _transfer(request.owner, address(0), request.assetChainId, request.asset, amount);
+        _transfer(request.owner, address(0), assetId, amount);
 
         TransferMessage[] memory messages = new TransferMessage[](1);
         messages[0] = TransferMessage({ asset: request.asset, nonce: ++outboundNonce, amount: amount, to: request.to });
@@ -454,7 +449,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         _requireNotPaused();
 
-        _transfer(address(0), message.to, sourceChainId, message.asset, message.amount);
+        _transfer(address(0), message.to, TransitTokenLib.formatAssetId(sourceChainId, message.asset), message.amount);
 
         emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
@@ -528,41 +523,34 @@ contract Hub is MessagingEndpoint, EIP712 {
         requestStatus[requestId] = EXECUTED;
     }
 
-    function _reserved(address user, uint64 assetChainId, address asset) internal view returns (uint256) {
-        Reservation storage res = reservation[user][assetChainId][asset];
+    function _reserved(address user, bytes32 assetId) internal view returns (uint256) {
+        Reservation storage res = reservation[user][assetId];
         if (res.pendingEpoch <= settlementEpoch) return res.effective + res.pending;
         return res.effective;
     }
 
-    function _reserve(address user, uint64 assetChainId, address asset, uint256 amount) internal {
-        Reservation storage res = _rollReservation(user, assetChainId, asset);
+    function _reserve(address user, bytes32 assetId, uint256 amount) internal {
+        Reservation storage res = _rollReservation(user, assetId);
         res.pending += amount;
         res.pendingEpoch = settlementEpoch + 1;
     }
 
-    function _release(address user, uint64 assetChainId, address asset, uint256 amount) internal {
-        _rollReservation(user, assetChainId, asset).effective -= amount;
+    function _release(address user, bytes32 assetId, uint256 amount) internal {
+        _rollReservation(user, assetId).effective -= amount;
     }
 
-    function _rollReservation(
-        address user,
-        uint64 assetChainId,
-        address asset
-    )
-        internal
-        returns (Reservation storage res)
-    {
-        res = reservation[user][assetChainId][asset];
+    function _rollReservation(address user, bytes32 assetId) internal returns (Reservation storage res) {
+        res = reservation[user][assetId];
         if (res.pendingEpoch <= settlementEpoch) {
             res.effective += res.pending;
             res.pending = 0;
         }
     }
 
-    function _transfer(address from, address to, uint64 assetChainId, address asset, uint256 amount) internal {
-        if (from != address(0)) balanceOf[from][assetChainId][asset] -= amount;
-        if (to != address(0)) balanceOf[to][assetChainId][asset] += amount;
-        emit Transfer(from, to, assetChainId, asset, amount);
+    function _transfer(address from, address to, bytes32 assetId, uint256 amount) internal {
+        if (from != address(0)) balanceOf[from][assetId] -= amount;
+        if (to != address(0)) balanceOf[to][assetId] += amount;
+        emit Transfer(from, to, assetId, amount);
     }
 
 }
