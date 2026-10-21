@@ -164,8 +164,9 @@ contract TransitTestBase is Test {
             hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
             authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
-            bytes4[] memory withdrawSels = new bytes4[](1);
+            bytes4[] memory withdrawSels = new bytes4[](2);
             withdrawSels[0] = Hub.facilitateWithdraw.selector;
+            withdrawSels[1] = Hub.facilitateOrderCancellation.selector;
             authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);

@@ -29,10 +29,13 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 buyFilled;
     }
 
-    /// TODO: Decide fields. Currently owner + orderHash; the full Order would allow keying cancelledFrom by hash alone.
+    /// TODO: Decide fields. The full Order would allow keying cancelledFrom by hash alone.
     struct OrderCancellationRequest {
         address owner;
         bytes32 orderHash;
+        uint64 sellTokenChainId;
+        address sellToken;
+        uint256 maxFee;
     }
 
     struct TransferRequest {
@@ -74,6 +77,10 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
         "Order(address owner,uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
+    );
+
+    bytes32 public constant ORDER_CANCELLATION_REQUEST_TYPEHASH = keccak256(
+        "OrderCancellationRequest(address owner,bytes32 orderHash,uint64 sellTokenChainId,address sellToken,uint256 maxFee)"
     );
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
@@ -125,6 +132,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error NotPreApproved(bytes32 orderHash);
 
     constructor(address _authority) MessagingEndpoint(_authority) {
+        settlementEpoch = 1;
         lastEpochAdvancedAt = block.timestamp;
     }
 
@@ -208,6 +216,40 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         cancelledFrom[msg.sender][request.orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(msg.sender, request.orderHash, effectiveAtEpoch);
+    }
+
+    function facilitateOrderCancellation(
+        OrderCancellationRequest[] calldata requests,
+        bytes[] calldata signatures,
+        uint256[] calldata fees
+    )
+        external
+        restricted
+        nonReentrant
+    {
+        _requireNotPaused();
+        if (requests.length == 0) revert EmptyBatch();
+        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
+
+        for (uint256 i; i < requests.length; i++) {
+            OrderCancellationRequest calldata request = requests[i];
+
+            bytes32 cancelId = hashOrderCancellationRequest(request);
+            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, cancelId, signatures[i])) {
+                revert BadSignature();
+            }
+            uint256 cancelled = cancelledFrom[request.owner][request.orderHash];
+            if (cancelled != 0 && cancelled <= settlementEpoch) continue;
+            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
+
+            cancelledFrom[request.owner][request.orderHash] = settlementEpoch;
+
+            bytes32 assetId = TransitTokenLib.formatAssetId(request.sellTokenChainId, request.sellToken);
+            /// TODO: Decide fee recipient. Currently msg.sender.
+            if (fees[i] != 0) _transfer(request.owner, msg.sender, assetId, fees[i]);
+
+            emit OrderCancellationRequested(request.owner, request.orderHash, settlementEpoch);
+        }
     }
 
     // ========================================= USER =========================================
@@ -463,6 +505,21 @@ contract Hub is MessagingEndpoint, EIP712 {
                     order.expiresAt,
                     order.salt,
                     order.partiallyFillable
+                )
+            )
+        );
+    }
+
+    function hashOrderCancellationRequest(OrderCancellationRequest memory request) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    ORDER_CANCELLATION_REQUEST_TYPEHASH,
+                    request.owner,
+                    request.orderHash,
+                    request.sellTokenChainId,
+                    request.sellToken,
+                    request.maxFee
                 )
             )
         );
