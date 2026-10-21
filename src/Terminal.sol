@@ -14,15 +14,15 @@ contract Terminal is AccessManaged {
     }
 
     Hub public immutable HUB;
-    address public immutable SURPLUS_RECIPIENT;
+    bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
-    event Filled(bytes32 indexed orderHash, address indexed owner, uint256 sellFilled, uint256 buyFilled);
+    event Filled(bytes32 indexed orderHash, bytes32 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
 
     error LimitPrice(bytes32 orderHash);
 
-    constructor(address _authority, Hub _hub, address _surplusRecipient) AccessManaged(_authority) {
+    constructor(address _authority, Hub _hub, bytes32 _surplusRecipientAccountId) AccessManaged(_authority) {
         HUB = _hub;
-        SURPLUS_RECIPIENT = _surplusRecipient;
+        SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
 
     function settle(
@@ -48,27 +48,28 @@ contract Terminal is AccessManaged {
                 ) {
                     revert LimitPrice(orderHashes[i]);
                 }
+                bytes32 ownerAccountId = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner);
                 deltas[i] = Hub.TransferDelta(
-                    order.owner,
-                    address(0),
+                    ownerAccountId,
+                    bytes32(0),
                     TransitTokenLib.formatAssetId(order.sellTokenChainId, order.sellToken),
                     fills[i].sellFilled
                 );
                 deltas[orders.length + i] = Hub.TransferDelta(
-                    address(0),
-                    order.receiver,
+                    bytes32(0),
+                    TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
                     TransitTokenLib.formatAssetId(order.buyTokenChainId, order.buyToken),
                     fills[i].buyFilled
                 );
 
-                emit Filled(orderHashes[i], order.owner, fills[i].sellFilled, fills[i].buyFilled);
+                emit Filled(orderHashes[i], ownerAccountId, fills[i].sellFilled, fills[i].buyFilled);
             }
         }
 
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
             deltas[orders.length * 2 + i] =
-                Hub.TransferDelta(address(0), SURPLUS_RECIPIENT, fee.assetId, fee.amount);
+                Hub.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
         }
 
         HUB.transferAmong(deltas);

@@ -99,6 +99,7 @@ contract WarehouseUnitTest is Test {
 
     function _request(address owner, uint256 amount) internal returns (Hub.WithdrawalRequest memory) {
         return Hub.WithdrawalRequest({
+            ownerChainId: HUB,
             owner: owner,
             to: owner,
             assetChainId: HUB,
@@ -130,7 +131,7 @@ contract WarehouseUnitTest is Test {
     function testDepositCreditsUserAndVault() public {
         _deposit(alice, 100e6);
 
-        assertEq(hub.balanceOf(alice, TransitTokenLib.formatAssetId(HUB, address(usdc))), 100e6, "deposit: alice not credited hub balance");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(usdc))), 100e6, "deposit: alice not credited hub balance");
         assertEq(usdc.balanceOf(vault), 100e6, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
         assertEq(usdc.balanceOf(address(warehouse)), 0, "deposit: warehouse must never hold funds");
@@ -146,7 +147,7 @@ contract WarehouseUnitTest is Test {
         warehouse.deposit(other, 1e18, alice, 0);
         vm.stopPrank();
 
-        assertEq(hub.balanceOf(alice, TransitTokenLib.formatAssetId(HUB, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
         assertEq(other.balanceOf(vault), 1e18, "deposit: vault did not receive arbitrary asset");
     }
 
@@ -200,7 +201,7 @@ contract WarehouseUnitTest is Test {
         vm.chainId(HUB);
         hubAdapter.deliver(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), queued[0]);
 
-        assertEq(hub.balanceOf(alice, TransitTokenLib.formatAssetId(SPOKE, address(usdg))), 100e6, "spoke deposit: hub did not credit alice");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(SPOKE, alice), TransitTokenLib.formatAssetId(SPOKE, address(usdg))), 100e6, "spoke deposit: hub did not credit alice");
     }
 
     // ---------------------------------------------------------------- hub auth
@@ -226,7 +227,7 @@ contract WarehouseUnitTest is Test {
         vm.prank(backend);
         _withdraw(req, sig);
 
-        assertEq(hub.balanceOf(alice, TransitTokenLib.formatAssetId(HUB, address(usdc))), 0, "withdraw: hub balance not burned");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(usdc))), 0, "withdraw: hub balance not burned");
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
         assertEq(usdc.balanceOf(vault), 0, "withdraw: vault did not release usdc");
     }

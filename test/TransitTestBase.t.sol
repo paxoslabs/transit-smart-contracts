@@ -84,7 +84,9 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubID);
-        terminal = new Terminal(address(authorities[hubID]), hub, surplusRecipient);
+        terminal = new Terminal(
+            address(authorities[hubID]), hub, TransitTokenLib.formatAccountId(hubID, surplusRecipient)
+        );
         _grantTerminalRole();
 
         _wireChains();
@@ -275,7 +277,7 @@ contract TransitTestBase is Test {
     }
 
     function _hubBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
-        return hub.balanceOf(user, TransitTokenLib.formatAssetId(assetChain, address(asset)));
+        return hub.balanceOf(TransitTokenLib.formatAccountId(hubID, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
@@ -329,6 +331,7 @@ contract TransitTestBase is Test {
         returns (Hub.WithdrawalRequest memory)
     {
         return Hub.WithdrawalRequest({
+            ownerChainId: hubID,
             owner: user,
             to: user,
             assetChainId: chain,
@@ -348,24 +351,7 @@ contract TransitTestBase is Test {
     }
 
     function _signOrder(Hub.Order memory order, uint256 pk) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                hub.ORDER_TYPEHASH(),
-                order.owner,
-                order.sellTokenChainId,
-                order.sellToken,
-                order.buyTokenChainId,
-                order.buyToken,
-                order.sellAmount,
-                order.buyAmount,
-                order.receiver,
-                order.expiresAt,
-                order.salt,
-                order.partiallyFillable
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", hub.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }
 

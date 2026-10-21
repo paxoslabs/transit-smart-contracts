@@ -44,6 +44,7 @@ contract HappyPaths is TransitTestBase {
 
         Hub.Order[] memory orders = new Hub.Order[](2);
         orders[0] = Hub.Order(
+            hubID,
             alice,
             hubID,
             address(usdc),
@@ -51,12 +52,14 @@ contract HappyPaths is TransitTestBase {
             address(usdg),
             amount,
             amount,
+            hubID,
             alice,
             block.timestamp,
             bytes32(uint256(1)),
             false
         );
         orders[1] = Hub.Order(
+            hubID,
             bob,
             hubID,
             address(usdg),
@@ -64,6 +67,7 @@ contract HappyPaths is TransitTestBase {
             address(usdc),
             amount,
             amount,
+            hubID,
             bob,
             block.timestamp,
             bytes32(uint256(2)),

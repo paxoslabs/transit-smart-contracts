@@ -3,6 +3,15 @@ pragma solidity ^0.8.37;
 
 library TransitTokenLib {
 
+    function formatAccountId(uint64 chainId, address account) internal pure returns (bytes32) {
+        return bytes32(uint256(chainId) << 160 | uint160(account));
+    }
+
+    function parseAccountId(bytes32 accountId) internal pure returns (uint64 chainId, address account) {
+        chainId = uint64(uint256(accountId) >> 160);
+        account = address(uint160(uint256(accountId)));
+    }
+
     function formatAssetId(uint64 chainId, address asset) internal pure returns (bytes32) {
         return bytes32(uint256(chainId) << 160 | uint160(asset));
     }
