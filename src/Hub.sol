@@ -4,7 +4,6 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
@@ -240,8 +239,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
 
             bytes32 cancelId = hashOrderCancellationRequest(request);
-            /// TODO: Decide signature scheme for remote owners. ERC-1271 checks the hub-chain contract at `owner`, which may be controlled by another party.
-            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, cancelId, signatures[i])) {
+            if (ECDSA.recoverCalldata(cancelId, signatures[i]) != request.owner) {
                 revert BadSignature();
             }
             uint256 cancelled = cancelledFrom[ownerAccountId][request.orderHash];
@@ -279,8 +277,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             bytes32 transferId = hashTransferRequest(request);
             if (requestStatus[transferId] != 0) revert RequestReplay();
-            /// TODO: Decide signature scheme for remote owners. ERC-1271 checks the hub-chain contract at `owner`, which may be controlled by another party.
-            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, transferId, signatures[i])) {
+            if (ECDSA.recoverCalldata(transferId, signatures[i]) != request.owner) {
                 revert BadSignature();
             }
             requestStatus[transferId] = EXECUTED;
@@ -330,8 +327,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             bytes32 withdrawId = hashWithdrawalRequest(request);
             if (requestStatus[withdrawId] != 0) revert RequestReplay();
-            /// TODO: Decide signature scheme for remote owners. ERC-1271 checks the hub-chain contract at `owner`, which may be controlled by another party.
-            if (!SignatureCheckerLib.isValidSignatureNowCalldata(request.owner, withdrawId, signatures[i])) {
+            if (ECDSA.recoverCalldata(withdrawId, signatures[i]) != request.owner) {
                 revert BadSignature();
             }
             requestStatus[withdrawId] = EXECUTED;
