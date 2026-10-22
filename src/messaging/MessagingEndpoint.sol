@@ -18,7 +18,14 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         WithdrawalRequest
     }
 
-    struct TransferMessage {
+    struct DepositMessage {
+        address asset;
+        uint256 nonce;
+        uint256 amount;
+        bytes32 toAccountId;
+    }
+
+    struct WithdrawalMessage {
         address asset;
         uint256 nonce;
         uint256 amount;
@@ -31,8 +38,6 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
     mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
 
     event MessagingAdapterUpdated(address indexed adapter);
-    event MessageSent(bytes32 messageId, uint256 shareAmount, address to);
-    event MessageReceived(bytes32 messageId, uint256 shareAmount, address to);
 
     error MessageReplay();
     error UnknownAdapter();

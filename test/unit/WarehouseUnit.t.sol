@@ -93,7 +93,7 @@ contract WarehouseUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(usdc, amount, user, 0);
+        warehouse.deposit(usdc, amount, HUB, user, 0);
         vm.stopPrank();
     }
 
@@ -144,7 +144,7 @@ contract WarehouseUnitTest is Test {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        warehouse.deposit(other, 1e18, alice, 0);
+        warehouse.deposit(other, 1e18, HUB, alice, 0);
         vm.stopPrank();
 
         assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
@@ -190,7 +190,7 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
         spokeWarehouse.deposit(
-            usdg, 100e6, alice, 200_000
+            usdg, 100e6, SPOKE, alice, 200_000
         );
         vm.stopPrank();
 
@@ -209,7 +209,7 @@ contract WarehouseUnitTest is Test {
     function testOnlyWarehouseCanMint() public {
         bytes memory payload = abi.encode(
             MessagingEndpoint.MessageType.Deposit,
-            abi.encode(MessagingEndpoint.TransferMessage({ asset: address(usdc), nonce: 1, amount: 1e6, to: mallory }))
+            abi.encode(MessagingEndpoint.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) }))
         );
         vm.prank(mallory);
         vm.expectRevert();
@@ -270,8 +270,8 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonAdapterReverts() public {
-        MessagingEndpoint.TransferMessage[] memory m = new MessagingEndpoint.TransferMessage[](1);
-        m[0] = MessagingEndpoint.TransferMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+        MessagingEndpoint.WithdrawalMessage[] memory m = new MessagingEndpoint.WithdrawalMessage[](1);
+        m[0] = MessagingEndpoint.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
         bytes memory payload = abi.encode(MessagingEndpoint.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);

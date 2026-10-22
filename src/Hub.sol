@@ -319,7 +319,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         uint64 assetChainId = requests[0].assetChainId;
         withdrawIds = new bytes32[](requests.length);
-        TransferMessage[] memory messages = new TransferMessage[](requests.length);
+        WithdrawalMessage[] memory messages = new WithdrawalMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawalRequest calldata request = requests[i];
@@ -344,7 +344,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             uint256 amount = request.amount - fees[i];
             _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
-            messages[i] = TransferMessage({
+            messages[i] = WithdrawalMessage({
                 asset: request.asset,
                 nonce: ++outboundNonce,
                 amount: amount,
@@ -354,12 +354,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             emit WithdrawalExecuted(withdrawId, amount);
         }
 
-        bytes32 messageId =
-            _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
-
-        for (uint256 i; i < messages.length; i++) {
-            emit MessageSent(messageId, messages[i].amount, messages[i].to);
-        }
+        _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
     }
 
     function facilitateFill(
@@ -469,12 +464,10 @@ contract Hub is MessagingEndpoint, EIP712 {
         amount -= fee;
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
-        TransferMessage[] memory messages = new TransferMessage[](1);
-        messages[0] = TransferMessage({ asset: request.asset, nonce: ++outboundNonce, amount: amount, to: request.to });
-        bytes32 messageId =
-            _sendMessage(request.assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+        WithdrawalMessage[] memory messages = new WithdrawalMessage[](1);
+        messages[0] = WithdrawalMessage({ asset: request.asset, nonce: ++outboundNonce, amount: amount, to: request.to });
+        _sendMessage(request.assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
 
-        emit MessageSent(messageId, amount, request.to);
         emit WithdrawalExecuted(requestId, amount);
     }
 
@@ -482,7 +475,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
         if (messageType == MessageType.Deposit) {
-            _receiveDeposit(chainId, abi.decode(body, (TransferMessage)));
+            _receiveDeposit(chainId, abi.decode(body, (DepositMessage)));
         } else if (messageType == MessageType.PreApproval) {
             (address owner, Order memory order) = abi.decode(body, (address, Order));
             _preApprove(TransitTokenLib.formatAccountId(chainId, owner), order);
@@ -501,20 +494,17 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function _receiveDeposit(uint64 sourceChainId, TransferMessage memory message) internal {
+    function _receiveDeposit(uint64 sourceChainId, DepositMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
         _requireNotPaused();
 
-        /// TODO: Decide recipient chain for deposits. Currently the source chain.
         _transfer(
             bytes32(0),
-            TransitTokenLib.formatAccountId(sourceChainId, message.to),
+            message.toAccountId,
             TransitTokenLib.formatAssetId(sourceChainId, message.asset),
             message.amount
         );
-
-        emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
 
     // ========================================= VIEWS =========================================

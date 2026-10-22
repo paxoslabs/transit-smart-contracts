@@ -6,6 +6,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 import { Hub } from "./Hub.sol";
+import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Warehouse is MessagingEndpoint {
 
@@ -13,7 +14,7 @@ contract Warehouse is MessagingEndpoint {
 
     mapping(address asset => bool) public assetWhitelisted;
 
-    event Deposit(address indexed asset, address indexed from, address indexed to, uint256 amount);
+    event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
 
     error VaultUnset();
     error ZeroAssets();
@@ -37,6 +38,7 @@ contract Warehouse is MessagingEndpoint {
     function deposit(
         ERC20 asset,
         uint256 amount,
+        uint64 toChainId,
         address to,
         uint64 messageGas
     )
@@ -52,16 +54,17 @@ contract Warehouse is MessagingEndpoint {
         shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
-        bytes32 messageId = _sendMessage(
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
+        _sendMessage(
             _hubChainId(),
             messageGas,
             MessageType.Deposit,
-            abi.encode(TransferMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, to: to }))
+            abi.encode(
+                DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
+            )
         );
 
-        emit MessageSent(messageId, shares, to);
-
-        emit Deposit(address(asset), msg.sender, to, amount);
+        emit Deposit(address(asset), msg.sender, toAccountId, amount);
     }
 
     function preApprove(Hub.Order calldata order, uint64 messageGas) external payable nonReentrant {
@@ -114,7 +117,7 @@ contract Warehouse is MessagingEndpoint {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
         if (messageType == MessageType.Withdrawal) {
-            TransferMessage[] memory messages = abi.decode(body, (TransferMessage[]));
+            WithdrawalMessage[] memory messages = abi.decode(body, (WithdrawalMessage[]));
             for (uint256 i; i < messages.length; i++) {
                 _receiveWithdrawal(chainId, messages[i]);
             }
@@ -123,13 +126,11 @@ contract Warehouse is MessagingEndpoint {
         }
     }
 
-    function _receiveWithdrawal(uint64 sourceChainId, TransferMessage memory message) internal {
+    function _receiveWithdrawal(uint64 sourceChainId, WithdrawalMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 
         _requireNotPaused();
         SafeTransferLib.safeTransferFrom(message.asset, vault, message.to, message.amount);
-
-        emit MessageReceived(bytes32(message.nonce), message.amount, message.to);
     }
 
 }
