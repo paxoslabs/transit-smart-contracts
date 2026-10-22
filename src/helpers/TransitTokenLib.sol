@@ -16,6 +16,10 @@ library TransitTokenLib {
         return bytes32(uint256(chainId) << 160 | uint160(asset));
     }
 
+    function formatMarginAssetId(uint64 chainId, address asset) internal pure returns (bytes32) {
+        return formatAssetId(chainId, asset) | bytes32(uint256(1) << 224);
+    }
+
     function parseAssetId(bytes32 assetId) internal pure returns (uint64 chainId, address asset) {
         chainId = uint64(uint256(assetId) >> 160);
         asset = address(uint160(uint256(assetId)));
