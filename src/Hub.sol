@@ -196,6 +196,19 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
+    function mint(bytes32 toAccountId, bytes32 assetId, uint256 amount) external restricted {
+        _requireNotPaused();
+        if (toAccountId == bytes32(0)) revert ZeroAddress();
+        _transfer(bytes32(0), toAccountId, assetId, amount);
+    }
+
+    function burn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
+        _requireNotPaused();
+        if (fromAccountId == bytes32(0)) revert ZeroAddress();
+        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) revert InsufficientBalance();
+        _transfer(fromAccountId, bytes32(0), assetId, amount);
+    }
+
     function advanceEpoch(uint256 epoch) external {
         if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
         if (epoch != settlementEpoch) revert BadEpoch(epoch);
