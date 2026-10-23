@@ -16,20 +16,20 @@ contract HappyPaths is TransitTestBase {
     function testDepositHubAndWithdraw() public {
         // default hub is ETH
         uint256 amount = 100e6;
-        ERC20 usdc = chainConfig[hubID].usdc;
+        ERC20 usdc = chainConfig[hubChainId].usdc;
 
-        _depositOnChain(alice, amount, usdc, hubID);
+        _depositOnChain(alice, amount, usdc, hubChainId);
 
-        _selectChain(hubID);
+        _selectChain(hubChainId);
 
-        assertEq(_hubBalance(alice, hubID, usdc), amount, "deposit: alice not credited hub balance");
-        assertEq(usdc.balanceOf(_vaultOf(hubID)), amount, "deposit: vault did not receive usdc");
+        assertEq(_hubBalance(alice, hubChainId, usdc), amount, "deposit: alice not credited hub balance");
+        assertEq(usdc.balanceOf(_vaultOf(hubChainId)), amount, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
 
-        _withdrawOnChain(alice, alicePk, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdc, hubChainId, true);
 
-        assertEq(_hubBalance(alice, hubID, usdc), 0, "withdraw: alice hub balance not burned");
-        assertEq(usdc.balanceOf(_vaultOf(hubID)), 0, "withdraw: vault did not release usdc");
+        assertEq(_hubBalance(alice, hubChainId, usdc), 0, "withdraw: alice hub balance not burned");
+        assertEq(usdc.balanceOf(_vaultOf(hubChainId)), 0, "withdraw: vault did not release usdc");
         assertEq(usdc.balanceOf(alice), amount, "withdraw: alice did not receive usdc back");
     }
 
@@ -37,34 +37,34 @@ contract HappyPaths is TransitTestBase {
     function testAliceBobHappyPathOneToOneSameChain() public {
         // default hub is ETH
         uint256 amount = 100e6;
-        ERC20 usdc = chainConfig[hubID].usdc;
-        ERC20 usdg = chainConfig[hubID].usdg;
-        _depositOnChain(alice, amount, usdc, hubID);
-        _depositOnChain(bob, amount, usdg, hubID);
-        _selectChain(hubID);
+        ERC20 usdc = chainConfig[hubChainId].usdc;
+        ERC20 usdg = chainConfig[hubChainId].usdg;
+        _depositOnChain(alice, amount, usdc, hubChainId);
+        _depositOnChain(bob, amount, usdg, hubChainId);
+        _selectChain(hubChainId);
 
         Hub.Order[] memory orders = new Hub.Order[](2);
         orders[0] = Hub.Order(
-            hubID,
+            hubChainId,
             alice,
-            TransitTokenLib.formatAssetId(hubID, address(usdc)),
-            TransitTokenLib.formatAssetId(hubID, address(usdg)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
             amount,
             amount,
-            hubID,
+            hubChainId,
             alice,
             block.timestamp,
             bytes32(uint256(1)),
             false
         );
         orders[1] = Hub.Order(
-            hubID,
+            hubChainId,
             bob,
-            TransitTokenLib.formatAssetId(hubID, address(usdg)),
-            TransitTokenLib.formatAssetId(hubID, address(usdc)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
             amount,
             amount,
-            hubID,
+            hubChainId,
             bob,
             block.timestamp,
             bytes32(uint256(2)),
@@ -83,16 +83,16 @@ contract HappyPaths is TransitTestBase {
         terminal.settle(hub.settlementEpoch(), orders, signatures, fills, new Terminal.Fee[](0));
         vm.stopPrank();
 
-        assertEq(_hubBalance(alice, hubID, usdg), amount, "settle: alice did not receive usdg");
-        assertEq(_hubBalance(bob, hubID, usdc), amount, "settle: bob did not receive usdc");
-        assertEq(_hubBalance(alice, hubID, usdc), 0, "settle: alice usdc not taken");
-        assertEq(_hubBalance(bob, hubID, usdg), 0, "settle: bob usdg not taken");
+        assertEq(_hubBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");
+        assertEq(_hubBalance(bob, hubChainId, usdc), amount, "settle: bob did not receive usdc");
+        assertEq(_hubBalance(alice, hubChainId, usdc), 0, "settle: alice usdc not taken");
+        assertEq(_hubBalance(bob, hubChainId, usdg), 0, "settle: bob usdg not taken");
 
-        _withdrawOnChain(alice, alicePk, amount, usdg, hubID, true);
-        _withdrawOnChain(bob, bobPk, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdg, hubChainId, true);
+        _withdrawOnChain(bob, bobPk, amount, usdc, hubChainId, true);
 
-        assertEq(_hubBalance(alice, hubID, usdg), 0, "withdraw: alice hub usdg not burned");
-        assertEq(_hubBalance(bob, hubID, usdc), 0, "withdraw: bob hub usdc not burned");
+        assertEq(_hubBalance(alice, hubChainId, usdg), 0, "withdraw: alice hub usdg not burned");
+        assertEq(_hubBalance(bob, hubChainId, usdc), 0, "withdraw: bob hub usdc not burned");
         assertEq(usdg.balanceOf(alice), amount, "withdraw: alice did not receive usdg");
         assertEq(usdc.balanceOf(bob), amount, "withdraw: bob did not receive usdc");
     }

@@ -51,7 +51,7 @@ contract TransitTestBase is Test {
     address surplusRecipient;
 
     uint64[] spokeIDs;
-    uint64 hubID;
+    uint64 hubChainId;
     uint256 withdrawNonce;
 
     Terminal terminal;
@@ -71,25 +71,25 @@ contract TransitTestBase is Test {
     }
 
     function _initTransit(uint64 _hubID, uint64[] memory _spokeIDs) internal {
-        hubID = _hubID;
+        hubChainId = _hubID;
         spokeIDs = _spokeIDs;
 
         _initChainConfigs();
         _initUsers();
 
-        _createFork(hubID);
+        _createFork(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _createFork(spokeIDs[i]);
         }
 
-        _deployCore(hubID);
+        _deployCore(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _deployCore(spokeIDs[i]);
         }
 
-        _selectChain(hubID);
+        _selectChain(hubChainId);
         terminal = new Terminal(
-            address(authorities[hubID]), hub, TransitTokenLib.formatAccountId(hubID, surplusRecipient)
+            address(authorities[hubChainId]), hub, TransitTokenLib.formatAccountId(hubChainId, surplusRecipient)
         );
         _grantTerminalRole();
 
@@ -103,7 +103,7 @@ contract TransitTestBase is Test {
         TransitAuthority authority = new TransitAuthority(admin);
         uint256 nonce = vm.getNonce(address(this));
         Turnstile chainTurnstile;
-        if (chain == hubID) {
+        if (chain == hubChainId) {
             chainTurnstile = new Turnstile(
                 address(authority),
                 vm.computeCreateAddress(address(this), nonce + 1),
@@ -115,8 +115,8 @@ contract TransitTestBase is Test {
             chainTurnstile =
                 new Turnstile(address(authority), address(0), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        Warehouse warehouse = new Warehouse(address(authority), vault, chainTurnstile);
-        MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubID);
+        Warehouse warehouse = new Warehouse(address(authority), vault, chainTurnstile, hubChainId);
+        MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -129,8 +129,8 @@ contract TransitTestBase is Test {
     function _wireChains() internal {
         for (uint256 i; i < spokeIDs.length; i++) {
             uint64 spoke = spokeIDs[i];
-            _addRoute(spoke, hubID, address(adapters[hubID]));
-            _addRoute(hubID, spoke, address(adapters[spoke]));
+            _addRoute(spoke, hubChainId, address(adapters[hubChainId]));
+            _addRoute(hubChainId, spoke, address(adapters[spoke]));
         }
     }
 
@@ -177,7 +177,7 @@ contract TransitTestBase is Test {
 
         _wireTurnstile(chain);
 
-        if (chain == hubID) {
+        if (chain == hubChainId) {
             _wireHub(authority);
 
             bytes4[] memory withdrawSels = new bytes4[](2);
@@ -240,19 +240,19 @@ contract TransitTestBase is Test {
         epochSels[0] = Hub.advanceEpoch.selector;
 
         vm.startPrank(admin);
-        authorities[hubID].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
-        authorities[hubID].grantRole(TERMINAL_ROLE, address(terminal));
-        authorities[hubID].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
-        authorities[hubID].grantRole(EPOCH_ROLE, address(terminal));
+        authorities[hubChainId].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
+        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(terminal));
+        authorities[hubChainId].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
+        authorities[hubChainId].grantRole(EPOCH_ROLE, address(terminal));
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = Terminal.settle.selector;
-        authorities[hubID].setTargetFunctionRole(address(terminal), settleSels, SOLVER_ROLE);
+        authorities[hubChainId].setTargetFunctionRole(address(terminal), settleSels, SOLVER_ROLE);
         vm.stopPrank();
     }
 
     function _approveVault() internal {
-        _approveVaultOn(hubID);
+        _approveVaultOn(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _approveVaultOn(spokeIDs[i]);
         }
@@ -326,7 +326,7 @@ contract TransitTestBase is Test {
     }
 
     function _hubBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
-        return hub.balanceOf(TransitTokenLib.formatAccountId(hubID, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
+        return hub.balanceOf(TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
@@ -334,12 +334,12 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(asset, amount, hubID, user, _messageGas(chain));
+        warehouses[chain].deposit(asset, amount, hubChainId, user, _messageGas(chain));
         vm.stopPrank();
     }
 
     function _messageGas(uint64 chain) internal view returns (uint64) {
-        return chain == hubID ? 0 : 200_000;
+        return chain == hubChainId ? 0 : 200_000;
     }
 
     function _withdrawOnChain(
@@ -354,9 +354,9 @@ contract TransitTestBase is Test {
         returns (bytes32 withdrawId)
     {
         require(shouldBeAtomic, "only signed withdraws are supported");
-        require(chain == hubID, "can only atomically withdraw on Hub");
+        require(chain == hubChainId, "can only atomically withdraw on Hub");
 
-        _selectChain(hubID);
+        _selectChain(hubChainId);
         Hub.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
@@ -367,7 +367,7 @@ contract TransitTestBase is Test {
         uint256[] memory fees = new uint256[](1);
 
         vm.prank(solver);
-        withdrawId = hub.facilitateWithdraw(requests, signatures, fees, _messageGas(hubID))[0];
+        withdrawId = hub.facilitateWithdraw(requests, signatures, fees, _messageGas(hubChainId))[0];
     }
 
     function _withdrawalRequestFor(
@@ -380,7 +380,7 @@ contract TransitTestBase is Test {
         returns (Hub.WithdrawalRequest memory)
     {
         return Hub.WithdrawalRequest({
-            ownerChainId: hubID,
+            ownerChainId: hubChainId,
             owner: user,
             to: user,
             assetId: TransitTokenLib.formatAssetId(chain, address(asset)),

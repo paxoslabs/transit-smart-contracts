@@ -18,8 +18,8 @@ import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract WarehouseUnitTest is Test {
 
-    uint64 constant HUB = 1;
-    uint64 constant SPOKE = 4663;
+    uint64 constant HUB_CHAIN_ID = 1;
+    uint64 constant SPOKE_CHAIN_ID = 4663;
 
     TransitAuthority authority;
     Warehouse warehouse;
@@ -38,7 +38,7 @@ contract WarehouseUnitTest is Test {
     uint256 withdrawNonce;
 
     function setUp() public {
-        vm.chainId(HUB);
+        vm.chainId(HUB_CHAIN_ID);
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
@@ -49,8 +49,8 @@ contract WarehouseUnitTest is Test {
             vm.computeCreateAddress(address(this), nonce + 2)
         );
         hub = new Hub(address(authority), address(turnstile));
-        warehouse = new Warehouse(address(authority), vault, turnstile);
-        local = new MockMessagingAdapter(address(authority), address(turnstile), HUB);
+        warehouse = new Warehouse(address(authority), vault, turnstile, HUB_CHAIN_ID);
+        local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
@@ -125,16 +125,16 @@ contract WarehouseUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(usdc, amount, HUB, user, 0);
+        warehouse.deposit(usdc, amount, HUB_CHAIN_ID, user, 0);
         vm.stopPrank();
     }
 
     function _request(address owner, uint256 amount) internal returns (Hub.WithdrawalRequest memory) {
         return Hub.WithdrawalRequest({
-            ownerChainId: HUB,
+            ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
-            assetId: TransitTokenLib.formatAssetId(HUB, address(usdc)),
+            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
             maxFee: 0,
             nonce: ++withdrawNonce,
@@ -162,7 +162,7 @@ contract WarehouseUnitTest is Test {
     function testDepositCreditsUserAndVault() public {
         _deposit(alice, 100e6);
 
-        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(usdc))), 100e6, "deposit: alice not credited hub balance");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))), 100e6, "deposit: alice not credited hub balance");
         assertEq(usdc.balanceOf(vault), 100e6, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
         assertEq(usdc.balanceOf(address(warehouse)), 0, "deposit: warehouse must never hold funds");
@@ -175,24 +175,24 @@ contract WarehouseUnitTest is Test {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        warehouse.deposit(other, 1e18, HUB, alice, 0);
+        warehouse.deposit(other, 1e18, HUB_CHAIN_ID, alice, 0);
         vm.stopPrank();
 
-        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
         assertEq(other.balanceOf(vault), 1e18, "deposit: vault did not receive arbitrary asset");
     }
 
     function testSpokeDepositCreditsHub() public {
-        vm.chainId(SPOKE);
+        vm.chainId(SPOKE_CHAIN_ID);
         Turnstile spokeTurnstile = new Turnstile(
             address(authority), address(0), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)
         );
-        Warehouse spokeWarehouse = new Warehouse(address(authority), vault, spokeTurnstile);
-        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB);
+        Warehouse spokeWarehouse = new Warehouse(address(authority), vault, spokeTurnstile, HUB_CHAIN_ID);
+        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
-        vm.chainId(HUB);
-        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB);
+        vm.chainId(HUB_CHAIN_ID);
+        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
 
         bytes4[] memory warehouseSels = new bytes4[](1);
         warehouseSels[0] = Warehouse.setAssetWhitelisted.selector;
@@ -222,17 +222,17 @@ contract WarehouseUnitTest is Test {
 
         spokeTurnstile.setMessagingAdapter(spokeAdapter);
         spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);
-        spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0, true, true);
+        spokeAdapter.setPeer(HUB_CHAIN_ID, bytes32(uint256(uint160(address(hubAdapter)))), HUB_CHAIN_ID, 200_000, 0, true, true);
 
-        hubAdapter.setPeer(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE, 200_000, 0, true, true);
+        hubAdapter.setPeer(SPOKE_CHAIN_ID, bytes32(uint256(uint160(address(spokeAdapter)))), SPOKE_CHAIN_ID, 200_000, 0, true, true);
         vm.stopPrank();
 
-        vm.chainId(SPOKE);
+        vm.chainId(SPOKE_CHAIN_ID);
         deal(address(usdg), alice, 100e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
         spokeWarehouse.deposit(
-            usdg, 100e6, SPOKE, alice, 200_000
+            usdg, 100e6, SPOKE_CHAIN_ID, alice, 200_000
         );
         vm.stopPrank();
 
@@ -240,24 +240,24 @@ contract WarehouseUnitTest is Test {
         bytes[] memory queued = spokeAdapter.pending();
         assertEq(queued.length, 1, "spoke deposit: no Transfer message queued to hub");
 
-        vm.chainId(HUB);
-        hubAdapter.deliver(SPOKE, bytes32(uint256(uint160(address(spokeAdapter)))), queued[0]);
+        vm.chainId(HUB_CHAIN_ID);
+        hubAdapter.deliver(SPOKE_CHAIN_ID, bytes32(uint256(uint160(address(spokeAdapter)))), queued[0]);
 
-        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(SPOKE, alice), TransitTokenLib.formatAssetId(SPOKE, address(usdg))), 100e6, "spoke deposit: hub did not credit alice");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice), TransitTokenLib.formatAssetId(SPOKE_CHAIN_ID, address(usdg))), 100e6, "spoke deposit: hub did not credit alice");
     }
 
     // ---------------------------------------------------------------- hub auth
 
     function testOnlyWarehouseCanMint() public {
-        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) });
+        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory) });
         bytes memory payload = abi.encode(ITurnstile.MessageType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
-        turnstile.receiveMessage(HUB, payload);
+        turnstile.receiveMessage(HUB_CHAIN_ID, payload);
 
         vm.prank(mallory);
         vm.expectRevert();
-        hub.receiveDeposit(HUB, message);
+        hub.receiveDeposit(HUB_CHAIN_ID, message);
     }
 
     // ---------------------------------------------------------------- withdraw
@@ -271,7 +271,7 @@ contract WarehouseUnitTest is Test {
         vm.prank(backend);
         _withdraw(req, sig);
 
-        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB, alice), TransitTokenLib.formatAssetId(HUB, address(usdc))), 0, "withdraw: hub balance not burned");
+        assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))), 0, "withdraw: hub balance not burned");
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
         assertEq(usdc.balanceOf(vault), 0, "withdraw: vault did not release usdc");
     }
@@ -320,7 +320,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        turnstile.receiveMessage(SPOKE, payload);
+        turnstile.receiveMessage(SPOKE_CHAIN_ID, payload);
 
         vm.prank(mallory);
         vm.expectRevert();
