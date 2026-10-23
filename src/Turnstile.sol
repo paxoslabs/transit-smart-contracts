@@ -67,6 +67,20 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
         }
     }
 
+    function quote(
+        uint64 chainId,
+        uint64 messageGas,
+        MessageType messageType,
+        bytes calldata body
+    )
+        external
+        view
+        returns (uint256 fee)
+    {
+        if (chainId == block.chainid) return 0;
+        return messagingAdapter.quote(chainId, messageGas, abi.encode(messageType, body));
+    }
+
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted nonReentrant {
         _requireNotPaused();
         bytes32 messageHash = keccak256(abi.encode(sourceChainId, messageType, body));

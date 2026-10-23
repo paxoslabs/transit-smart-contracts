@@ -93,10 +93,6 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         );
     }
 
-    function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {
-        return TURNSTILE.messagingAdapter().quote(_hubChainId(), messageGas, payload);
-    }
-
     function _hubChainId() internal view returns (uint64) {
         IMessagingAdapter adapter = TURNSTILE.messagingAdapter();
         if (address(adapter) == address(0)) revert UnknownAdapter();

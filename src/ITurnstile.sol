@@ -77,6 +77,16 @@ interface ITurnstile is IMessagingReceiver {
         payable
         returns (bytes32 messageId);
 
+    function quote(
+        uint64 chainId,
+        uint64 messageGas,
+        MessageType messageType,
+        bytes calldata body
+    )
+        external
+        view
+        returns (uint256 fee);
+
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external;
 
 }

@@ -106,11 +106,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     {
         if (msg.sender != endpoint) revert OnlyEndpoint();
 
-        PeerConfig memory peer = _peerOf(chainId);
-        if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
-        if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
-        if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
-
+        PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
         messageId = _send(chainId, gasLimit, peer, payload);
 
         emit MessageSent(chainId, messageId, payload);
@@ -139,6 +135,13 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     function _peerOf(uint64 chainId) internal view returns (PeerConfig memory peer) {
         peer = peers[chainId];
         if (peer.peer == bytes32(0)) revert PeerNotSet(chainId);
+    }
+
+    function _outboundPeerOf(uint64 chainId, uint64 gasLimit) internal view returns (PeerConfig memory peer) {
+        peer = _peerOf(chainId);
+        if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
+        if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
+        if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
     }
 
 }
