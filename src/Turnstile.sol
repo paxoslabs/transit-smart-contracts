@@ -2,15 +2,14 @@
 pragma solidity ^0.8.37;
 
 import { Hub } from "./Hub.sol";
+import { Warehouse } from "./Warehouse.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
 contract Turnstile is MessagingEndpoint {
 
-    /// TODO: Inherit Turnstile into Hub. Removes the circular deployment dependency (Turnstile needs Hub for
-    /// deposits, Hub needs Turnstile as its immutable TURNSTILE) and the external call for deposits.
-    Hub public immutable HUB;
+    address public immutable HUB;
+    address public immutable WAREHOUSE;
 
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
     mapping(bytes32 messageHash => bool) public failed;
@@ -23,9 +22,12 @@ contract Turnstile is MessagingEndpoint {
     error OutOfGas();
     error NotRoutable();
     error NotFailed();
+    error NoHandler();
+    error NoFee();
 
-    constructor(address _authority, Hub _hub) MessagingEndpoint(_authority) {
+    constructor(address _authority, address _hub, address _warehouse) MessagingEndpoint(_authority) {
         HUB = _hub;
+        WAREHOUSE = _warehouse;
     }
 
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
@@ -36,17 +38,22 @@ contract Turnstile is MessagingEndpoint {
 
     function send(
         uint64 chainId,
-        uint64 gasLimit,
-        bytes calldata payload
+        uint64 messageGas,
+        MessageType messageType,
+        bytes calldata body
     )
         external
         payable
         restricted
         returns (bytes32 messageId)
     {
-        IMessagingAdapter adapter = messagingAdapter;
-        if (address(adapter) == address(0)) revert UnknownAdapter();
-        messageId = adapter.send{ value: msg.value }(chainId, gasLimit, payload);
+        if (chainId == block.chainid) {
+            if (msg.value != 0) revert NoFee();
+            messageId = keccak256(abi.encode(messageType, body));
+            _handleMessage(chainId, messageType, body);
+        } else {
+            messageId = _sendMessage(chainId, messageGas, messageType, body);
+        }
     }
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted nonReentrant {
@@ -60,13 +67,7 @@ contract Turnstile is MessagingEndpoint {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
         _requireNotPaused();
-        if (messageType == MessageType.Deposit) {
-            _consume(chainId, abi.decode(body, (DepositMessage)).nonce);
-        } else if (messageType == MessageType.Generic) {
-            _consume(chainId, abi.decode(body, (GenericMessage)).nonce);
-        } else {
-            assert(false);
-        }
+        _consume(keccak256(abi.encode(chainId, messageType, body)));
         _execute(chainId, messageType, body);
     }
 
@@ -75,9 +76,15 @@ contract Turnstile is MessagingEndpoint {
         bytes memory result;
         uint256 gasBefore;
         if (messageType == MessageType.Deposit) {
+            if (HUB == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = address(HUB).call(abi.encodeCall(Hub.receiveDeposit, (sourceChainId, message)));
+            (ok, result) = HUB.call(abi.encodeCall(Hub.receiveDeposit, (sourceChainId, message)));
+        } else if (messageType == MessageType.Withdrawal) {
+            if (WAREHOUSE == address(0)) revert NoHandler();
+            WithdrawalMessage[] memory messages = abi.decode(body, (WithdrawalMessage[]));
+            gasBefore = gasleft();
+            (ok, result) = WAREHOUSE.call(abi.encodeCall(Warehouse.receiveWithdrawal, (messages)));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (routable[message.target][bytes4(message.data)]) {

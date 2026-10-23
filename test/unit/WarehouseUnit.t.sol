@@ -42,15 +42,19 @@ contract WarehouseUnitTest is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        hub = new Hub(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
-        turnstile = new Turnstile(address(authority), hub);
-        warehouse = new Warehouse(address(authority), vault);
-        local = new MockMessagingAdapter(address(authority), address(turnstile), address(warehouse), HUB);
+        uint256 nonce = vm.getNonce(address(this));
+        turnstile = new Turnstile(
+            address(authority),
+            vm.computeCreateAddress(address(this), nonce + 1),
+            vm.computeCreateAddress(address(this), nonce + 2)
+        );
+        hub = new Hub(address(authority), address(turnstile));
+        warehouse = new Warehouse(address(authority), vault, turnstile);
+        local = new MockMessagingAdapter(address(authority), address(turnstile), HUB);
         usdc = _asset("USD Coin", "USDC", 6);
 
-        bytes4[] memory adminSels = new bytes4[](2);
-        adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
-        adminSels[1] = Warehouse.setAssetWhitelisted.selector;
+        bytes4[] memory adminSels = new bytes4[](1);
+        adminSels[0] = Warehouse.setAssetWhitelisted.selector;
 
 
         bytes4[] memory withdrawSels = new bytes4[](1);
@@ -92,6 +96,9 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory receiveDepositSels = new bytes4[](1);
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
 
+        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
+        receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
+
         bytes4[] memory routedSels = new bytes4[](5);
         routedSels[0] = Hub.preApprove.selector;
         routedSels[1] = Hub.requestOrderCancellation.selector;
@@ -99,9 +106,9 @@ contract WarehouseUnitTest is Test {
         routedSels[3] = Hub.requestWithdrawal.selector;
         routedSels[4] = Hub.requestMint.selector;
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(hub), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), sels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
@@ -111,7 +118,6 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
         turnstile.setMessagingAdapter(local);
-        warehouse.setMessagingAdapter(local);
         vm.stopPrank();
     }
 
@@ -178,16 +184,24 @@ contract WarehouseUnitTest is Test {
 
     function testSpokeDepositCreditsHub() public {
         vm.chainId(SPOKE);
-        Warehouse spokeWarehouse = new Warehouse(address(authority), vault);
-        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeWarehouse), address(0), HUB);
+        Turnstile spokeTurnstile = new Turnstile(
+            address(authority), address(0), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)
+        );
+        Warehouse spokeWarehouse = new Warehouse(address(authority), vault, spokeTurnstile);
+        MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
         vm.chainId(HUB);
-        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), address(0), HUB);
+        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB);
 
-        bytes4[] memory warehouseSels = new bytes4[](2);
-        warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
-        warehouseSels[1] = Warehouse.setAssetWhitelisted.selector;
+        bytes4[] memory warehouseSels = new bytes4[](1);
+        warehouseSels[0] = Warehouse.setAssetWhitelisted.selector;
+
+        bytes4[] memory turnstileAdminSels = new bytes4[](1);
+        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+
+        bytes4[] memory turnstileSendSels = new bytes4[](1);
+        turnstileSendSels[0] = Turnstile.send.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -198,12 +212,15 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(spokeWarehouse));
         authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hubAdapter), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
-        spokeWarehouse.setMessagingAdapter(spokeAdapter);
+        spokeTurnstile.setMessagingAdapter(spokeAdapter);
         spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);
         spokeAdapter.setPeer(HUB, bytes32(uint256(uint160(address(hubAdapter)))), HUB, 200_000, 0, true, true);
 
@@ -303,7 +320,11 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        warehouse.receiveMessage(SPOKE, payload);
+        turnstile.receiveMessage(SPOKE, payload);
+
+        vm.prank(mallory);
+        vm.expectRevert();
+        warehouse.receiveWithdrawal(m);
     }
 
 }

@@ -9,8 +9,8 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { Turnstile } from "./Turnstile.sol";
 import { TurnstileGated } from "./TurnstileGated.sol";
 
 contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated {
@@ -680,8 +680,8 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     )
         internal
     {
-        IMessagingAdapter(TURNSTILE).send{ value: msg.value }(
-            chainId, messageGas, abi.encode(MessagingEndpoint.MessageType.Withdrawal, abi.encode(messages))
+        Turnstile(TURNSTILE).send{ value: msg.value }(
+            chainId, messageGas, MessagingEndpoint.MessageType.Withdrawal, abi.encode(messages)
         );
     }
 

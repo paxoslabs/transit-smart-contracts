@@ -11,11 +11,10 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
     constructor(
         address _authority,
         address _endpoint,
-        address _localEndpoint,
         uint64 _hubChainId,
         address _router
     )
-        MessagingAdapter(_authority, _endpoint, _localEndpoint, _hubChainId)
+        MessagingAdapter(_authority, _endpoint, _hubChainId)
         CCIPReceiver(_router)
     { }
 

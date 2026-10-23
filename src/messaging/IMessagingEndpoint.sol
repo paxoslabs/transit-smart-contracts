@@ -8,9 +8,7 @@ interface IMessagingEndpoint is IMessagingReceiver {
 
     function messagingAdapter() external view returns (IMessagingAdapter);
 
-    function outboundNonce() external view returns (uint256);
-
-    function messageConsumed(uint64 sourceChainId, uint256 nonce) external view returns (bool);
+    function messageConsumed(bytes32 messageHash) external view returns (bool);
 
     function setMessagingAdapter(IMessagingAdapter adapter) external;
 

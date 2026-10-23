@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
+import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { Turnstile } from "./Turnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Warehouse is MessagingEndpoint {
+contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
 
     address public immutable vault;
+    Turnstile public immutable TURNSTILE;
+
+    uint256 public outboundNonce;
 
     mapping(address asset => bool) public assetWhitelisted;
 
@@ -18,10 +25,12 @@ contract Warehouse is MessagingEndpoint {
     error VaultUnset();
     error ZeroAssets();
     error AssetNotWhitelisted();
+    error UnknownAdapter();
 
-    constructor(address _authority, address _vault) MessagingEndpoint(_authority) {
+    constructor(address _authority, address _vault, Turnstile _turnstile) AccessManaged(_authority) {
         if (_vault == address(0)) revert VaultUnset();
         vault = _vault;
+        TURNSTILE = _turnstile;
     }
 
     // ========================================= ADMIN =========================================
@@ -30,6 +39,14 @@ contract Warehouse is MessagingEndpoint {
         for (uint256 i; i < assets.length; i++) {
             assetWhitelisted[assets[i]] = allowed;
         }
+    }
+
+    function pause() external restricted {
+        _pause();
+    }
+
+    function unpause() external restricted {
+        _unpause();
     }
 
     // ========================================= USER =========================================
@@ -54,12 +71,12 @@ contract Warehouse is MessagingEndpoint {
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
-        _sendMessage(
+        TURNSTILE.send{ value: msg.value }(
             _hubChainId(),
             messageGas,
-            MessageType.Deposit,
+            MessagingEndpoint.MessageType.Deposit,
             abi.encode(
-                DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
+                MessagingEndpoint.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
             )
         );
 
@@ -68,42 +85,31 @@ contract Warehouse is MessagingEndpoint {
 
     function relay(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
         _requireNotPaused();
-        _sendMessage(
+        TURNSTILE.send{ value: msg.value }(
             _hubChainId(),
             messageGas,
-            MessageType.Generic,
-            abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
+            MessagingEndpoint.MessageType.Generic,
+            abi.encode(MessagingEndpoint.GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
         );
     }
 
     function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {
-        return messagingAdapter.quote(_hubChainId(), messageGas, payload);
+        return TURNSTILE.messagingAdapter().quote(_hubChainId(), messageGas, payload);
     }
 
     function _hubChainId() internal view returns (uint64) {
-        IMessagingAdapter adapter = messagingAdapter;
+        IMessagingAdapter adapter = TURNSTILE.messagingAdapter();
         if (address(adapter) == address(0)) revert UnknownAdapter();
         return adapter.hubChainId();
     }
 
-    // ========================================= ADAPTER ========================================
+    // ========================================= TURNSTILE ========================================
 
-    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
-        if (messageType == MessageType.Withdrawal) {
-            WithdrawalMessage[] memory messages = abi.decode(body, (WithdrawalMessage[]));
-            for (uint256 i; i < messages.length; i++) {
-                _receiveWithdrawal(chainId, messages[i]);
-            }
-        } else {
-            assert(false);
-        }
-    }
-
-    function _receiveWithdrawal(uint64 sourceChainId, WithdrawalMessage memory message) internal {
-        _consume(sourceChainId, message.nonce);
-
+    function receiveWithdrawal(MessagingEndpoint.WithdrawalMessage[] calldata messages) external restricted {
         _requireNotPaused();
-        SafeTransferLib.safeTransferFrom(message.asset, vault, message.to, message.amount);
+        for (uint256 i; i < messages.length; i++) {
+            SafeTransferLib.safeTransferFrom(messages[i].asset, vault, messages[i].to, messages[i].amount);
+        }
     }
 
 }

@@ -37,9 +37,8 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
     }
 
     IMessagingAdapter public messagingAdapter;
-    uint256 public outboundNonce;
 
-    mapping(uint64 sourceChainId => mapping(uint256 nonce => bool)) public messageConsumed;
+    mapping(bytes32 messageHash => bool) public messageConsumed;
 
     event MessagingAdapterUpdated(address indexed adapter);
 
@@ -86,10 +85,10 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         messageId = adapter.send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
     }
 
-    function _consume(uint64 sourceChainId, uint256 nonce) internal {
+    function _consume(bytes32 messageHash) internal {
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        if (messageConsumed[sourceChainId][nonce]) revert MessageReplay();
-        messageConsumed[sourceChainId][nonce] = true;
+        if (messageConsumed[messageHash]) revert MessageReplay();
+        messageConsumed[messageHash] = true;
     }
 
 }

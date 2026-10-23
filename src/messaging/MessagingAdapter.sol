@@ -17,7 +17,6 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     }
 
     address public immutable endpoint;
-    address public immutable localEndpoint;
     uint64 public immutable hubChainId;
 
     mapping(uint64 chainId => PeerConfig) public peers;
@@ -42,20 +41,17 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     error ZeroMessageGasLimit();
     error GasLimitExceeded();
     error GasTooLow();
-    error NoFee();
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
 
     constructor(
         address _authority,
         address _endpoint,
-        address _localEndpoint,
         uint64 _hubChainId
     )
         AccessManaged(_authority)
     {
         endpoint = _endpoint;
-        localEndpoint = _localEndpoint;
         hubChainId = _hubChainId;
     }
 
@@ -108,26 +104,14 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         payable
         returns (bytes32 messageId)
     {
-        if (chainId == block.chainid) {
-            if (msg.value != 0) revert NoFee();
+        if (msg.sender != endpoint) revert OnlyEndpoint();
 
-            address target;
-            if (msg.sender == endpoint) target = localEndpoint;
-            else if (msg.sender == localEndpoint) target = endpoint;
-            else revert OnlyEndpoint();
+        PeerConfig memory peer = _peerOf(chainId);
+        if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
+        if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
+        if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
 
-            messageId = keccak256(payload);
-            IMessagingReceiver(target).receiveMessage(chainId, payload);
-        } else {
-            if (msg.sender != endpoint) revert OnlyEndpoint();
-
-            PeerConfig memory peer = _peerOf(chainId);
-            if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
-            if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
-            if (gasLimit < peer.minimumMessageGas) revert GasTooLow();
-
-            messageId = _send(chainId, gasLimit, peer, payload);
-        }
+        messageId = _send(chainId, gasLimit, peer, payload);
 
         emit MessageSent(chainId, messageId, payload);
     }
