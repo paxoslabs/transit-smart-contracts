@@ -20,7 +20,8 @@ import {
     MESSAGING_ADAPTER_ROLE,
     SOLVER_ROLE,
     TERMINAL_ROLE,
-    EPOCH_ROLE
+    EPOCH_ROLE,
+    TURNSTILE_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -199,9 +200,9 @@ contract TransitTestBase is Test {
 
         bytes4[] memory receiveDepositSels = new bytes4[](1);
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hub), receiveDepositSels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
 
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(turnstile));
+        authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
 
         bytes4[] memory routedSels = new bytes4[](5);
@@ -210,6 +211,7 @@ contract TransitTestBase is Test {
         routedSels[2] = Hub.requestTransfer.selector;
         routedSels[3] = Hub.requestWithdrawal.selector;
         routedSels[4] = Hub.requestMint.selector;
+        authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
     }
 

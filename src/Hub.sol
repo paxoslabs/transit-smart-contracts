@@ -253,7 +253,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= ORDERS =========================================
 
-    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+    function requestOrderCancellation(OrderCancellationRequest calldata request) external restricted {
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (cancelledFrom[senderAccountId][request.orderHash] != 0) return;
@@ -262,7 +262,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit OrderCancellationRequested(senderAccountId, request.orderHash, effectiveAtEpoch);
     }
 
-    function preApprove(Order calldata order) external {
+    function preApprove(Order calldata order) external restricted {
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
@@ -444,7 +444,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
     }
 
-    function requestTransfer(TransferRequest calldata request) external {
+    function requestTransfer(TransferRequest calldata request) external restricted {
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
@@ -483,7 +483,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit TransferExecuted(requestId, amount);
     }
 
-    function requestWithdrawal(WithdrawalRequest calldata request) external {
+    function requestWithdrawal(WithdrawalRequest calldata request) external restricted {
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
@@ -526,7 +526,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function requestMint(MintRequest calldata request) external {
+    function requestMint(MintRequest calldata request) external restricted {
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();

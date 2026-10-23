@@ -13,7 +13,7 @@ import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE, TURNSTILE_ROLE } from "../../src/helpers/Constants.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract WarehouseUnitTest is Test {
@@ -105,9 +105,10 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(hub), receiveDepositSels, MESSAGING_ADAPTER_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(turnstile));
+        authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
+        authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
+        authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
         turnstile.setMessagingAdapter(local);
         warehouse.setMessagingAdapter(local);
