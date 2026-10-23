@@ -59,6 +59,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
         restricted
         returns (bytes32 messageId)
     {
+        _requireNotPaused();
         messageId = _sendMessage(chainId, messageGas, messageType, body);
     }
 

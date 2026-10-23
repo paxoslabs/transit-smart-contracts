@@ -151,8 +151,8 @@ contract TransitTestBase is Test {
         adminSels[0] = Warehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
-        pauseSels[0] = Warehouse.pause.selector;
-        pauseSels[1] = Warehouse.unpause.selector;
+        pauseSels[0] = Turnstile.pause.selector;
+        pauseSels[1] = Turnstile.unpause.selector;
 
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
         receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
@@ -166,7 +166,7 @@ contract TransitTestBase is Test {
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), pauseSels, PAUSER_ROLE);
+        authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, PAUSER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, ADMIN_ROLE);
 

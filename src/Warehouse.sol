@@ -2,13 +2,12 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "./ITurnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
+contract Warehouse is AccessManaged, ReentrancyGuard {
 
     address public immutable vault;
     address public immutable TURNSTILE;
@@ -46,14 +45,6 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         }
     }
 
-    function pause() external restricted {
-        _pause();
-    }
-
-    function unpause() external restricted {
-        _unpause();
-    }
-
     // ========================================= USER =========================================
 
     function deposit(
@@ -67,7 +58,6 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         payable
         nonReentrant
     {
-        _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
 
@@ -89,7 +79,6 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
     // ========================================= TURNSTILE ========================================
 
     function receiveWithdrawal(ITurnstile.WithdrawalMessage[] calldata messages) external restricted {
-        _requireNotPaused();
         for (uint256 i; i < messages.length; i++) {
             SafeTransferLib.safeTransferFrom(messages[i].asset, vault, messages[i].to, messages[i].amount);
         }
