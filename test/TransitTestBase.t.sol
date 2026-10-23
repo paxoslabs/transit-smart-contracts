@@ -10,6 +10,8 @@ import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { MessagingEndpoint } from "../src/messaging/MessagingEndpoint.sol";
+import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
+import { Turnstile } from "../src/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
@@ -54,6 +56,7 @@ contract TransitTestBase is Test {
 
     Terminal terminal;
     Hub hub;
+    Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
     mapping(uint64 => MockMessagingAdapter) adapters;
@@ -97,10 +100,13 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        if (chain == hubID) hub = new Hub(address(authority));
+        if (chain == hubID) {
+            hub = new Hub(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
+            turnstile = new Turnstile(address(authority), hub);
+        }
         Warehouse warehouse = new Warehouse(address(authority), vault);
         MockMessagingAdapter adapter = chain == hubID
-            ? new MockMessagingAdapter(address(authority), address(hub), address(warehouse), hubID)
+            ? new MockMessagingAdapter(address(authority), address(turnstile), address(warehouse), hubID)
             : new MockMessagingAdapter(address(authority), address(warehouse), address(0), hubID);
 
         authorities[chain] = authority;
@@ -160,11 +166,8 @@ contract TransitTestBase is Test {
         authority.grantRole(SOLVER_ROLE, solver);
 
         if (chain == hubID) {
-            authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
+            _wireTurnstile(authority, receiveSels);
 
-            bytes4[] memory hubAdminSels = new bytes4[](1);
-            hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
-            authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
 
             bytes4[] memory withdrawSels = new bytes4[](2);
             withdrawSels[0] = Hub.facilitateWithdraw.selector;
@@ -172,14 +175,42 @@ contract TransitTestBase is Test {
             authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);
-            hubPauseSels[0] = MessagingEndpoint.pause.selector;
-            hubPauseSels[1] = MessagingEndpoint.unpause.selector;
+            hubPauseSels[0] = Hub.pause.selector;
+            hubPauseSels[1] = Hub.unpause.selector;
             authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
 
-            hub.setMessagingAdapter(adapters[chain]);
+            turnstile.setMessagingAdapter(adapters[chain]);
         }
         warehouse.setMessagingAdapter(adapters[chain]);
         vm.stopPrank();
+    }
+
+    function _wireTurnstile(TransitAuthority authority, bytes4[] memory receiveSels) internal {
+        authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
+
+        bytes4[] memory turnstileAdminSels = new bytes4[](2);
+        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        turnstileAdminSels[1] = Turnstile.setRoutable.selector;
+        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
+
+        bytes4[] memory turnstileSendSels = new bytes4[](1);
+        turnstileSendSels[0] = Turnstile.send.selector;
+        authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
+
+        bytes4[] memory receiveDepositSels = new bytes4[](1);
+        receiveDepositSels[0] = Hub.receiveDeposit.selector;
+        authority.setTargetFunctionRole(address(hub), receiveDepositSels, MESSAGING_ADAPTER_ROLE);
+
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(turnstile));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
+
+        bytes4[] memory routedSels = new bytes4[](5);
+        routedSels[0] = Hub.preApprove.selector;
+        routedSels[1] = Hub.requestOrderCancellation.selector;
+        routedSels[2] = Hub.requestTransfer.selector;
+        routedSels[3] = Hub.requestWithdrawal.selector;
+        routedSels[4] = Hub.requestMint.selector;
+        turnstile.setRoutable(address(hub), routedSels, true);
     }
 
     function _grantTerminalRole() internal {

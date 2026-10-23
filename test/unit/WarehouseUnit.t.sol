@@ -8,6 +8,8 @@ import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
 import { Hub } from "../../src/Hub.sol";
 import { MessagingEndpoint } from "../../src/messaging/MessagingEndpoint.sol";
+import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
+import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
@@ -23,6 +25,7 @@ contract WarehouseUnitTest is Test {
     Warehouse warehouse;
     ERC20 usdc;
     Hub hub;
+    Turnstile turnstile;
     MockMessagingAdapter local;
 
     address admin = makeAddr("admin");
@@ -39,24 +42,22 @@ contract WarehouseUnitTest is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        hub = new Hub(address(authority));
+        hub = new Hub(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
+        turnstile = new Turnstile(address(authority), hub);
         warehouse = new Warehouse(address(authority), vault);
-        local = new MockMessagingAdapter(address(authority), address(hub), address(warehouse), HUB);
+        local = new MockMessagingAdapter(address(authority), address(turnstile), address(warehouse), HUB);
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](2);
         adminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
         adminSels[1] = Warehouse.setAssetWhitelisted.selector;
 
-        bytes4[] memory hubAdminSels = new bytes4[](1);
-        hubAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
 
         bytes4[] memory withdrawSels = new bytes4[](1);
         withdrawSels[0] = Hub.facilitateWithdraw.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hub), hubAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
         authority.grantRole(SOLVER_ROLE, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
@@ -80,11 +81,35 @@ contract WarehouseUnitTest is Test {
     function _authorizeHub() internal {
         bytes4[] memory sels = new bytes4[](1);
         sels[0] = MessagingEndpoint.receiveMessage.selector;
+
+        bytes4[] memory turnstileAdminSels = new bytes4[](2);
+        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        turnstileAdminSels[1] = Turnstile.setRoutable.selector;
+
+        bytes4[] memory turnstileSendSels = new bytes4[](1);
+        turnstileSendSels[0] = Turnstile.send.selector;
+
+        bytes4[] memory receiveDepositSels = new bytes4[](1);
+        receiveDepositSels[0] = Hub.receiveDeposit.selector;
+
+        bytes4[] memory routedSels = new bytes4[](5);
+        routedSels[0] = Hub.preApprove.selector;
+        routedSels[1] = Hub.requestOrderCancellation.selector;
+        routedSels[2] = Hub.requestTransfer.selector;
+        routedSels[3] = Hub.requestWithdrawal.selector;
+        routedSels[4] = Hub.requestMint.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(hub), sels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), sels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
-        hub.setMessagingAdapter(local);
+        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(hub), receiveDepositSels, MESSAGING_ADAPTER_ROLE);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(turnstile));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
+        turnstile.setRoutable(address(hub), routedSels, true);
+        turnstile.setMessagingAdapter(local);
         warehouse.setMessagingAdapter(local);
         vm.stopPrank();
     }
@@ -157,7 +182,7 @@ contract WarehouseUnitTest is Test {
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
         vm.chainId(HUB);
-        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(hub), address(0), HUB);
+        MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), address(0), HUB);
 
         bytes4[] memory warehouseSels = new bytes4[](2);
         warehouseSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
@@ -174,7 +199,7 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hubAdapter), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hub), receiveSels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
         spokeWarehouse.setMessagingAdapter(spokeAdapter);
@@ -206,13 +231,15 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- hub auth
 
     function testOnlyWarehouseCanMint() public {
-        bytes memory payload = abi.encode(
-            MessagingEndpoint.MessageType.Deposit,
-            abi.encode(MessagingEndpoint.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) }))
-        );
+        MessagingEndpoint.DepositMessage memory message = MessagingEndpoint.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) });
+        bytes memory payload = abi.encode(MessagingEndpoint.MessageType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
-        hub.receiveMessage(HUB, payload);
+        turnstile.receiveMessage(HUB, payload);
+
+        vm.prank(mallory);
+        vm.expectRevert();
+        hub.receiveDeposit(HUB, message);
     }
 
     // ---------------------------------------------------------------- withdraw

@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { Hub } from "./Hub.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
 contract Turnstile is MessagingEndpoint {
@@ -35,16 +36,17 @@ contract Turnstile is MessagingEndpoint {
 
     function send(
         uint64 chainId,
-        uint64 messageGas,
-        MessageType messageType,
-        bytes calldata body
+        uint64 gasLimit,
+        bytes calldata payload
     )
         external
         payable
         restricted
         returns (bytes32 messageId)
     {
-        messageId = _sendMessage(chainId, messageGas, messageType, body);
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        messageId = adapter.send{ value: msg.value }(chainId, gasLimit, payload);
     }
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted nonReentrant {

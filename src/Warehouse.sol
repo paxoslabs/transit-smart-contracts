@@ -5,7 +5,6 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
-import { Hub } from "./Hub.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Warehouse is MessagingEndpoint {
@@ -67,45 +66,14 @@ contract Warehouse is MessagingEndpoint {
         emit Deposit(address(asset), msg.sender, toAccountId, amount);
     }
 
-    function preApprove(Hub.Order calldata order, uint64 messageGas) external payable nonReentrant {
-        _requireNotPaused();
-        _sendMessage(_hubChainId(), messageGas, MessageType.PreApproval, abi.encode(msg.sender, order));
-    }
-
-    function requestOrderCancellation(
-        Hub.OrderCancellationRequest calldata request,
-        uint64 messageGas
-    )
-        external
-        payable
-        nonReentrant
-    {
+    function relay(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
         _requireNotPaused();
         _sendMessage(
-            _hubChainId(), messageGas, MessageType.OrderCancellationRequest, abi.encode(msg.sender, request)
+            _hubChainId(),
+            messageGas,
+            MessageType.Generic,
+            abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
         );
-    }
-
-    function requestTransfer(Hub.TransferRequest calldata request, uint64 messageGas) external payable nonReentrant {
-        _requireNotPaused();
-        _sendMessage(_hubChainId(), messageGas, MessageType.TransferRequest, abi.encode(msg.sender, request));
-    }
-
-    function requestWithdrawal(
-        Hub.WithdrawalRequest calldata request,
-        uint64 messageGas
-    )
-        external
-        payable
-        nonReentrant
-    {
-        _requireNotPaused();
-        _sendMessage(_hubChainId(), messageGas, MessageType.WithdrawalRequest, abi.encode(msg.sender, request));
-    }
-
-    function requestMint(Hub.MintRequest calldata request, uint64 messageGas) external payable nonReentrant {
-        _requireNotPaused();
-        _sendMessage(_hubChainId(), messageGas, MessageType.MintRequest, abi.encode(msg.sender, request));
     }
 
     function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {

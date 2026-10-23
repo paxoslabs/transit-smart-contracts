@@ -12,11 +12,6 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
     enum MessageType {
         Deposit,
         Withdrawal,
-        PreApproval,
-        OrderCancellationRequest,
-        TransferRequest,
-        WithdrawalRequest,
-        MintRequest,
         Generic
     }
 

@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { TurnstileGated } from "./TurnstileGated.sol";
 
-contract Hub is MessagingEndpoint, EIP712 {
+contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated {
 
     struct Order {
         uint64 ownerChainId;
@@ -117,6 +122,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
     mapping(bytes32 orderHash => bool) public preApproved;
 
+    uint256 public outboundNonce;
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
@@ -152,7 +158,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error NotPreApproved(bytes32 orderHash);
     error FlaggedAssetId();
 
-    constructor(address _authority) MessagingEndpoint(_authority) {
+    constructor(address _authority, address _turnstile) AccessManaged(_authority) TurnstileGated(_turnstile) {
         settlementEpoch = 1;
         lastEpochAdvancedAt = block.timestamp;
     }
@@ -164,6 +170,14 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
+    }
+
+    function pause() external restricted {
+        _pause();
+    }
+
+    function unpause() external restricted {
+        _unpause();
     }
 
     function setDelayedSettlementAssetRegistry(DelayedSettlementAssetRegistry registry) external restricted {
@@ -239,7 +253,8 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= ORDERS =========================================
 
-    function _requestOrderCancellation(bytes32 senderAccountId, OrderCancellationRequest memory request) internal {
+    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+        bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (cancelledFrom[senderAccountId][request.orderHash] != 0) return;
         uint256 effectiveAtEpoch = settlementEpoch + 1;
@@ -247,7 +262,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         emit OrderCancellationRequested(senderAccountId, request.orderHash, effectiveAtEpoch);
     }
 
-    function _preApprove(bytes32 senderAccountId, Order memory order) internal {
+    function preApprove(Order calldata order) external {
+        bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
@@ -352,7 +368,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         (uint64 assetChainId,) = TransitTokenLib.parseAssetId(requests[0].assetId);
         withdrawIds = new bytes32[](requests.length);
-        WithdrawalMessage[] memory messages = new WithdrawalMessage[](requests.length);
+        MessagingEndpoint.WithdrawalMessage[] memory messages = new MessagingEndpoint.WithdrawalMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawalRequest calldata request = requests[i];
@@ -378,7 +394,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             uint256 amount = request.amount - fees[i];
             _transfer(ownerAccountId, bytes32(0), request.assetId, amount);
 
-            messages[i] = WithdrawalMessage({
+            messages[i] = MessagingEndpoint.WithdrawalMessage({
                 asset: asset,
                 nonce: ++outboundNonce,
                 amount: amount,
@@ -388,7 +404,7 @@ contract Hub is MessagingEndpoint, EIP712 {
             emit WithdrawalExecuted(withdrawId, amount);
         }
 
-        _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+        _sendWithdrawal(assetChainId, messageGas, messages);
     }
 
     function facilitateFill(
@@ -428,7 +444,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
-    function _requestTransfer(bytes32 senderAccountId, TransferRequest memory request) internal {
+    function requestTransfer(TransferRequest calldata request) external {
+        bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
         if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
@@ -466,7 +483,8 @@ contract Hub is MessagingEndpoint, EIP712 {
         emit TransferExecuted(requestId, amount);
     }
 
-    function _requestWithdrawal(bytes32 senderAccountId, WithdrawalRequest memory request) internal {
+    function requestWithdrawal(WithdrawalRequest calldata request) external {
+        bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
         bytes32 requestId = hashWithdrawalRequest(request);
@@ -500,15 +518,16 @@ contract Hub is MessagingEndpoint, EIP712 {
         amount -= fee;
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
-        WithdrawalMessage[] memory messages = new WithdrawalMessage[](1);
+        MessagingEndpoint.WithdrawalMessage[] memory messages = new MessagingEndpoint.WithdrawalMessage[](1);
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
-        messages[0] = WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
-        _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+        messages[0] = MessagingEndpoint.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
+        _sendWithdrawal(assetChainId, messageGas, messages);
 
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function _requestMint(bytes32 senderAccountId, MintRequest memory request) internal {
+    function requestMint(MintRequest calldata request) external {
+        bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
         bytes32 requestId = hashMintRequest(request);
@@ -547,45 +566,8 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     // ========================================= ADAPTER ========================================
 
-    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
-        if (messageType == MessageType.Deposit) {
-            _receiveDeposit(chainId, abi.decode(body, (DepositMessage)));
-        } else if (messageType == MessageType.PreApproval) {
-            (address owner, Order memory order) = abi.decode(body, (address, Order));
-            _preApprove(TransitTokenLib.formatAccountId(chainId, owner), order);
-        } else if (messageType == MessageType.OrderCancellationRequest) {
-            (address owner, OrderCancellationRequest memory request) =
-                abi.decode(body, (address, OrderCancellationRequest));
-            _requestOrderCancellation(TransitTokenLib.formatAccountId(chainId, owner), request);
-        } else if (messageType == MessageType.TransferRequest) {
-            (address owner, TransferRequest memory request) = abi.decode(body, (address, TransferRequest));
-            _requestTransfer(TransitTokenLib.formatAccountId(chainId, owner), request);
-        } else if (messageType == MessageType.WithdrawalRequest) {
-            (address owner, WithdrawalRequest memory request) = abi.decode(body, (address, WithdrawalRequest));
-            _requestWithdrawal(TransitTokenLib.formatAccountId(chainId, owner), request);
-        } else if (messageType == MessageType.MintRequest) {
-            (address owner, MintRequest memory request) = abi.decode(body, (address, MintRequest));
-            _requestMint(TransitTokenLib.formatAccountId(chainId, owner), request);
-        } else {
-            assert(false);
-        }
-    }
-
-    function receiveDeposit(uint64 sourceChainId, DepositMessage calldata message) external restricted {
+    function receiveDeposit(uint64 sourceChainId, MessagingEndpoint.DepositMessage calldata message) external restricted {
         _requireNotPaused();
-        _transfer(
-            bytes32(0),
-            message.toAccountId,
-            TransitTokenLib.formatAssetId(sourceChainId, message.asset),
-            message.amount
-        );
-    }
-
-    function _receiveDeposit(uint64 sourceChainId, DepositMessage memory message) internal {
-        _consume(sourceChainId, message.nonce);
-
-        _requireNotPaused();
-
         _transfer(
             bytes32(0),
             message.toAccountId,
@@ -690,6 +672,18 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     // ========================================= INTERNAL =========================================
+
+    function _sendWithdrawal(
+        uint64 chainId,
+        uint64 messageGas,
+        MessagingEndpoint.WithdrawalMessage[] memory messages
+    )
+        internal
+    {
+        IMessagingAdapter(TURNSTILE).send{ value: msg.value }(
+            chainId, messageGas, abi.encode(MessagingEndpoint.MessageType.Withdrawal, abi.encode(messages))
+        );
+    }
 
     function _consumeRequest(bytes32 requestId) internal {
         uint256 status = requestStatus[requestId];
