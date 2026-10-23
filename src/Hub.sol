@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
 
@@ -62,6 +63,17 @@ contract Hub is MessagingEndpoint, EIP712 {
         bool partiallyFillable;
     }
 
+    struct MintRequest {
+        uint64 ownerChainId;
+        address owner;
+        bytes32 assetId;
+        uint256 amount;
+        uint256 maxFee;
+        uint256 nonce;
+        uint256 deadline;
+        bool partiallyFillable;
+    }
+
     struct Reservation {
         uint256 effective;
         uint256 pending;
@@ -91,6 +103,10 @@ contract Hub is MessagingEndpoint, EIP712 {
         "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
+    bytes32 public constant MINT_REQUEST_TYPEHASH = keccak256(
+        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+    );
+
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
     uint256 public constant EXECUTED = type(uint256).max;
 
@@ -104,6 +120,8 @@ contract Hub is MessagingEndpoint, EIP712 {
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
+    DelayedSettlementAssetRegistry public delayedSettlementAssetRegistry;
+
     event Transfer(bytes32 indexed fromAccountId, bytes32 indexed toAccountId, bytes32 indexed assetId, uint256 amount);
     event EpochAdvanced(uint256 epoch);
     event OrderCancellationRequested(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
@@ -112,6 +130,8 @@ contract Hub is MessagingEndpoint, EIP712 {
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
     event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
+    event MintRequested(bytes32 indexed requestId, MintRequest request, uint256 effectiveAtEpoch);
+    event MintExecuted(bytes32 indexed requestId, uint256 amount);
 
     error BadSignature();
     error RequestReplay();
@@ -144,6 +164,10 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
+    }
+
+    function setDelayedSettlementAssetRegistry(DelayedSettlementAssetRegistry registry) external restricted {
+        delayedSettlementAssetRegistry = registry;
     }
 
     // ========================================= LEDGER =========================================
@@ -484,6 +508,43 @@ contract Hub is MessagingEndpoint, EIP712 {
         emit WithdrawalExecuted(requestId, amount);
     }
 
+    function _requestMint(bytes32 senderAccountId, MintRequest memory request) internal {
+        if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
+        if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
+        bytes32 requestId = hashMintRequest(request);
+        if (requestStatus[requestId] != 0) revert RequestReplay();
+
+        uint256 effectiveAtEpoch = settlementEpoch + 1;
+        requestStatus[requestId] = effectiveAtEpoch;
+        _reserve(senderAccountId, request.assetId, request.amount);
+
+        emit MintRequested(requestId, request, effectiveAtEpoch);
+    }
+
+    function executeMint(MintRequest calldata request) external nonReentrant {
+        _requireNotPaused();
+        bytes32 requestId = hashMintRequest(request);
+        _consumeRequest(requestId);
+        bytes32 assetId = request.assetId;
+        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
+        _release(ownerAccountId, assetId, request.amount);
+
+        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
+        if (block.timestamp > request.deadline) {
+            emit MintExecuted(requestId, 0);
+            return;
+        }
+
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
+        uint256 fee = FixedPointMathLib.min(request.maxFee, amount);
+        if (fee != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fee);
+        amount -= fee;
+        delayedSettlementAssetRegistry.mint(ownerAccountId, assetId, amount);
+
+        emit MintExecuted(requestId, amount);
+    }
+
     // ========================================= ADAPTER ========================================
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal override {
@@ -502,6 +563,9 @@ contract Hub is MessagingEndpoint, EIP712 {
         } else if (messageType == MessageType.WithdrawalRequest) {
             (address owner, WithdrawalRequest memory request) = abi.decode(body, (address, WithdrawalRequest));
             _requestWithdrawal(TransitTokenLib.formatAccountId(chainId, owner), request);
+        } else if (messageType == MessageType.MintRequest) {
+            (address owner, MintRequest memory request) = abi.decode(body, (address, MintRequest));
+            _requestMint(TransitTokenLib.formatAccountId(chainId, owner), request);
         } else {
             assert(false);
         }
@@ -586,6 +650,24 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.ownerChainId,
                     request.owner,
                     request.to,
+                    request.assetId,
+                    request.amount,
+                    request.maxFee,
+                    request.nonce,
+                    request.deadline,
+                    request.partiallyFillable
+                )
+            )
+        );
+    }
+
+    function hashMintRequest(MintRequest memory request) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    MINT_REQUEST_TYPEHASH,
+                    request.ownerChainId,
+                    request.owner,
                     request.assetId,
                     request.amount,
                     request.maxFee,

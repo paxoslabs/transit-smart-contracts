@@ -103,6 +103,11 @@ contract Warehouse is MessagingEndpoint {
         _sendMessage(_hubChainId(), messageGas, MessageType.WithdrawalRequest, abi.encode(msg.sender, request));
     }
 
+    function requestMint(Hub.MintRequest calldata request, uint64 messageGas) external payable nonReentrant {
+        _requireNotPaused();
+        _sendMessage(_hubChainId(), messageGas, MessageType.MintRequest, abi.encode(msg.sender, request));
+    }
+
     function quoteBridge(uint64 messageGas, bytes calldata payload) external view returns (uint256 fee) {
         return messagingAdapter.quote(_hubChainId(), messageGas, payload);
     }

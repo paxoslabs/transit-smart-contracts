@@ -46,8 +46,8 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
         return ("Transit Delayed Settlement", "1");
     }
 
-    function mint(bytes32 assetId, uint256 amount) external {
-        _mint(_hubAccountId(msg.sender), assetId, amount);
+    function mint(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
+        _mint(accountId, assetId, amount);
     }
 
     function facilitateMint(

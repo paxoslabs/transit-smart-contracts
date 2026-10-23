@@ -15,7 +15,8 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         PreApproval,
         OrderCancellationRequest,
         TransferRequest,
-        WithdrawalRequest
+        WithdrawalRequest,
+        MintRequest
     }
 
     struct DepositMessage {
