@@ -125,7 +125,7 @@ contract WarehouseUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(usdc, amount, HUB_CHAIN_ID, user, 0);
+        warehouse.deposit(address(usdc), amount, HUB_CHAIN_ID, user, 0);
         vm.stopPrank();
     }
 
@@ -175,7 +175,7 @@ contract WarehouseUnitTest is Test {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        warehouse.deposit(other, 1e18, HUB_CHAIN_ID, alice, 0);
+        warehouse.deposit(address(other), 1e18, HUB_CHAIN_ID, alice, 0);
         vm.stopPrank();
 
         assertEq(hub.balanceOf(TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(other))), 1e18, "deposit: arbitrary asset not credited on hub");
@@ -232,7 +232,7 @@ contract WarehouseUnitTest is Test {
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
         spokeWarehouse.deposit(
-            usdg, 100e6, SPOKE_CHAIN_ID, alice, 200_000
+            address(usdg), 100e6, SPOKE_CHAIN_ID, alice, 200_000
         );
         vm.stopPrank();
 

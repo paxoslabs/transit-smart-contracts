@@ -334,7 +334,7 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(asset, amount, hubChainId, user, _messageGas(chain));
+        warehouses[chain].deposit(address(asset), amount, hubChainId, user, _messageGas(chain));
         vm.stopPrank();
     }
 

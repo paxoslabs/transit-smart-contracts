@@ -3,7 +3,6 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
-import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "./ITurnstile.sol";
@@ -58,7 +57,7 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
     // ========================================= USER =========================================
 
     function deposit(
-        ERC20 asset,
+        address asset,
         uint256 amount,
         uint64 toChainId,
         address to,
@@ -70,9 +69,9 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
     {
         _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
-        if (!assetWhitelisted[address(asset)]) revert AssetNotWhitelisted();
+        if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
 
-        SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
+        SafeTransferLib.safeTransferFrom(asset, msg.sender, vault, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
         ITurnstile(TURNSTILE).send{ value: msg.value }(
@@ -80,11 +79,11 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
             messageGas,
             ITurnstile.MessageType.Deposit,
             abi.encode(
-                ITurnstile.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId })
+                ITurnstile.DepositMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId })
             )
         );
 
-        emit Deposit(address(asset), msg.sender, toAccountId, amount);
+        emit Deposit(asset, msg.sender, toAccountId, amount);
     }
 
     // ========================================= TURNSTILE ========================================
