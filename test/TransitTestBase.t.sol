@@ -115,7 +115,7 @@ contract TransitTestBase is Test {
             chainTurnstile =
                 new Turnstile(address(authority), address(0), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        Warehouse warehouse = new Warehouse(address(authority), vault, chainTurnstile, hubChainId);
+        Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
 
         authorities[chain] = authority;

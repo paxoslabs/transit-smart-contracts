@@ -7,13 +7,12 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import { Turnstile } from "./Turnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
 
     address public immutable vault;
-    Turnstile public immutable TURNSTILE;
+    address public immutable TURNSTILE;
     uint64 public immutable HUB_CHAIN_ID;
 
     uint256 public outboundNonce;
@@ -29,7 +28,7 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
     constructor(
         address _authority,
         address _vault,
-        Turnstile _turnstile,
+        address _turnstile,
         uint64 _hubChainId
     )
         AccessManaged(_authority)
@@ -76,7 +75,7 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
-        TURNSTILE.send{ value: msg.value }(
+        ITurnstile(TURNSTILE).send{ value: msg.value }(
             HUB_CHAIN_ID,
             messageGas,
             ITurnstile.MessageType.Deposit,

@@ -49,7 +49,7 @@ contract WarehouseUnitTest is Test {
             vm.computeCreateAddress(address(this), nonce + 2)
         );
         hub = new Hub(address(authority), address(turnstile));
-        warehouse = new Warehouse(address(authority), vault, turnstile, HUB_CHAIN_ID);
+        warehouse = new Warehouse(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         usdc = _asset("USD Coin", "USDC", 6);
 
@@ -187,7 +187,7 @@ contract WarehouseUnitTest is Test {
         Turnstile spokeTurnstile = new Turnstile(
             address(authority), address(0), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)
         );
-        Warehouse spokeWarehouse = new Warehouse(address(authority), vault, spokeTurnstile, HUB_CHAIN_ID);
+        Warehouse spokeWarehouse = new Warehouse(address(authority), vault, address(spokeTurnstile), HUB_CHAIN_ID);
         MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
 
