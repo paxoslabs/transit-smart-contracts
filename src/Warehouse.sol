@@ -68,13 +68,11 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         external
         payable
         nonReentrant
-        returns (uint256 shares)
     {
         _requireNotPaused();
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[address(asset)]) revert AssetNotWhitelisted();
 
-        shares = amount;
         SafeTransferLib.safeTransferFrom(address(asset), msg.sender, vault, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
@@ -83,7 +81,7 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
             messageGas,
             ITurnstile.MessageType.Deposit,
             abi.encode(
-                ITurnstile.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
+                ITurnstile.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId })
             )
         );
 
