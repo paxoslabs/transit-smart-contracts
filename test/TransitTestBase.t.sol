@@ -9,7 +9,6 @@ import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
-import { MessagingEndpoint } from "../src/messaging/MessagingEndpoint.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { Turnstile } from "../src/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
@@ -199,11 +198,11 @@ contract TransitTestBase is Test {
         Turnstile chainTurnstile = turnstiles[chain];
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = MessagingEndpoint.receiveMessage.selector;
+        receiveSels[0] = Turnstile.receiveMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
 
         bytes4[] memory turnstileAdminSels = new bytes4[](2);
-        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 

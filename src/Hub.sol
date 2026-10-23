@@ -9,7 +9,7 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { ITurnstile } from "./ITurnstile.sol";
 import { Turnstile } from "./Turnstile.sol";
 import { TurnstileGated } from "./TurnstileGated.sol";
 
@@ -368,7 +368,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
         (uint64 assetChainId,) = TransitTokenLib.parseAssetId(requests[0].assetId);
         withdrawIds = new bytes32[](requests.length);
-        MessagingEndpoint.WithdrawalMessage[] memory messages = new MessagingEndpoint.WithdrawalMessage[](requests.length);
+        ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawalRequest calldata request = requests[i];
@@ -394,7 +394,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             uint256 amount = request.amount - fees[i];
             _transfer(ownerAccountId, bytes32(0), request.assetId, amount);
 
-            messages[i] = MessagingEndpoint.WithdrawalMessage({
+            messages[i] = ITurnstile.WithdrawalMessage({
                 asset: asset,
                 nonce: ++outboundNonce,
                 amount: amount,
@@ -518,9 +518,9 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         amount -= fee;
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
-        MessagingEndpoint.WithdrawalMessage[] memory messages = new MessagingEndpoint.WithdrawalMessage[](1);
+        ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](1);
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
-        messages[0] = MessagingEndpoint.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
+        messages[0] = ITurnstile.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
         _sendWithdrawal(assetChainId, messageGas, messages);
 
         emit WithdrawalExecuted(requestId, amount);
@@ -566,7 +566,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= ADAPTER ========================================
 
-    function receiveDeposit(uint64 sourceChainId, MessagingEndpoint.DepositMessage calldata message) external restricted {
+    function receiveDeposit(uint64 sourceChainId, ITurnstile.DepositMessage calldata message) external restricted {
         _requireNotPaused();
         _transfer(
             bytes32(0),
@@ -676,12 +676,12 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     function _sendWithdrawal(
         uint64 chainId,
         uint64 messageGas,
-        MessagingEndpoint.WithdrawalMessage[] memory messages
+        ITurnstile.WithdrawalMessage[] memory messages
     )
         internal
     {
         Turnstile(TURNSTILE).send{ value: msg.value }(
-            chainId, messageGas, MessagingEndpoint.MessageType.Withdrawal, abi.encode(messages)
+            chainId, messageGas, ITurnstile.MessageType.Withdrawal, abi.encode(messages)
         );
     }
 

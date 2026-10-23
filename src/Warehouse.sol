@@ -7,7 +7,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
-import { MessagingEndpoint } from "./messaging/MessagingEndpoint.sol";
+import { ITurnstile } from "./ITurnstile.sol";
 import { Turnstile } from "./Turnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
@@ -74,9 +74,9 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         TURNSTILE.send{ value: msg.value }(
             _hubChainId(),
             messageGas,
-            MessagingEndpoint.MessageType.Deposit,
+            ITurnstile.MessageType.Deposit,
             abi.encode(
-                MessagingEndpoint.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
+                ITurnstile.DepositMessage({ asset: address(asset), nonce: ++outboundNonce, amount: shares, toAccountId: toAccountId })
             )
         );
 
@@ -88,8 +88,8 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         TURNSTILE.send{ value: msg.value }(
             _hubChainId(),
             messageGas,
-            MessagingEndpoint.MessageType.Generic,
-            abi.encode(MessagingEndpoint.GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
+            ITurnstile.MessageType.Generic,
+            abi.encode(ITurnstile.GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
         );
     }
 
@@ -105,7 +105,7 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
 
     // ========================================= TURNSTILE ========================================
 
-    function receiveWithdrawal(MessagingEndpoint.WithdrawalMessage[] calldata messages) external restricted {
+    function receiveWithdrawal(ITurnstile.WithdrawalMessage[] calldata messages) external restricted {
         _requireNotPaused();
         for (uint256 i; i < messages.length; i++) {
             SafeTransferLib.safeTransferFrom(messages[i].asset, vault, messages[i].to, messages[i].amount);

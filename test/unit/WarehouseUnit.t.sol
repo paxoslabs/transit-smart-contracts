@@ -7,8 +7,8 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
 import { Hub } from "../../src/Hub.sol";
-import { MessagingEndpoint } from "../../src/messaging/MessagingEndpoint.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
+import { ITurnstile } from "../../src/ITurnstile.sol";
 import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
@@ -84,10 +84,10 @@ contract WarehouseUnitTest is Test {
 
     function _authorizeHub() internal {
         bytes4[] memory sels = new bytes4[](1);
-        sels[0] = MessagingEndpoint.receiveMessage.selector;
+        sels[0] = Turnstile.receiveMessage.selector;
 
         bytes4[] memory turnstileAdminSels = new bytes4[](2);
-        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
 
         bytes4[] memory turnstileSendSels = new bytes4[](1);
@@ -198,7 +198,7 @@ contract WarehouseUnitTest is Test {
         warehouseSels[0] = Warehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory turnstileAdminSels = new bytes4[](1);
-        turnstileAdminSels[0] = MessagingEndpoint.setMessagingAdapter.selector;
+        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
 
         bytes4[] memory turnstileSendSels = new bytes4[](1);
         turnstileSendSels[0] = Turnstile.send.selector;
@@ -207,7 +207,7 @@ contract WarehouseUnitTest is Test {
         peerSels[0] = MessagingAdapter.setPeer.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = MessagingEndpoint.receiveMessage.selector;
+        receiveSels[0] = Turnstile.receiveMessage.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
@@ -249,8 +249,8 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- hub auth
 
     function testOnlyWarehouseCanMint() public {
-        MessagingEndpoint.DepositMessage memory message = MessagingEndpoint.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) });
-        bytes memory payload = abi.encode(MessagingEndpoint.MessageType.Deposit, abi.encode(message));
+        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB, mallory) });
+        bytes memory payload = abi.encode(ITurnstile.MessageType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
         turnstile.receiveMessage(HUB, payload);
@@ -314,9 +314,9 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonAdapterReverts() public {
-        MessagingEndpoint.WithdrawalMessage[] memory m = new MessagingEndpoint.WithdrawalMessage[](1);
-        m[0] = MessagingEndpoint.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
-        bytes memory payload = abi.encode(MessagingEndpoint.MessageType.Withdrawal, abi.encode(m));
+        ITurnstile.WithdrawalMessage[] memory m = new ITurnstile.WithdrawalMessage[](1);
+        m[0] = ITurnstile.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+        bytes memory payload = abi.encode(ITurnstile.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
         vm.expectRevert();
