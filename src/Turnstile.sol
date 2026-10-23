@@ -16,6 +16,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
     address public immutable WAREHOUSE;
 
     IMessagingAdapter public messagingAdapter;
+    uint256 public outboundNonce;
 
     mapping(bytes32 messageHash => bool) public messageConsumed;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
@@ -58,13 +59,19 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
         restricted
         returns (bytes32 messageId)
     {
-        if (chainId == block.chainid) {
-            if (msg.value != 0) revert NoFee();
-            messageId = keccak256(abi.encode(messageType, body));
-            _handleMessage(chainId, messageType, body);
-        } else {
-            messageId = _sendMessage(chainId, messageGas, messageType, body);
-        }
+        messageId = _sendMessage(chainId, messageGas, messageType, body);
+    }
+
+    function relay(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
+        _requireNotPaused();
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        _sendMessage(
+            adapter.hubChainId(),
+            messageGas,
+            MessageType.Generic,
+            abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
+        );
     }
 
     function quote(
@@ -106,9 +113,15 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
         internal
         returns (bytes32 messageId)
     {
-        IMessagingAdapter adapter = messagingAdapter;
-        if (address(adapter) == address(0)) revert UnknownAdapter();
-        messageId = adapter.send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
+        if (chainId == block.chainid) {
+            if (msg.value != 0) revert NoFee();
+            messageId = keccak256(abi.encode(messageType, body));
+            _handleMessage(chainId, messageType, body);
+        } else {
+            IMessagingAdapter adapter = messagingAdapter;
+            if (address(adapter) == address(0)) revert UnknownAdapter();
+            messageId = adapter.send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
+        }
     }
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {

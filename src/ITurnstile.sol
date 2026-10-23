@@ -53,6 +53,8 @@ interface ITurnstile is IMessagingReceiver {
 
     function messagingAdapter() external view returns (IMessagingAdapter);
 
+    function outboundNonce() external view returns (uint256);
+
     function messageConsumed(bytes32 messageHash) external view returns (bool);
 
     function routable(address target, bytes4 selector) external view returns (bool);
@@ -76,6 +78,8 @@ interface ITurnstile is IMessagingReceiver {
         external
         payable
         returns (bytes32 messageId);
+
+    function relay(address target, bytes calldata data, uint64 messageGas) external payable;
 
     function quote(
         uint64 chainId,

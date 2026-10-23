@@ -83,16 +83,6 @@ contract Warehouse is AccessManaged, Pausable, ReentrancyGuard {
         emit Deposit(address(asset), msg.sender, toAccountId, amount);
     }
 
-    function relay(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
-        _requireNotPaused();
-        TURNSTILE.send{ value: msg.value }(
-            _hubChainId(),
-            messageGas,
-            ITurnstile.MessageType.Generic,
-            abi.encode(ITurnstile.GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
-        );
-    }
-
     function _hubChainId() internal view returns (uint64) {
         IMessagingAdapter adapter = TURNSTILE.messagingAdapter();
         if (address(adapter) == address(0)) revert UnknownAdapter();
