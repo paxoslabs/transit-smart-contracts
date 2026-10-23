@@ -5,6 +5,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Hub } from "../../src/Hub.sol";
 import { Terminal } from "../../src/Terminal.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
+import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract HappyPaths is TransitTestBase {
 
@@ -46,10 +47,8 @@ contract HappyPaths is TransitTestBase {
         orders[0] = Hub.Order(
             hubID,
             alice,
-            hubID,
-            address(usdc),
-            hubID,
-            address(usdg),
+            TransitTokenLib.formatAssetId(hubID, address(usdc)),
+            TransitTokenLib.formatAssetId(hubID, address(usdg)),
             amount,
             amount,
             hubID,
@@ -61,10 +60,8 @@ contract HappyPaths is TransitTestBase {
         orders[1] = Hub.Order(
             hubID,
             bob,
-            hubID,
-            address(usdg),
-            hubID,
-            address(usdc),
+            TransitTokenLib.formatAssetId(hubID, address(usdg)),
+            TransitTokenLib.formatAssetId(hubID, address(usdc)),
             amount,
             amount,
             hubID,

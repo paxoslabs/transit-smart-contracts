@@ -52,13 +52,13 @@ contract Terminal is AccessManaged {
                 deltas[i] = Hub.TransferDelta(
                     ownerAccountId,
                     bytes32(0),
-                    TransitTokenLib.formatAssetId(order.sellTokenChainId, order.sellToken),
+                    order.sellTokenId,
                     fills[i].sellFilled
                 );
                 deltas[orders.length + i] = Hub.TransferDelta(
                     bytes32(0),
                     TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
-                    TransitTokenLib.formatAssetId(order.buyTokenChainId, order.buyToken),
+                    order.buyTokenId,
                     fills[i].buyFilled
                 );
 

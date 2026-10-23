@@ -12,8 +12,7 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
     struct MintRequest {
         uint64 ownerChainId;
         address owner;
-        uint64 assetChainId;
-        address asset;
+        bytes32 assetId;
         uint256 amount;
         uint256 maxFee;
         uint256 nonce;
@@ -23,7 +22,7 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
     uint256 public constant COLLATERALIZATION_RATIO = 100;
 
     bytes32 public constant MINT_REQUEST_TYPEHASH = keccak256(
-        "MintRequest(uint64 ownerChainId,address owner,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline)"
+        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline)"
     );
 
     Hub public immutable HUB;
@@ -36,6 +35,7 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
     error EmptyBatch();
     error ExceedsMaxFee();
     error Expired(bytes32 id);
+    error FlaggedAssetId();
 
     constructor(address _authority, Hub _hub) AccessManaged(_authority) {
         HUB = _hub;
@@ -46,8 +46,8 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
         return ("Transit Delayed Settlement", "1");
     }
 
-    function mint(uint64 assetChainId, address asset, uint256 amount) external {
-        _mint(_hubAccountId(msg.sender), assetChainId, asset, amount);
+    function mint(bytes32 assetId, uint256 amount) external {
+        _mint(_hubAccountId(msg.sender), assetId, amount);
     }
 
     function facilitateMint(
@@ -75,21 +75,16 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] != 0) {
-                HUB.transferFrom(
-                    ownerAccountId,
-                    _hubAccountId(msg.sender),
-                    TransitTokenLib.formatAssetId(request.assetChainId, request.asset),
-                    fees[i]
-                );
+                HUB.transferFrom(ownerAccountId, _hubAccountId(msg.sender), request.assetId, fees[i]);
             }
-            _mint(ownerAccountId, request.assetChainId, request.asset, request.amount - fees[i]);
+            _mint(ownerAccountId, request.assetId, request.amount - fees[i]);
         }
     }
 
-    function _mint(bytes32 accountId, uint64 assetChainId, address asset, uint256 amount) internal {
-        bytes32 assetId = TransitTokenLib.formatAssetId(assetChainId, asset);
+    function _mint(bytes32 accountId, bytes32 assetId, uint256 amount) internal {
+        if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
         HUB.transferFrom(accountId, _hubAccountId(address(this)), assetId, amount);
-        HUB.mint(accountId, TransitTokenLib.formatMarginAssetId(assetChainId, asset), amount * COLLATERALIZATION_RATIO);
+        HUB.mint(accountId, TransitTokenLib.formatMarginAssetId(assetId), amount * COLLATERALIZATION_RATIO);
     }
 
     function _hubAccountId(address account) internal view returns (bytes32) {
@@ -103,8 +98,7 @@ contract DelayedSettlementAssetRegistry is AccessManaged, EIP712 {
                     MINT_REQUEST_TYPEHASH,
                     request.ownerChainId,
                     request.owner,
-                    request.assetChainId,
-                    request.asset,
+                    request.assetId,
                     request.amount,
                     request.maxFee,
                     request.nonce,

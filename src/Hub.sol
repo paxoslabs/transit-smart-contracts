@@ -12,10 +12,8 @@ contract Hub is MessagingEndpoint, EIP712 {
     struct Order {
         uint64 ownerChainId;
         address owner;
-        uint64 sellTokenChainId;
-        address sellToken;
-        uint64 buyTokenChainId;
-        address buyToken;
+        bytes32 sellTokenId;
+        bytes32 buyTokenId;
         uint256 sellAmount;
         uint256 buyAmount;
         uint64 receiverChainId;
@@ -35,8 +33,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint64 ownerChainId;
         address owner;
         bytes32 orderHash;
-        uint64 sellTokenChainId;
-        address sellToken;
+        bytes32 sellTokenId;
         uint256 maxFee;
     }
 
@@ -45,8 +42,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         address owner;
         uint64 toChainId;
         address to;
-        uint64 assetChainId;
-        address asset;
+        bytes32 assetId;
         uint256 amount;
         uint256 maxFee;
         uint256 nonce;
@@ -58,8 +54,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         uint64 ownerChainId;
         address owner;
         address to;
-        uint64 assetChainId;
-        address asset;
+        bytes32 assetId;
         uint256 amount;
         uint256 maxFee;
         uint256 nonce;
@@ -81,19 +76,19 @@ contract Hub is MessagingEndpoint, EIP712 {
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 ownerChainId,address owner,uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
+        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
     );
 
     bytes32 public constant ORDER_CANCELLATION_REQUEST_TYPEHASH = keccak256(
-        "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,uint64 sellTokenChainId,address sellToken,uint256 maxFee)"
+        "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
     );
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
@@ -135,6 +130,7 @@ contract Hub is MessagingEndpoint, EIP712 {
     error NotPartiallyFillable(bytes32 orderHash);
     error Cancelled(bytes32 orderHash);
     error NotPreApproved(bytes32 orderHash);
+    error FlaggedAssetId();
 
     constructor(address _authority) MessagingEndpoint(_authority) {
         settlementEpoch = 1;
@@ -249,6 +245,7 @@ contract Hub is MessagingEndpoint, EIP712 {
 
         for (uint256 i; i < requests.length; i++) {
             OrderCancellationRequest calldata request = requests[i];
+            if (TransitTokenLib.hasFlags(request.sellTokenId)) revert FlaggedAssetId();
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
 
             bytes32 cancelId = hashOrderCancellationRequest(request);
@@ -261,9 +258,8 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             cancelledFrom[ownerAccountId][request.orderHash] = settlementEpoch;
 
-            bytes32 assetId = TransitTokenLib.formatAssetId(request.sellTokenChainId, request.sellToken);
             /// TODO: Decide fee recipient. Currently msg.sender.
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fees[i]);
+            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.sellTokenId, fees[i]);
 
             emit OrderCancellationRequested(ownerAccountId, request.orderHash, settlementEpoch);
         }
@@ -287,6 +283,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         for (uint256 i; i < requests.length; i++) {
             TransferRequest calldata request = requests[i];
             if (request.to == address(0)) revert ZeroAddress();
+            if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
 
             bytes32 transferId = hashTransferRequest(request);
             if (requestStatus[transferId] != 0) revert RequestReplay();
@@ -298,15 +295,14 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             if (block.timestamp > request.deadline) revert Expired(transferId);
 
-            bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fees[i]);
+            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.assetId, fees[i]);
             _transfer(
                 ownerAccountId,
                 TransitTokenLib.formatAccountId(request.toChainId, request.to),
-                assetId,
+                request.assetId,
                 request.amount - fees[i]
             );
 
@@ -330,13 +326,15 @@ contract Hub is MessagingEndpoint, EIP712 {
         if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
 
-        uint64 assetChainId = requests[0].assetChainId;
+        (uint64 assetChainId,) = TransitTokenLib.parseAssetId(requests[0].assetId);
         withdrawIds = new bytes32[](requests.length);
         WithdrawalMessage[] memory messages = new WithdrawalMessage[](requests.length);
 
         for (uint256 i; i < requests.length; i++) {
             WithdrawalRequest calldata request = requests[i];
-            if (request.assetChainId != assetChainId) revert ChainMismatch(request.assetChainId);
+            (uint64 requestChainId, address asset) = TransitTokenLib.parseAssetId(request.assetId);
+            if (requestChainId != assetChainId) revert ChainMismatch(requestChainId);
+            if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
 
             bytes32 withdrawId = hashWithdrawalRequest(request);
             if (requestStatus[withdrawId] != 0) revert RequestReplay();
@@ -349,16 +347,15 @@ contract Hub is MessagingEndpoint, EIP712 {
 
             if (block.timestamp > request.deadline) revert Expired(withdrawId);
 
-            bytes32 assetId = TransitTokenLib.formatAssetId(assetChainId, request.asset);
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fees[i]);
+            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.assetId, fees[i]);
             uint256 amount = request.amount - fees[i];
-            _transfer(ownerAccountId, bytes32(0), assetId, amount);
+            _transfer(ownerAccountId, bytes32(0), request.assetId, amount);
 
             messages[i] = WithdrawalMessage({
-                asset: request.asset,
+                asset: asset,
                 nonce: ++outboundNonce,
                 amount: amount,
                 to: request.to
@@ -410,12 +407,13 @@ contract Hub is MessagingEndpoint, EIP712 {
     function _requestTransfer(bytes32 senderAccountId, TransferRequest memory request) internal {
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (request.to == address(0)) revert ZeroAddress();
+        if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
         bytes32 requestId = hashTransferRequest(request);
         if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(senderAccountId, TransitTokenLib.formatAssetId(request.assetChainId, request.asset), request.amount);
+        _reserve(senderAccountId, request.assetId, request.amount);
 
         emit TransferRequested(requestId, request, effectiveAtEpoch);
     }
@@ -424,7 +422,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         _requireNotPaused();
         bytes32 requestId = hashTransferRequest(request);
         _consumeRequest(requestId);
-        bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
+        bytes32 assetId = request.assetId;
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _release(ownerAccountId, assetId, request.amount);
 
@@ -446,12 +444,13 @@ contract Hub is MessagingEndpoint, EIP712 {
 
     function _requestWithdrawal(bytes32 senderAccountId, WithdrawalRequest memory request) internal {
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
+        if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
         bytes32 requestId = hashWithdrawalRequest(request);
         if (requestStatus[requestId] != 0) revert RequestReplay();
 
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         requestStatus[requestId] = effectiveAtEpoch;
-        _reserve(senderAccountId, TransitTokenLib.formatAssetId(request.assetChainId, request.asset), request.amount);
+        _reserve(senderAccountId, request.assetId, request.amount);
 
         emit WithdrawalRequested(requestId, request, effectiveAtEpoch);
     }
@@ -460,7 +459,7 @@ contract Hub is MessagingEndpoint, EIP712 {
         _requireNotPaused();
         bytes32 requestId = hashWithdrawalRequest(request);
         _consumeRequest(requestId);
-        bytes32 assetId = TransitTokenLib.formatAssetId(request.assetChainId, request.asset);
+        bytes32 assetId = request.assetId;
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _release(ownerAccountId, assetId, request.amount);
 
@@ -478,8 +477,9 @@ contract Hub is MessagingEndpoint, EIP712 {
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
         WithdrawalMessage[] memory messages = new WithdrawalMessage[](1);
-        messages[0] = WithdrawalMessage({ asset: request.asset, nonce: ++outboundNonce, amount: amount, to: request.to });
-        _sendMessage(request.assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
+        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
+        messages[0] = WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
+        _sendMessage(assetChainId, messageGas, MessageType.Withdrawal, abi.encode(messages));
 
         emit WithdrawalExecuted(requestId, amount);
     }
@@ -529,10 +529,8 @@ contract Hub is MessagingEndpoint, EIP712 {
                     ORDER_TYPEHASH,
                     order.ownerChainId,
                     order.owner,
-                    order.sellTokenChainId,
-                    order.sellToken,
-                    order.buyTokenChainId,
-                    order.buyToken,
+                    order.sellTokenId,
+                    order.buyTokenId,
                     order.sellAmount,
                     order.buyAmount,
                     order.receiverChainId,
@@ -553,8 +551,7 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.ownerChainId,
                     request.owner,
                     request.orderHash,
-                    request.sellTokenChainId,
-                    request.sellToken,
+                    request.sellTokenId,
                     request.maxFee
                 )
             )
@@ -570,8 +567,7 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.owner,
                     request.toChainId,
                     request.to,
-                    request.assetChainId,
-                    request.asset,
+                    request.assetId,
                     request.amount,
                     request.maxFee,
                     request.nonce,
@@ -590,8 +586,7 @@ contract Hub is MessagingEndpoint, EIP712 {
                     request.ownerChainId,
                     request.owner,
                     request.to,
-                    request.assetChainId,
-                    request.asset,
+                    request.assetId,
                     request.amount,
                     request.maxFee,
                     request.nonce,
