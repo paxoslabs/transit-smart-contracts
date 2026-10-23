@@ -571,6 +571,16 @@ contract Hub is MessagingEndpoint, EIP712 {
         }
     }
 
+    function receiveDeposit(uint64 sourceChainId, DepositMessage calldata message) external restricted {
+        _requireNotPaused();
+        _transfer(
+            bytes32(0),
+            message.toAccountId,
+            TransitTokenLib.formatAssetId(sourceChainId, message.asset),
+            message.amount
+        );
+    }
+
     function _receiveDeposit(uint64 sourceChainId, DepositMessage memory message) internal {
         _consume(sourceChainId, message.nonce);
 

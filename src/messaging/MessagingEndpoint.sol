@@ -16,7 +16,8 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         OrderCancellationRequest,
         TransferRequest,
         WithdrawalRequest,
-        MintRequest
+        MintRequest,
+        Generic
     }
 
     struct DepositMessage {
@@ -24,6 +25,13 @@ abstract contract MessagingEndpoint is AccessManaged, Pausable, ReentrancyGuard,
         uint256 nonce;
         uint256 amount;
         bytes32 toAccountId;
+    }
+
+    struct GenericMessage {
+        uint256 nonce;
+        address sender;
+        address target;
+        bytes data;
     }
 
     struct WithdrawalMessage {
