@@ -252,7 +252,8 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= ORDERS =========================================
 
-    function requestOrderCancellation(OrderCancellationRequest calldata request) external restricted {
+    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+        _requireNotPaused();
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (cancelledFrom[senderAccountId][request.orderHash] != 0) return;
@@ -261,7 +262,8 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit OrderCancellationRequested(senderAccountId, request.orderHash, effectiveAtEpoch);
     }
 
-    function preApprove(Order calldata order) external restricted {
+    function preApprove(Order calldata order) external {
+        _requireNotPaused();
         bytes32 senderAccountId = _senderAccountId();
         if (senderAccountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
@@ -343,7 +345,8 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
     }
 
-    function reserve(bytes32 assetId, uint256 amount) external restricted {
+    function reserve(bytes32 assetId, uint256 amount) external {
+        _requireNotPaused();
         if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
         bytes32 senderAccountId = _senderAccountId();
         uint256 effectiveAtEpoch = settlementEpoch + 1;
@@ -351,7 +354,8 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit Reserved(senderAccountId, assetId, amount, effectiveAtEpoch);
     }
 
-    function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external restricted {
+    function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
+        _requireNotPaused();
         if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
         bytes32 senderAccountId = _senderAccountId();
         if (requestStatus[senderAccountId][requestId] != 0) revert RequestReplay();

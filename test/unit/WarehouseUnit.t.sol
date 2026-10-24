@@ -114,7 +114,6 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
-        authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
         bytes4[] memory executeSels = new bytes4[](1);
         executeSels[0] = Hub.executeWithdrawal.selector;

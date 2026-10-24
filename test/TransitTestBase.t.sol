@@ -230,7 +230,6 @@ contract TransitTestBase is Test {
         routedSels[1] = Hub.requestOrderCancellation.selector;
         routedSels[2] = Hub.reserve.selector;
         routedSels[3] = Hub.reserveAndRequest.selector;
-        authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
