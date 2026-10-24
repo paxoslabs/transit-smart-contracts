@@ -85,7 +85,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function unpause() external;
 
-    function send(
+    function sendRawMessage(
         uint64 chainId,
         uint64 messageGas,
         MessageType messageType,
@@ -95,7 +95,7 @@ interface ITurnstile is IMessagingReceiver {
         payable
         returns (bytes32 messageId);
 
-    function relay(address target, bytes calldata data, uint64 messageGas) external payable;
+    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable;
 
     function facilitate(
         FacilitatedCall[] calldata calls,

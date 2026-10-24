@@ -91,7 +91,7 @@ contract WarehouseUnitTest is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
 
         bytes4[] memory turnstileSendSels = new bytes4[](1);
-        turnstileSendSels[0] = Turnstile.send.selector;
+        turnstileSendSels[0] = Turnstile.sendRawMessage.selector;
 
         bytes4[] memory receiveDepositSels = new bytes4[](1);
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
@@ -213,7 +213,7 @@ contract WarehouseUnitTest is Test {
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
 
         bytes4[] memory turnstileSendSels = new bytes4[](1);
-        turnstileSendSels[0] = Turnstile.send.selector;
+        turnstileSendSels[0] = Turnstile.sendRawMessage.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;

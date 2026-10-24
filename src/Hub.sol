@@ -548,7 +548,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     )
         internal
     {
-        Turnstile(TURNSTILE).send{ value: msg.value }(
+        Turnstile(TURNSTILE).sendRawMessage{ value: msg.value }(
             chainId, messageGas, ITurnstile.MessageType.Withdrawal, abi.encode(messages)
         );
     }

@@ -58,7 +58,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         _unpause();
     }
 
-    function send(
+    function sendRawMessage(
         uint64 chainId,
         uint64 messageGas,
         MessageType messageType,
@@ -73,7 +73,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         messageId = _sendMessage(chainId, messageGas, messageType, body);
     }
 
-    function relay(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
+    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
         _requireNotPaused();
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();

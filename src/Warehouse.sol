@@ -64,7 +64,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         SafeTransferLib.safeTransferFrom(asset, msg.sender, VAULT, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
-        ITurnstile(TURNSTILE).send{ value: msg.value }(
+        ITurnstile(TURNSTILE).sendRawMessage{ value: msg.value }(
             HUB_CHAIN_ID,
             messageGas,
             ITurnstile.MessageType.Deposit,
