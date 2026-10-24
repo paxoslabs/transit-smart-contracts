@@ -19,6 +19,16 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 toAccountId;
     }
 
+    struct FacilitatedCall {
+        address sender;
+        address target;
+        bytes data;
+        bytes32 feeAssetId;
+        uint256 fee;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     struct GenericMessage {
         uint256 nonce;
         address sender;
@@ -46,6 +56,11 @@ interface ITurnstile is IMessagingReceiver {
     error NotFailed();
     error NoHandler();
     error NoFee();
+    error LengthMismatch();
+    error Expired();
+    error BadSignature();
+
+    function FACILITATED_CALL_TYPEHASH() external view returns (bytes32);
 
     function HUB() external view returns (address);
 
@@ -60,6 +75,8 @@ interface ITurnstile is IMessagingReceiver {
     function routable(address target, bytes4 selector) external view returns (bool);
 
     function failed(bytes32 messageHash) external view returns (bool);
+
+    function facilitating() external view returns (bool);
 
     function setMessagingAdapter(IMessagingAdapter adapter) external;
 
@@ -80,6 +97,16 @@ interface ITurnstile is IMessagingReceiver {
         returns (bytes32 messageId);
 
     function relay(address target, bytes calldata data, uint64 messageGas) external payable;
+
+    function facilitate(
+        FacilitatedCall[] calldata calls,
+        bytes[] calldata signatures,
+        uint256[] calldata values
+    )
+        external
+        payable;
+
+    function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) external view returns (bytes32);
 
     function quote(
         uint64 chainId,

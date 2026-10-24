@@ -57,12 +57,12 @@ contract WarehouseUnitTest is Test {
         adminSels[0] = Warehouse.setAssetWhitelisted.selector;
 
 
-        bytes4[] memory withdrawSels = new bytes4[](1);
-        withdrawSels[0] = Hub.facilitateWithdraw.selector;
+        bytes4[] memory facilitateSels = new bytes4[](1);
+        facilitateSels[0] = Turnstile.facilitate.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
+        authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
         authority.grantRole(SOLVER_ROLE, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
         vm.stopPrank();
@@ -116,6 +116,9 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
         authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
+        bytes4[] memory executeSels = new bytes4[](1);
+        executeSels[0] = Hub.executeWithdrawal.selector;
+        turnstile.setRoutable(address(hub), executeSels, true);
         turnstile.setMessagingAdapter(local);
         vm.stopPrank();
     }
@@ -135,24 +138,35 @@ contract WarehouseUnitTest is Test {
             to: owner,
             assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
-            maxFee: 0,
             nonce: ++withdrawNonce,
             deadline: type(uint256).max,
             partiallyFillable: true
         });
     }
 
+    function _facilitatedCall(Hub.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
+        return ITurnstile.FacilitatedCall({
+            sender: req.owner,
+            target: address(hub),
+            data: abi.encodeCall(Hub.executeWithdrawal, (req, 0)),
+            feeAssetId: bytes32(0),
+            fee: 0,
+            nonce: req.nonce,
+            deadline: req.deadline
+        });
+    }
+
     function _withdraw(Hub.WithdrawalRequest memory req, bytes memory sig) internal {
-        Hub.WithdrawalRequest[] memory reqs = new Hub.WithdrawalRequest[](1);
-        reqs[0] = req;
+        ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
+        calls[0] = _facilitatedCall(req);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        uint256[] memory fees = new uint256[](1);
-        hub.facilitateWithdraw(reqs, sigs, fees, 0);
+        uint256[] memory values = new uint256[](1);
+        turnstile.facilitate(calls, sigs, values);
     }
 
     function _sign(Hub.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashWithdrawalRequest(req));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashFacilitatedCall(_facilitatedCall(req)));
         return abi.encodePacked(r, s, v);
     }
 
@@ -282,7 +296,7 @@ contract WarehouseUnitTest is Test {
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(backend);
-        vm.expectRevert(Hub.BadSignature.selector);
+        vm.expectRevert(ITurnstile.BadSignature.selector);
         _withdraw(req, sig);
     }
 
@@ -295,7 +309,7 @@ contract WarehouseUnitTest is Test {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(Hub.RequestReplay.selector);
+        vm.expectRevert(ITurnstile.MessageReplay.selector);
         _withdraw(req, sig);
     }
 

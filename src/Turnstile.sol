@@ -3,6 +3,8 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { ECDSA } from "solady/utils/ECDSA.sol";
+import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { Hub } from "./Hub.sol";
 import { ITurnstile } from "./ITurnstile.sol";
@@ -10,7 +12,11 @@ import { Warehouse } from "./Warehouse.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
-contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
+contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnstile {
+
+    bytes32 public constant FACILITATED_CALL_TYPEHASH = keccak256(
+        "FacilitatedCall(address sender,address target,bytes data,bytes32 feeAssetId,uint256 fee,uint256 nonce,uint256 deadline)"
+    );
 
     address public immutable HUB;
     address public immutable WAREHOUSE;
@@ -22,9 +28,15 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
     mapping(bytes32 messageHash => bool) public failed;
 
+    bool public transient facilitating;
+
     constructor(address _authority, address _hub, address _warehouse) AccessManaged(_authority) {
         HUB = _hub;
         WAREHOUSE = _warehouse;
+    }
+
+    function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
+        return ("Turnstile", "1");
     }
 
     // ========================================= ADMIN =========================================
@@ -72,6 +84,63 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, ITurnstile {
             messageGas,
             MessageType.Generic,
             abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
+        );
+    }
+
+    function facilitate(
+        FacilitatedCall[] calldata calls,
+        bytes[] calldata signatures,
+        uint256[] calldata values
+    )
+        external
+        payable
+        restricted
+        nonReentrant
+    {
+        _requireNotPaused();
+        if (HUB == address(0)) revert NoHandler();
+        if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
+        bytes32 facilitatorAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender);
+        facilitating = true;
+        for (uint256 i; i < calls.length; i++) {
+            FacilitatedCall calldata facilitatedCall = calls[i];
+            if (block.timestamp > facilitatedCall.deadline) revert Expired();
+            bytes32 digest = hashFacilitatedCall(facilitatedCall);
+            if (ECDSA.recoverCalldata(digest, signatures[i]) != facilitatedCall.sender) revert BadSignature();
+            _consume(digest);
+            if (!routable[facilitatedCall.target][bytes4(facilitatedCall.data)]) revert NotRoutable();
+            bytes32 senderAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), facilitatedCall.sender);
+            if (facilitatedCall.fee != 0) {
+                Hub(HUB).transferFrom(
+                    senderAccountId, facilitatorAccountId, facilitatedCall.feeAssetId, facilitatedCall.fee
+                );
+            }
+            (bool ok, bytes memory result) = facilitatedCall.target.call{ value: values[i] }(
+                abi.encodePacked(facilitatedCall.data, senderAccountId)
+            );
+            if (!ok) {
+                assembly {
+                    revert(add(result, 0x20), mload(result))
+                }
+            }
+        }
+        facilitating = false;
+    }
+
+    function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    FACILITATED_CALL_TYPEHASH,
+                    facilitatedCall.sender,
+                    facilitatedCall.target,
+                    keccak256(facilitatedCall.data),
+                    facilitatedCall.feeAssetId,
+                    facilitatedCall.fee,
+                    facilitatedCall.nonce,
+                    facilitatedCall.deadline
+                )
+            )
         );
     }
 

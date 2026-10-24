@@ -10,6 +10,7 @@ import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
+import { ITurnstile } from "../src/ITurnstile.sol";
 import { Turnstile } from "../src/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
@@ -180,10 +181,13 @@ contract TransitTestBase is Test {
         if (chain == hubChainId) {
             _wireHub(authority);
 
-            bytes4[] memory withdrawSels = new bytes4[](2);
-            withdrawSels[0] = Hub.facilitateWithdraw.selector;
-            withdrawSels[1] = Hub.facilitateOrderCancellation.selector;
+            bytes4[] memory withdrawSels = new bytes4[](1);
+            withdrawSels[0] = Hub.facilitateOrderCancellation.selector;
             authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
+
+            bytes4[] memory facilitateSels = new bytes4[](1);
+            facilitateSels[0] = Turnstile.facilitate.selector;
+            authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
 
             bytes4[] memory hubPauseSels = new bytes4[](2);
             hubPauseSels[0] = Hub.pause.selector;
@@ -228,6 +232,10 @@ contract TransitTestBase is Test {
         routedSels[3] = Hub.reserveAndRequest.selector;
         authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
+
+        bytes4[] memory executeSels = new bytes4[](1);
+        executeSels[0] = Hub.executeWithdrawal.selector;
+        turnstile.setRoutable(address(hub), executeSels, true);
     }
 
     function _grantTerminalRole() internal {
@@ -359,14 +367,15 @@ contract TransitTestBase is Test {
         Hub.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
-        Hub.WithdrawalRequest[] memory requests = new Hub.WithdrawalRequest[](1);
-        requests[0] = request;
+        ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
+        calls[0] = _facilitatedWithdrawal(request);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
-        uint256[] memory fees = new uint256[](1);
+        uint256[] memory values = new uint256[](1);
 
         vm.prank(solver);
-        withdrawId = hub.facilitateWithdraw(requests, signatures, fees, _messageGas(hubChainId))[0];
+        turnstile.facilitate(calls, signatures, values);
+        withdrawId = hub.hashWithdrawalRequest(request);
     }
 
     function _withdrawalRequestFor(
@@ -384,15 +393,30 @@ contract TransitTestBase is Test {
             to: user,
             assetId: TransitTokenLib.formatAssetId(chain, address(asset)),
             amount: amount,
-            maxFee: 0,
             nonce: ++withdrawNonce,
             deadline: type(uint256).max,
             partiallyFillable: true
         });
     }
 
+    function _facilitatedWithdrawal(Hub.WithdrawalRequest memory request)
+        internal
+        view
+        returns (ITurnstile.FacilitatedCall memory)
+    {
+        return ITurnstile.FacilitatedCall({
+            sender: request.owner,
+            target: address(hub),
+            data: abi.encodeCall(Hub.executeWithdrawal, (request, _messageGas(hubChainId))),
+            feeAssetId: bytes32(0),
+            fee: 0,
+            nonce: request.nonce,
+            deadline: request.deadline
+        });
+    }
+
     function _signWithdraw(Hub.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = hub.hashWithdrawalRequest(request);
+        bytes32 digest = turnstile.hashFacilitatedCall(_facilitatedWithdrawal(request));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }

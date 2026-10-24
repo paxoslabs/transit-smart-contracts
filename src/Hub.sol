@@ -50,7 +50,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         address to;
         bytes32 assetId;
         uint256 amount;
-        uint256 maxFee;
         uint256 nonce;
         uint256 deadline;
         bool partiallyFillable;
@@ -62,7 +61,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         address to;
         bytes32 assetId;
         uint256 amount;
-        uint256 maxFee;
         uint256 nonce;
         uint256 deadline;
         bool partiallyFillable;
@@ -73,7 +71,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         address owner;
         bytes32 assetId;
         uint256 amount;
-        uint256 maxFee;
         uint256 nonce;
         uint256 deadline;
         bool partiallyFillable;
@@ -101,15 +98,15 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     );
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     bytes32 public constant MINT_REQUEST_TYPEHASH = keccak256(
-        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 maxFee,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
@@ -309,106 +306,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= USER =========================================
 
-    function facilitateTransfer(
-        TransferRequest[] calldata requests,
-        bytes[] calldata signatures,
-        uint256[] calldata fees
-    )
-        external
-        restricted
-        nonReentrant
-    {
-        _requireNotPaused();
-        if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-
-        for (uint256 i; i < requests.length; i++) {
-            TransferRequest calldata request = requests[i];
-            if (request.to == address(0)) revert ZeroAddress();
-            if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
-
-            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-            bytes32 transferId = hashTransferRequest(request);
-            if (requestStatus[ownerAccountId][transferId] != 0) revert RequestReplay();
-            if (ECDSA.recoverCalldata(transferId, signatures[i]) != request.owner) {
-                revert BadSignature();
-            }
-            requestStatus[ownerAccountId][transferId] = EXECUTED;
-            emit TransferRequested(transferId, request, settlementEpoch);
-
-            if (block.timestamp > request.deadline) revert Expired(transferId);
-
-            /// TODO: Decide fee recipient. Currently msg.sender.
-            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.assetId, fees[i]);
-            _transfer(
-                ownerAccountId,
-                TransitTokenLib.formatAccountId(request.toChainId, request.to),
-                request.assetId,
-                request.amount - fees[i]
-            );
-
-            emit TransferExecuted(transferId, request.amount - fees[i]);
-        }
-    }
-
-    function facilitateWithdraw(
-        WithdrawalRequest[] calldata requests,
-        bytes[] calldata signatures,
-        uint256[] calldata fees,
-        uint64 messageGas
-    )
-        external
-        payable
-        restricted
-        nonReentrant
-        returns (bytes32[] memory withdrawIds)
-    {
-        _requireNotPaused();
-        if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-
-        (uint64 assetChainId,) = TransitTokenLib.parseAssetId(requests[0].assetId);
-        withdrawIds = new bytes32[](requests.length);
-        ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](requests.length);
-
-        for (uint256 i; i < requests.length; i++) {
-            WithdrawalRequest calldata request = requests[i];
-            (uint64 requestChainId, address asset) = TransitTokenLib.parseAssetId(request.assetId);
-            if (requestChainId != assetChainId) revert ChainMismatch(requestChainId);
-            if (TransitTokenLib.hasFlags(request.assetId)) revert FlaggedAssetId();
-
-            bytes32 withdrawId = hashWithdrawalRequest(request);
-            if (ECDSA.recoverCalldata(withdrawId, signatures[i]) != request.owner) {
-                revert BadSignature();
-            }
-            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-            if (requestStatus[ownerAccountId][withdrawId] != 0) revert RequestReplay();
-            requestStatus[ownerAccountId][withdrawId] = EXECUTED;
-            emit WithdrawalRequested(withdrawId, request, settlementEpoch);
-            withdrawIds[i] = withdrawId;
-
-            if (block.timestamp > request.deadline) revert Expired(withdrawId);
-
-            /// TODO: Decide fee recipient. Currently msg.sender.
-            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.assetId, fees[i]);
-            uint256 amount = request.amount - fees[i];
-            _transfer(ownerAccountId, bytes32(0), request.assetId, amount);
-
-            messages[i] = ITurnstile.WithdrawalMessage({
-                asset: asset,
-                nonce: ++outboundNonce,
-                amount: amount,
-                to: request.to
-            });
-
-            emit WithdrawalExecuted(withdrawId, amount);
-        }
-
-        _sendWithdrawal(assetChainId, messageGas, messages);
-    }
-
     function facilitateFill(
         Order[] calldata orders,
         bytes[] calldata signatures,
@@ -471,7 +368,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         bytes32 requestId = hashTransferRequest(request);
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _consumeRequest(ownerAccountId, requestId);
-        _release(ownerAccountId, request.assetId, request.amount);
+        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -479,7 +376,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             return;
         }
 
-        _executeTransfer(request, requestId, ownerAccountId, request.maxFee);
+        _executeTransfer(request, requestId, ownerAccountId);
     }
 
     function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable nonReentrant {
@@ -487,7 +384,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         bytes32 requestId = hashWithdrawalRequest(request);
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _consumeRequest(ownerAccountId, requestId);
-        _release(ownerAccountId, request.assetId, request.amount);
+        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -496,7 +393,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
 
         ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](1);
-        messages[0] = _executeWithdrawal(request, requestId, ownerAccountId, request.maxFee);
+        messages[0] = _executeWithdrawal(request, requestId, ownerAccountId);
         (uint64 assetChainId,) = TransitTokenLib.parseAssetId(request.assetId);
         _sendWithdrawal(assetChainId, messageGas, messages);
     }
@@ -506,7 +403,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         bytes32 requestId = hashMintRequest(request);
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _consumeRequest(ownerAccountId, requestId);
-        _release(ownerAccountId, request.assetId, request.amount);
+        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -514,7 +411,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             return;
         }
 
-        _executeMint(request, requestId, ownerAccountId, request.maxFee);
+        _executeMint(request, requestId, ownerAccountId);
     }
 
     // ========================================= ADAPTER ========================================
@@ -578,7 +475,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
                     request.to,
                     request.assetId,
                     request.amount,
-                    request.maxFee,
                     request.nonce,
                     request.deadline,
                     request.partiallyFillable
@@ -597,7 +493,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
                     request.to,
                     request.assetId,
                     request.amount,
-                    request.maxFee,
                     request.nonce,
                     request.deadline,
                     request.partiallyFillable
@@ -615,7 +510,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
                     request.owner,
                     request.assetId,
                     request.amount,
-                    request.maxFee,
                     request.nonce,
                     request.deadline,
                     request.partiallyFillable
@@ -626,20 +520,10 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= INTERNAL =========================================
 
-    function _executeTransfer(
-        TransferRequest calldata request,
-        bytes32 requestId,
-        bytes32 ownerAccountId,
-        uint256 maxFee
-    )
-        internal
-    {
+    function _executeTransfer(TransferRequest calldata request, bytes32 requestId, bytes32 ownerAccountId) internal {
         bytes32 assetId = request.assetId;
         uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        uint256 fee = FixedPointMathLib.min(maxFee, amount);
-        if (fee != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fee);
-        amount -= fee;
         _transfer(ownerAccountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
 
         emit TransferExecuted(requestId, amount);
@@ -648,8 +532,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     function _executeWithdrawal(
         WithdrawalRequest calldata request,
         bytes32 requestId,
-        bytes32 ownerAccountId,
-        uint256 maxFee
+        bytes32 ownerAccountId
     )
         internal
         returns (ITurnstile.WithdrawalMessage memory message)
@@ -657,9 +540,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         bytes32 assetId = request.assetId;
         uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        uint256 fee = FixedPointMathLib.min(maxFee, amount);
-        if (fee != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fee);
-        amount -= fee;
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
         (, address asset) = TransitTokenLib.parseAssetId(assetId);
@@ -668,13 +548,10 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function _executeMint(MintRequest calldata request, bytes32 requestId, bytes32 ownerAccountId, uint256 maxFee) internal {
+    function _executeMint(MintRequest calldata request, bytes32 requestId, bytes32 ownerAccountId) internal {
         bytes32 assetId = request.assetId;
         uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        uint256 fee = FixedPointMathLib.min(maxFee, amount);
-        if (fee != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), assetId, fee);
-        amount -= fee;
         delayedSettlementAssetRegistry.mint(ownerAccountId, assetId, amount);
 
         emit MintExecuted(requestId, amount);
