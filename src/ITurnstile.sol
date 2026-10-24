@@ -85,11 +85,23 @@ interface ITurnstile is IMessagingReceiver {
 
     function unpause() external;
 
-    function sendRawMessage(
+    function sendDepositMessage(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
-        bytes calldata body
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
+    )
+        external
+        payable
+        returns (bytes32 messageId);
+
+    function sendWithdrawalMessage(
+        uint64 chainId,
+        uint64 messageGas,
+        address asset,
+        uint256 amount,
+        address to
     )
         external
         payable
@@ -107,11 +119,32 @@ interface ITurnstile is IMessagingReceiver {
 
     function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) external view returns (bytes32);
 
-    function quote(
+    function quoteDepositMessage(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
-        bytes calldata body
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
+    )
+        external
+        view
+        returns (uint256 fee);
+
+    function quoteWithdrawalMessage(
+        uint64 chainId,
+        uint64 messageGas,
+        address asset,
+        uint256 amount,
+        address to
+    )
+        external
+        view
+        returns (uint256 fee);
+
+    function quoteGenericMessage(
+        address target,
+        bytes calldata data,
+        uint64 messageGas
     )
         external
         view

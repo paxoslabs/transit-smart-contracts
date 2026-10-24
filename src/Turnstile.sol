@@ -58,11 +58,12 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         _unpause();
     }
 
-    function sendRawMessage(
+    function sendDepositMessage(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
-        bytes calldata body
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
     )
         external
         payable
@@ -70,7 +71,33 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         returns (bytes32 messageId)
     {
         _requireNotPaused();
-        messageId = _sendMessage(chainId, messageGas, messageType, body);
+        messageId = _sendMessage(
+            chainId,
+            messageGas,
+            MessageType.Deposit,
+            abi.encode(DepositMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId }))
+        );
+    }
+
+    function sendWithdrawalMessage(
+        uint64 chainId,
+        uint64 messageGas,
+        address asset,
+        uint256 amount,
+        address to
+    )
+        external
+        payable
+        restricted
+        returns (bytes32 messageId)
+    {
+        _requireNotPaused();
+        messageId = _sendMessage(
+            chainId,
+            messageGas,
+            MessageType.Withdrawal,
+            abi.encode(WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: to }))
+        );
     }
 
     function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
@@ -140,18 +167,61 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         );
     }
 
-    function quote(
+    function quoteDepositMessage(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
-        bytes calldata body
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
     )
         external
         view
         returns (uint256 fee)
     {
-        if (chainId == block.chainid) return 0;
-        return messagingAdapter.quote(chainId, messageGas, abi.encode(messageType, body));
+        return _quote(
+            chainId,
+            messageGas,
+            MessageType.Deposit,
+            abi.encode(DepositMessage({ asset: asset, nonce: outboundNonce + 1, amount: amount, toAccountId: toAccountId }))
+        );
+    }
+
+    function quoteWithdrawalMessage(
+        uint64 chainId,
+        uint64 messageGas,
+        address asset,
+        uint256 amount,
+        address to
+    )
+        external
+        view
+        returns (uint256 fee)
+    {
+        return _quote(
+            chainId,
+            messageGas,
+            MessageType.Withdrawal,
+            abi.encode(WithdrawalMessage({ asset: asset, nonce: outboundNonce + 1, amount: amount, to: to }))
+        );
+    }
+
+    function quoteGenericMessage(
+        address target,
+        bytes calldata data,
+        uint64 messageGas
+    )
+        external
+        view
+        returns (uint256 fee)
+    {
+        IMessagingAdapter adapter = messagingAdapter;
+        if (address(adapter) == address(0)) revert UnknownAdapter();
+        return _quote(
+            adapter.HUB_CHAIN_ID(),
+            messageGas,
+            MessageType.Generic,
+            abi.encode(GenericMessage({ nonce: outboundNonce + 1, sender: msg.sender, target: target, data: data }))
+        );
     }
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted nonReentrant {
@@ -190,6 +260,20 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         }
     }
 
+    function _quote(
+        uint64 chainId,
+        uint64 messageGas,
+        MessageType messageType,
+        bytes memory body
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        if (chainId == block.chainid) return 0;
+        return messagingAdapter.quote(chainId, messageGas, abi.encode(messageType, body));
+    }
+
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {
         _requireNotPaused();
         _consume(keccak256(abi.encode(chainId, messageType, body)));
@@ -210,12 +294,12 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
             if (HUB == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = HUB.call(abi.encodeCall(Hub.receiveDeposit, (sourceChainId, message)));
+            (ok, result) = HUB.call(abi.encodeCall(Hub.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
         } else if (messageType == MessageType.Withdrawal) {
             if (WAREHOUSE == address(0)) revert NoHandler();
-            WithdrawalMessage[] memory messages = abi.decode(body, (WithdrawalMessage[]));
+            WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
-            (ok, result) = WAREHOUSE.call(abi.encodeCall(Warehouse.receiveWithdrawal, (messages)));
+            (ok, result) = WAREHOUSE.call(abi.encodeCall(Warehouse.receiveWithdrawal, (message.asset, message.amount, message.to)));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (routable[message.target][bytes4(message.data)]) {

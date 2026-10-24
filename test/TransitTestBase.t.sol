@@ -210,8 +210,9 @@ contract TransitTestBase is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
-        bytes4[] memory turnstileSendSels = new bytes4[](1);
-        turnstileSendSels[0] = Turnstile.sendRawMessage.selector;
+        bytes4[] memory turnstileSendSels = new bytes4[](2);
+        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
+        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
 
         authority.grantRole(TURNSTILE_ROLE, address(chainTurnstile));

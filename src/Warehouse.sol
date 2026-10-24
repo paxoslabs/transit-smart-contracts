@@ -13,8 +13,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     address public immutable TURNSTILE;
     uint64 public immutable HUB_CHAIN_ID;
 
-    uint256 public outboundNonce;
-
     mapping(address asset => bool) public assetWhitelisted;
 
     event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
@@ -64,13 +62,8 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         SafeTransferLib.safeTransferFrom(asset, msg.sender, VAULT, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
-        ITurnstile(TURNSTILE).sendRawMessage{ value: msg.value }(
-            HUB_CHAIN_ID,
-            messageGas,
-            ITurnstile.MessageType.Deposit,
-            abi.encode(
-                ITurnstile.DepositMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId })
-            )
+        ITurnstile(TURNSTILE).sendDepositMessage{ value: msg.value }(
+            HUB_CHAIN_ID, messageGas, asset, amount, toAccountId
         );
 
         emit Deposit(asset, msg.sender, toAccountId, amount);
@@ -78,10 +71,8 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
 
     // ========================================= TURNSTILE ========================================
 
-    function receiveWithdrawal(ITurnstile.WithdrawalMessage[] calldata messages) external restricted {
-        for (uint256 i; i < messages.length; i++) {
-            SafeTransferLib.safeTransferFrom(messages[i].asset, VAULT, messages[i].to, messages[i].amount);
-        }
+    function receiveWithdrawal(address asset, uint256 amount, address to) external restricted {
+        SafeTransferLib.safeTransferFrom(asset, VAULT, to, amount);
     }
 
 }

@@ -90,8 +90,9 @@ contract WarehouseUnitTest is Test {
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](1);
-        turnstileSendSels[0] = Turnstile.sendRawMessage.selector;
+        bytes4[] memory turnstileSendSels = new bytes4[](2);
+        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
+        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
 
         bytes4[] memory receiveDepositSels = new bytes4[](1);
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
@@ -212,8 +213,9 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory turnstileAdminSels = new bytes4[](1);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](1);
-        turnstileSendSels[0] = Turnstile.sendRawMessage.selector;
+        bytes4[] memory turnstileSendSels = new bytes4[](2);
+        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
+        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -269,7 +271,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        hub.receiveDeposit(HUB_CHAIN_ID, message);
+        hub.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
     }
 
     // ---------------------------------------------------------------- withdraw
@@ -326,8 +328,8 @@ contract WarehouseUnitTest is Test {
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonAdapterReverts() public {
-        ITurnstile.WithdrawalMessage[] memory m = new ITurnstile.WithdrawalMessage[](1);
-        m[0] = ITurnstile.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+        ITurnstile.WithdrawalMessage memory m =
+            ITurnstile.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
         bytes memory payload = abi.encode(ITurnstile.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
@@ -336,7 +338,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        warehouse.receiveWithdrawal(m);
+        warehouse.receiveWithdrawal(m.asset, m.amount, m.to);
     }
 
 }

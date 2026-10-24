@@ -9,7 +9,6 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { ITurnstile } from "./ITurnstile.sol";
 import { Turnstile } from "./Turnstile.sol";
 import { TurnstileGated } from "./TurnstileGated.sol";
 
@@ -119,7 +118,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
     mapping(bytes32 orderHash => bool) public preApproved;
 
-    uint256 public outboundNonce;
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
@@ -406,10 +404,10 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
-        ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](1);
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
-        messages[0] = ITurnstile.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
-        _sendWithdrawal(assetChainId, messageGas, messages);
+        Turnstile(TURNSTILE).sendWithdrawalMessage{ value: msg.value }(
+            assetChainId, messageGas, asset, amount, request.to
+        );
 
         emit WithdrawalExecuted(requestId, amount);
     }
@@ -437,14 +435,17 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= ADAPTER ========================================
 
-    function receiveDeposit(uint64 sourceChainId, ITurnstile.DepositMessage calldata message) external restricted {
+    function receiveDeposit(
+        uint64 sourceChainId,
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
+    )
+        external
+        restricted
+    {
         _requireNotPaused();
-        _transfer(
-            bytes32(0),
-            message.toAccountId,
-            TransitTokenLib.formatAssetId(sourceChainId, message.asset),
-            message.amount
-        );
+        _transfer(bytes32(0), toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
     // ========================================= VIEWS =========================================
@@ -540,18 +541,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     }
 
     // ========================================= INTERNAL =========================================
-
-    function _sendWithdrawal(
-        uint64 chainId,
-        uint64 messageGas,
-        ITurnstile.WithdrawalMessage[] memory messages
-    )
-        internal
-    {
-        Turnstile(TURNSTILE).sendRawMessage{ value: msg.value }(
-            chainId, messageGas, ITurnstile.MessageType.Withdrawal, abi.encode(messages)
-        );
-    }
 
     function _consumeRequest(bytes32 ownerAccountId, bytes32 requestId) internal {
         uint256 status = requestStatus[ownerAccountId][requestId];
