@@ -20,6 +20,14 @@ library TransitTokenLib {
         return assetId | bytes32(uint256(1) << 224);
     }
 
+    function formatFacilitatedAccountId(bytes32 accountId) internal pure returns (bytes32) {
+        return accountId | bytes32(uint256(1) << 224);
+    }
+
+    function clearFlags(bytes32 id) internal pure returns (bytes32) {
+        return bytes32(uint256(id) & type(uint224).max);
+    }
+
     function hasFlags(bytes32 assetId) internal pure returns (bool) {
         return uint256(assetId) >> 224 != 0;
     }

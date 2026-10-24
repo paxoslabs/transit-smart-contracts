@@ -28,8 +28,6 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
     mapping(bytes32 messageHash => bool) public failed;
 
-    bool public transient facilitating;
-
     constructor(address _authority, address _hub, address _warehouse) AccessManaged(_authority) {
         HUB = _hub;
         WAREHOUSE = _warehouse;
@@ -101,7 +99,6 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         if (HUB == address(0)) revert NoHandler();
         if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
         bytes32 facilitatorAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender);
-        facilitating = true;
         for (uint256 i; i < calls.length; i++) {
             FacilitatedCall calldata facilitatedCall = calls[i];
             if (block.timestamp > facilitatedCall.deadline) revert Expired();
@@ -116,7 +113,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
                 );
             }
             (bool ok, bytes memory result) = facilitatedCall.target.call{ value: values[i] }(
-                abi.encodePacked(facilitatedCall.data, senderAccountId)
+                abi.encodePacked(facilitatedCall.data, TransitTokenLib.formatFacilitatedAccountId(senderAccountId))
             );
             if (!ok) {
                 assembly {
@@ -124,7 +121,6 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
                 }
             }
         }
-        facilitating = false;
     }
 
     function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) public view returns (bytes32) {

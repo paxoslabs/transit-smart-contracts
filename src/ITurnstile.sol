@@ -76,7 +76,6 @@ interface ITurnstile is IMessagingReceiver {
 
     function failed(bytes32 messageHash) external view returns (bool);
 
-    function facilitating() external view returns (bool);
 
     function setMessagingAdapter(IMessagingAdapter adapter) external;
 
