@@ -376,7 +376,12 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             return;
         }
 
-        _executeTransfer(request, requestId, ownerAccountId);
+        bytes32 assetId = request.assetId;
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
+        _transfer(ownerAccountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
+
+        emit TransferExecuted(requestId, amount);
     }
 
     function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable nonReentrant {
@@ -392,10 +397,17 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             return;
         }
 
+        bytes32 assetId = request.assetId;
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
+        _transfer(ownerAccountId, bytes32(0), assetId, amount);
+
         ITurnstile.WithdrawalMessage[] memory messages = new ITurnstile.WithdrawalMessage[](1);
-        messages[0] = _executeWithdrawal(request, requestId, ownerAccountId);
-        (uint64 assetChainId,) = TransitTokenLib.parseAssetId(request.assetId);
+        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
+        messages[0] = ITurnstile.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
         _sendWithdrawal(assetChainId, messageGas, messages);
+
+        emit WithdrawalExecuted(requestId, amount);
     }
 
     function executeMint(MintRequest calldata request) external nonReentrant {
@@ -411,7 +423,12 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
             return;
         }
 
-        _executeMint(request, requestId, ownerAccountId);
+        bytes32 assetId = request.assetId;
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
+        delayedSettlementAssetRegistry.mint(ownerAccountId, assetId, amount);
+
+        emit MintExecuted(requestId, amount);
     }
 
     // ========================================= ADAPTER ========================================
@@ -519,43 +536,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     }
 
     // ========================================= INTERNAL =========================================
-
-    function _executeTransfer(TransferRequest calldata request, bytes32 requestId, bytes32 ownerAccountId) internal {
-        bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(ownerAccountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
-
-        emit TransferExecuted(requestId, amount);
-    }
-
-    function _executeWithdrawal(
-        WithdrawalRequest calldata request,
-        bytes32 requestId,
-        bytes32 ownerAccountId
-    )
-        internal
-        returns (ITurnstile.WithdrawalMessage memory message)
-    {
-        bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(ownerAccountId, bytes32(0), assetId, amount);
-
-        (, address asset) = TransitTokenLib.parseAssetId(assetId);
-        message = ITurnstile.WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: request.to });
-
-        emit WithdrawalExecuted(requestId, amount);
-    }
-
-    function _executeMint(MintRequest calldata request, bytes32 requestId, bytes32 ownerAccountId) internal {
-        bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        delayedSettlementAssetRegistry.mint(ownerAccountId, assetId, amount);
-
-        emit MintExecuted(requestId, amount);
-    }
 
     function _sendWithdrawal(
         uint64 chainId,
