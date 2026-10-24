@@ -99,12 +99,11 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
         receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
 
-        bytes4[] memory routedSels = new bytes4[](5);
+        bytes4[] memory routedSels = new bytes4[](4);
         routedSels[0] = Hub.preApprove.selector;
         routedSels[1] = Hub.requestOrderCancellation.selector;
-        routedSels[2] = Hub.requestTransfer.selector;
-        routedSels[3] = Hub.requestWithdrawal.selector;
-        routedSels[4] = Hub.requestMint.selector;
+        routedSels[2] = Hub.reserve.selector;
+        routedSels[3] = Hub.reserveAndRequest.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);

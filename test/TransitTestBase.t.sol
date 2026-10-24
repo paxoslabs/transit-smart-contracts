@@ -221,12 +221,11 @@ contract TransitTestBase is Test {
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
 
-        bytes4[] memory routedSels = new bytes4[](5);
+        bytes4[] memory routedSels = new bytes4[](4);
         routedSels[0] = Hub.preApprove.selector;
         routedSels[1] = Hub.requestOrderCancellation.selector;
-        routedSels[2] = Hub.requestTransfer.selector;
-        routedSels[3] = Hub.requestWithdrawal.selector;
-        routedSels[4] = Hub.requestMint.selector;
+        routedSels[2] = Hub.reserve.selector;
+        routedSels[3] = Hub.reserveAndRequest.selector;
         authority.setTargetFunctionRole(address(hub), routedSels, TURNSTILE_ROLE);
         turnstile.setRoutable(address(hub), routedSels, true);
     }
