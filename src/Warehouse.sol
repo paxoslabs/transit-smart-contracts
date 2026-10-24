@@ -9,7 +9,7 @@ import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Warehouse is AccessManaged, ReentrancyGuard {
 
-    address public immutable vault;
+    address public immutable VAULT;
     address public immutable TURNSTILE;
     uint64 public immutable HUB_CHAIN_ID;
 
@@ -32,7 +32,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         AccessManaged(_authority)
     {
         if (_vault == address(0)) revert VaultUnset();
-        vault = _vault;
+        VAULT = _vault;
         TURNSTILE = _turnstile;
         HUB_CHAIN_ID = _hubChainId;
     }
@@ -61,7 +61,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
 
-        SafeTransferLib.safeTransferFrom(asset, msg.sender, vault, amount);
+        SafeTransferLib.safeTransferFrom(asset, msg.sender, VAULT, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
         ITurnstile(TURNSTILE).send{ value: msg.value }(
@@ -80,7 +80,7 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
 
     function receiveWithdrawal(ITurnstile.WithdrawalMessage[] calldata messages) external restricted {
         for (uint256 i; i < messages.length; i++) {
-            SafeTransferLib.safeTransferFrom(messages[i].asset, vault, messages[i].to, messages[i].amount);
+            SafeTransferLib.safeTransferFrom(messages[i].asset, VAULT, messages[i].to, messages[i].amount);
         }
     }
 

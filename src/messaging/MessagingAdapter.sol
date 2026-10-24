@@ -16,8 +16,8 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         bool allowMessagesTo;
     }
 
-    address public immutable endpoint;
-    uint64 public immutable hubChainId;
+    address public immutable ENDPOINT;
+    uint64 public immutable HUB_CHAIN_ID;
 
     mapping(uint64 chainId => PeerConfig) public peers;
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
@@ -51,8 +51,8 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     )
         AccessManaged(_authority)
     {
-        endpoint = _endpoint;
-        hubChainId = _hubChainId;
+        ENDPOINT = _endpoint;
+        HUB_CHAIN_ID = _hubChainId;
     }
 
     function setPeer(
@@ -104,7 +104,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         payable
         returns (bytes32 messageId)
     {
-        if (msg.sender != endpoint) revert OnlyEndpoint();
+        if (msg.sender != ENDPOINT) revert OnlyEndpoint();
 
         PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
         messageId = _send(chainId, gasLimit, peer, payload);
@@ -129,7 +129,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
         emit MessageReceived(chainId, sender, payload);
 
-        IMessagingReceiver(endpoint).receiveMessage(chainId, payload);
+        IMessagingReceiver(ENDPOINT).receiveMessage(chainId, payload);
     }
 
     function _peerOf(uint64 chainId) internal view returns (PeerConfig memory peer) {

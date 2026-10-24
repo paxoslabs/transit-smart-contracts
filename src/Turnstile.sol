@@ -78,7 +78,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();
         _sendMessage(
-            adapter.hubChainId(),
+            adapter.HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
             abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
