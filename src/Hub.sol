@@ -405,7 +405,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         _transfer(ownerAccountId, bytes32(0), assetId, amount);
 
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
-        Turnstile(TURNSTILE).sendWithdrawalMessage{ value: msg.value }(
+        Turnstile(turnstile).sendWithdrawalMessage{ value: msg.value }(
             assetChainId, messageGas, asset, amount, request.to
         );
 
