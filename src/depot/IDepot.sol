@@ -25,6 +25,7 @@ interface IDepot {
     );
     event EpochAdvanced(uint256 epoch);
     event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
+    event Release(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount);
 
     error ZeroAddress();
     error ChainMismatch(uint64 chainId);

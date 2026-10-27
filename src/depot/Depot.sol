@@ -106,6 +106,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     function release(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
         _release(accountId, assetId, amount);
+        emit Release(accountId, assetId, amount);
     }
 
     // ========================================= INTERNAL =========================================
