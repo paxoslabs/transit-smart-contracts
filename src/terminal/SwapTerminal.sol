@@ -4,12 +4,11 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
-abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated {
+abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
 
     /// TODO: Decide fields. The full Order would allow keying cancelledFrom by hash alone.
     struct OrderCancellationRequest {
@@ -84,7 +83,6 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
     )
         external
         restricted
-        nonReentrant
     {
         if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();

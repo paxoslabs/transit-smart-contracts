@@ -85,7 +85,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
     }
 
     /// TODO: Decide who may call repay. Currently anyone; it pulls from the leg's account.
-    function repay(uint256 escrowId, uint256 side, uint256 amount) external nonReentrant {
+    function repay(uint256 escrowId, uint256 side, uint256 amount) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
         if (amount > leg.owed) revert ExceedsOwed();
@@ -97,7 +97,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
     }
 
-    function reclaim(uint256 escrowId) external nonReentrant {
+    function reclaim(uint256 escrowId) external {
         if (block.timestamp <= escrowDeadline[escrowId]) revert SettlementPeriodActive();
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];

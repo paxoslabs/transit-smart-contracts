@@ -5,14 +5,13 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { ITurnstile } from "./ITurnstile.sol";
 import { UserTerminal } from "./terminal/UserTerminal.sol";
 import { Warehouse } from "./Warehouse.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
-contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnstile {
+contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     bytes32 public constant FACILITATED_CALL_TYPEHASH = keccak256(
         "FacilitatedCall(address sender,address target,bytes data,bytes32 feeAssetId,uint256 fee,uint256 nonce,uint256 deadline)"
@@ -104,7 +103,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         );
     }
 
-    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable nonReentrant {
+    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable {
         _requireNotPaused();
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();
@@ -124,7 +123,6 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         external
         payable
         restricted
-        nonReentrant
     {
         _requireNotPaused();
         if (userTerminal == address(0)) revert NoHandler();
@@ -228,7 +226,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         );
     }
 
-    function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted nonReentrant {
+    function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted {
         _requireNotPaused();
         bytes32 messageHash = keccak256(abi.encode(sourceChainId, messageType, body));
         if (!failed[messageHash]) revert NotFailed();
@@ -239,7 +237,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
 
     // ========================================= ADAPTER ========================================
 
-    function receiveMessage(uint64 chainId, bytes calldata payload) external restricted nonReentrant {
+    function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (MessageType messageType, bytes memory body) = abi.decode(payload, (MessageType, bytes));
         _handleMessage(chainId, messageType, body);
     }

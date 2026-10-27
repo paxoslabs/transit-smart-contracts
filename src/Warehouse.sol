@@ -2,12 +2,11 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "./ITurnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Warehouse is AccessManaged, ReentrancyGuard {
+contract Warehouse is AccessManaged {
 
     address public immutable VAULT;
     address public immutable TURNSTILE;
@@ -54,7 +53,6 @@ contract Warehouse is AccessManaged, ReentrancyGuard {
     )
         external
         payable
-        nonReentrant
     {
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();

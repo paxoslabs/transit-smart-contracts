@@ -2,13 +2,12 @@
 pragma solidity ^0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { ITurnstile } from "../ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
-contract UserTerminal is TurnstileGated, ReentrancyGuard {
+contract UserTerminal is TurnstileGated {
 
     struct TransferRequest {
         uint64 ownerChainId;
@@ -86,7 +85,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
-    function executeTransfer(TransferRequest calldata request) external nonReentrant {
+    function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = hashTransferRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
@@ -111,7 +110,6 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     )
         external
         payable
-        nonReentrant
     {
         bytes32 requestId = hashWithdrawalRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
