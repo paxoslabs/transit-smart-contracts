@@ -65,11 +65,6 @@ contract UserTerminal is TurnstileGated {
         IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    function chargeFee(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external {
-        if (msg.sender != TURNSTILE) revert NotTurnstile();
-        IDepot(DEPOT).transferFrom(fromAccountId, toAccountId, assetId, amount);
-    }
-
     function reserve(bytes32 assetId, uint256 amount) external {
         IDepot(DEPOT).reserve(_senderAccountId(), assetId, amount);
     }

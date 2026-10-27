@@ -19,12 +19,14 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 toAccountId;
     }
 
-    struct FacilitatedCall {
-        address sender;
+    struct Call {
         address target;
         bytes data;
-        bytes32 feeAssetId;
-        uint256 fee;
+    }
+
+    struct FacilitatedCall {
+        address sender;
+        Call[] calls;
         uint256 nonce;
         uint256 deadline;
     }
@@ -60,6 +62,8 @@ interface ITurnstile is IMessagingReceiver {
     error LengthMismatch();
     error Expired();
     error BadSignature();
+
+    function CALL_TYPEHASH() external view returns (bytes32);
 
     function FACILITATED_CALL_TYPEHASH() external view returns (bytes32);
 
@@ -115,7 +119,7 @@ interface ITurnstile is IMessagingReceiver {
     function facilitate(
         FacilitatedCall[] calldata calls,
         bytes[] calldata signatures,
-        uint256[] calldata values
+        uint256[][] calldata values
     )
         external
         payable;

@@ -13,8 +13,10 @@ import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
+    bytes32 public constant CALL_TYPEHASH = keccak256("Call(address target,bytes data)");
+
     bytes32 public constant FACILITATED_CALL_TYPEHASH = keccak256(
-        "FacilitatedCall(address sender,address target,bytes data,bytes32 feeAssetId,uint256 fee,uint256 nonce,uint256 deadline)"
+        "FacilitatedCall(address sender,Call[] calls,uint256 nonce,uint256 deadline)Call(address target,bytes data)"
     );
 
     address public immutable WAREHOUSE;
@@ -118,50 +120,50 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function facilitate(
         FacilitatedCall[] calldata calls,
         bytes[] calldata signatures,
-        uint256[] calldata values
+        uint256[][] calldata values
     )
         external
         payable
         restricted
     {
         _requireNotPaused();
-        if (userTerminal == address(0)) revert NoHandler();
         if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
-        bytes32 facilitatorAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender);
         for (uint256 i; i < calls.length; i++) {
             FacilitatedCall calldata facilitatedCall = calls[i];
             if (block.timestamp > facilitatedCall.deadline) revert Expired();
+            if (facilitatedCall.calls.length != values[i].length) revert LengthMismatch();
             bytes32 digest = hashFacilitatedCall(facilitatedCall);
             if (ECDSA.recoverCalldata(digest, signatures[i]) != facilitatedCall.sender) revert BadSignature();
             _consume(digest);
-            if (!routable[facilitatedCall.target][bytes4(facilitatedCall.data)]) revert NotRoutable();
-            bytes32 senderAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), facilitatedCall.sender);
-            if (facilitatedCall.fee != 0) {
-                UserTerminal(userTerminal).chargeFee(
-                    senderAccountId, facilitatorAccountId, facilitatedCall.feeAssetId, facilitatedCall.fee
-                );
-            }
-            (bool ok, bytes memory result) = facilitatedCall.target.call{ value: values[i] }(
-                abi.encodePacked(facilitatedCall.data, TransitTokenLib.formatFacilitatedAccountId(senderAccountId))
+            bytes32 senderAccountId = TransitTokenLib.formatFacilitatedAccountId(
+                TransitTokenLib.formatAccountId(uint64(block.chainid), facilitatedCall.sender)
             );
-            if (!ok) {
-                assembly {
-                    revert(add(result, 0x20), mload(result))
+            for (uint256 j; j < facilitatedCall.calls.length; j++) {
+                Call calldata facilitated = facilitatedCall.calls[j];
+                if (!routable[facilitated.target][bytes4(facilitated.data)]) revert NotRoutable();
+                (bool ok, bytes memory result) =
+                    facilitated.target.call{ value: values[i][j] }(abi.encodePacked(facilitated.data, senderAccountId));
+                if (!ok) {
+                    assembly {
+                        revert(add(result, 0x20), mload(result))
+                    }
                 }
             }
         }
     }
 
     function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) public view returns (bytes32) {
+        bytes32[] memory callHashes = new bytes32[](facilitatedCall.calls.length);
+        for (uint256 i; i < callHashes.length; i++) {
+            Call calldata facilitated = facilitatedCall.calls[i];
+            callHashes[i] = keccak256(abi.encode(CALL_TYPEHASH, facilitated.target, keccak256(facilitated.data)));
+        }
         return _hashTypedData(
             keccak256(
                 abi.encode(
                     FACILITATED_CALL_TYPEHASH,
                     facilitatedCall.sender,
-                    facilitatedCall.target,
-                    keccak256(facilitatedCall.data),
-                    facilitatedCall.feeAssetId,
-                    facilitatedCall.fee,
+                    keccak256(abi.encodePacked(callHashes)),
                     facilitatedCall.nonce,
                     facilitatedCall.deadline
                 )

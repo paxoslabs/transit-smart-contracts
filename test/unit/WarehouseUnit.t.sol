@@ -148,15 +148,11 @@ contract WarehouseUnitTest is Test {
     }
 
     function _facilitatedCall(UserTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
-        return ITurnstile.FacilitatedCall({
-            sender: req.owner,
-            target: address(userTerminal),
-            data: abi.encodeCall(UserTerminal.executeWithdrawal, (req, 0)),
-            feeAssetId: bytes32(0),
-            fee: 0,
-            nonce: req.nonce,
-            deadline: req.deadline
+        ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
+        calls[0] = ITurnstile.Call({
+            target: address(userTerminal), data: abi.encodeCall(UserTerminal.executeWithdrawal, (req, 0))
         });
+        return ITurnstile.FacilitatedCall({ sender: req.owner, calls: calls, nonce: req.nonce, deadline: req.deadline });
     }
 
     function _withdraw(UserTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
@@ -164,7 +160,8 @@ contract WarehouseUnitTest is Test {
         calls[0] = _facilitatedCall(req);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        uint256[] memory values = new uint256[](1);
+        uint256[][] memory values = new uint256[][](1);
+        values[0] = new uint256[](1);
         turnstile.facilitate(calls, sigs, values);
     }
 
