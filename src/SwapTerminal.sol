@@ -6,7 +6,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
-import { Hub } from "./Hub.sol";
+import { Depot } from "./Depot.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "./TurnstileGated.sol";
 
@@ -53,7 +53,7 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
     );
 
-    Hub public immutable HUB;
+    Depot public immutable DEPOT;
     bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
@@ -76,24 +76,24 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     error NotPartiallyFillable(bytes32 orderHash);
     error FlaggedAssetId();
     error Cancelled(bytes32 orderHash);
-    error HubPaused();
+    error DepotPaused();
 
     constructor(
         address _authority,
-        Hub _hub,
+        Depot _depot,
         bytes32 _surplusRecipientAccountId,
         address _turnstile
     )
         AccessManaged(_authority)
         TurnstileGated(_turnstile)
     {
-        HUB = _hub;
+        DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
 
-    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Hub" and "1". verifyingContract is now SwapTerminal, so a terminal swap invalidates open signed orders (KDD #13).
+    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Depot" and "1". verifyingContract is now SwapTerminal, so a terminal swap invalidates open signed orders (KDD #13).
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit Hub", "1");
+        return ("Transit Depot", "1");
     }
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
@@ -105,9 +105,9 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     function requestOrderCancellation(OrderCancellationRequest calldata request) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
-        _requireHubNotPaused();
+        _requireDepotNotPaused();
         if (cancelledFrom[accountId][request.orderHash] != 0) return;
-        uint256 effectiveAtEpoch = HUB.settlementEpoch() + 1;
+        uint256 effectiveAtEpoch = DEPOT.settlementEpoch() + 1;
         cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(accountId, request.orderHash, effectiveAtEpoch);
     }
@@ -116,7 +116,7 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     function preApprove(Order calldata order) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
-        _requireHubNotPaused();
+        _requireDepotNotPaused();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash);
@@ -133,10 +133,10 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         restricted
         nonReentrant
     {
-        _requireHubNotPaused();
+        _requireDepotNotPaused();
         if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-        uint256 settlementEpoch = HUB.settlementEpoch();
+        uint256 settlementEpoch = DEPOT.settlementEpoch();
 
         for (uint256 i; i < requests.length; i++) {
             OrderCancellationRequest calldata request = requests[i];
@@ -154,7 +154,7 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] != 0) {
-                HUB.transferFrom(
+                DEPOT.transferFrom(
                     ownerAccountId,
                     TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
                     request.sellTokenId,
@@ -176,7 +176,7 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         external
         restricted
     {
-        Hub.TransferDelta[] memory deltas = new Hub.TransferDelta[](orders.length * 2 + fees.length);
+        Depot.TransferDelta[] memory deltas = new Depot.TransferDelta[](orders.length * 2 + fees.length);
         if (orders.length != 0) {
             if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
             (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures, fills);
@@ -186,12 +186,12 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
             deltas[orders.length * 2 + i] =
-                Hub.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
+                Depot.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
         }
 
-        HUB.transferAmong(deltas);
+        DEPOT.transferAmong(deltas);
 
-        HUB.advanceEpoch(epoch);
+        DEPOT.advanceEpoch(epoch);
     }
 
     function _checkOrders(
@@ -230,11 +230,11 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         Fill[] calldata fills,
         bytes32[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
-        Hub.TransferDelta[] memory deltas
+        Depot.TransferDelta[] memory deltas
     )
         internal
     {
-        uint256 settlementEpoch = HUB.settlementEpoch();
+        uint256 settlementEpoch = DEPOT.settlementEpoch();
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
             uint256 filled = filledAmount[orderHashes[i]] + fills[i].sellFilled;
@@ -249,8 +249,8 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
             ) {
                 revert LimitPrice(orderHashes[i]);
             }
-            deltas[i] = Hub.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
-            deltas[orders.length + i] = Hub.TransferDelta(
+            deltas[i] = Depot.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
+            deltas[orders.length + i] = Depot.TransferDelta(
                 bytes32(0),
                 TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
                 order.buyTokenId,
@@ -261,8 +261,8 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         }
     }
 
-    function _requireHubNotPaused() internal view {
-        if (HUB.paused()) revert HubPaused();
+    function _requireDepotNotPaused() internal view {
+        if (DEPOT.paused()) revert DepotPaused();
     }
 
     // ========================================= VIEWS =========================================

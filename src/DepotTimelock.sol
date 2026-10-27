@@ -2,22 +2,22 @@
 pragma solidity ^0.8.37;
 
 import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
-import { Hub } from "./Hub.sol";
+import { Depot } from "./Depot.sol";
 
-contract HubTimelock is TimelockController {
+contract DepotTimelock is TimelockController {
 
-    Hub public immutable HUB;
+    Depot public immutable DEPOT;
 
     constructor(
         uint256 minDelay,
         address[] memory proposers,
         address[] memory executors,
         address admin,
-        Hub _hub
+        Depot _depot
     )
         TimelockController(minDelay, proposers, executors, admin)
     {
-        HUB = _hub;
+        DEPOT = _depot;
     }
 
     function execute(
@@ -32,7 +32,7 @@ contract HubTimelock is TimelockController {
         override
     {
         super.execute(target, value, payload, predecessor, salt);
-        HUB.advanceEpoch(HUB.settlementEpoch());
+        DEPOT.advanceEpoch(DEPOT.settlementEpoch());
     }
 
     function executeBatch(
@@ -47,7 +47,7 @@ contract HubTimelock is TimelockController {
         override
     {
         super.executeBatch(targets, values, payloads, predecessor, salt);
-        HUB.advanceEpoch(HUB.settlementEpoch());
+        DEPOT.advanceEpoch(DEPOT.settlementEpoch());
     }
 
 }

@@ -6,7 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Hub is AccessManaged, Pausable {
+contract Depot is AccessManaged, Pausable {
 
     struct Reservation {
         uint256 effective;

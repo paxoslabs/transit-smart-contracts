@@ -62,7 +62,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function FACILITATED_CALL_TYPEHASH() external view returns (bytes32);
 
-    function HUB() external view returns (address);
+    function DEPOT() external view returns (address);
 
     function WAREHOUSE() external view returns (address);
 

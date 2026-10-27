@@ -6,7 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
-import { Hub } from "./Hub.sol";
+import { Depot } from "./Depot.sol";
 import { ITurnstile } from "./ITurnstile.sol";
 import { Warehouse } from "./Warehouse.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
@@ -18,7 +18,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         "FacilitatedCall(address sender,address target,bytes data,bytes32 feeAssetId,uint256 fee,uint256 nonce,uint256 deadline)"
     );
 
-    address public immutable HUB;
+    address public immutable DEPOT;
     address public immutable WAREHOUSE;
 
     IMessagingAdapter public messagingAdapter;
@@ -28,8 +28,8 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
     mapping(bytes32 messageHash => bool) public failed;
 
-    constructor(address _authority, address _hub, address _warehouse) AccessManaged(_authority) {
-        HUB = _hub;
+    constructor(address _authority, address _depot, address _warehouse) AccessManaged(_authority) {
+        DEPOT = _depot;
         WAREHOUSE = _warehouse;
     }
 
@@ -123,7 +123,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         nonReentrant
     {
         _requireNotPaused();
-        if (HUB == address(0)) revert NoHandler();
+        if (DEPOT == address(0)) revert NoHandler();
         if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
         bytes32 facilitatorAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender);
         for (uint256 i; i < calls.length; i++) {
@@ -135,7 +135,7 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
             if (!routable[facilitatedCall.target][bytes4(facilitatedCall.data)]) revert NotRoutable();
             bytes32 senderAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), facilitatedCall.sender);
             if (facilitatedCall.fee != 0) {
-                Hub(HUB).transferFrom(
+                Depot(DEPOT).transferFrom(
                     senderAccountId, facilitatorAccountId, facilitatedCall.feeAssetId, facilitatedCall.fee
                 );
             }
@@ -291,10 +291,10 @@ contract Turnstile is AccessManaged, Pausable, ReentrancyGuard, EIP712, ITurnsti
         bytes memory result;
         uint256 gasBefore;
         if (messageType == MessageType.Deposit) {
-            if (HUB == address(0)) revert NoHandler();
+            if (DEPOT == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = HUB.call(abi.encodeCall(Hub.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
+            (ok, result) = DEPOT.call(abi.encodeCall(Depot.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
         } else if (messageType == MessageType.Withdrawal) {
             if (WAREHOUSE == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));

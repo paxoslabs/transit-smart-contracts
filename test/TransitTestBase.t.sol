@@ -7,7 +7,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SwapTerminal } from "../src/SwapTerminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
-import { Hub } from "../src/Hub.sol";
+import { Depot } from "../src/Depot.sol";
 import { UserTerminal } from "../src/UserTerminal.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
@@ -57,7 +57,7 @@ contract TransitTestBase is Test {
     uint256 withdrawNonce;
 
     SwapTerminal swapTerminal;
-    Hub hub;
+    Depot depot;
     UserTerminal userTerminal;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
@@ -93,7 +93,7 @@ contract TransitTestBase is Test {
         _selectChain(hubChainId);
         swapTerminal = new SwapTerminal(
             address(authorities[hubChainId]),
-            hub,
+            depot,
             TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
@@ -115,7 +115,7 @@ contract TransitTestBase is Test {
                 vm.computeCreateAddress(address(this), nonce + 1),
                 vm.computeCreateAddress(address(this), nonce + 2)
             );
-            hub = new Hub(address(authority));
+            depot = new Depot(address(authority));
             turnstile = chainTurnstile;
         } else {
             chainTurnstile =
@@ -123,7 +123,7 @@ contract TransitTestBase is Test {
         }
         Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
-        if (chain == hubChainId) userTerminal = new UserTerminal(hub, address(chainTurnstile));
+        if (chain == hubChainId) userTerminal = new UserTerminal(depot, address(chainTurnstile));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -185,16 +185,16 @@ contract TransitTestBase is Test {
         _wireTurnstile(chain);
 
         if (chain == hubChainId) {
-            _wireHub(authority);
+            _wireDepot(authority);
 
             bytes4[] memory facilitateSels = new bytes4[](1);
             facilitateSels[0] = Turnstile.facilitate.selector;
             authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
 
-            bytes4[] memory hubPauseSels = new bytes4[](2);
-            hubPauseSels[0] = Hub.pause.selector;
-            hubPauseSels[1] = Hub.unpause.selector;
-            authority.setTargetFunctionRole(address(hub), hubPauseSels, PAUSER_ROLE);
+            bytes4[] memory depotPauseSels = new bytes4[](2);
+            depotPauseSels[0] = Depot.pause.selector;
+            depotPauseSels[1] = Depot.unpause.selector;
+            authority.setTargetFunctionRole(address(depot), depotPauseSels, PAUSER_ROLE);
         }
         vm.stopPrank();
     }
@@ -221,18 +221,18 @@ contract TransitTestBase is Test {
         chainTurnstile.setMessagingAdapter(adapters[chain]);
     }
 
-    function _wireHub(TransitAuthority authority) internal {
+    function _wireDepot(TransitAuthority authority) internal {
         bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = Hub.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
+        receiveDepositSels[0] = Depot.receiveDeposit.selector;
+        authority.setTargetFunctionRole(address(depot), receiveDepositSels, TURNSTILE_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
         bytes4[] memory userTerminalSels = new bytes4[](4);
-        userTerminalSels[0] = Hub.reserve.selector;
-        userTerminalSels[1] = Hub.release.selector;
-        userTerminalSels[2] = Hub.transferFrom.selector;
-        userTerminalSels[3] = Hub.burn.selector;
-        authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
+        userTerminalSels[0] = Depot.reserve.selector;
+        userTerminalSels[1] = Depot.release.selector;
+        userTerminalSels[2] = Depot.transferFrom.selector;
+        userTerminalSels[3] = Depot.burn.selector;
+        authority.setTargetFunctionRole(address(depot), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
 
         bytes4[] memory routedSels = new bytes4[](2);
@@ -247,16 +247,16 @@ contract TransitTestBase is Test {
 
     function _grantSwapTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](2);
-        moveSels[0] = Hub.transferFrom.selector;
-        moveSels[1] = Hub.transferAmong.selector;
+        moveSels[0] = Depot.transferFrom.selector;
+        moveSels[1] = Depot.transferAmong.selector;
 
         bytes4[] memory epochSels = new bytes4[](1);
-        epochSels[0] = Hub.advanceEpoch.selector;
+        epochSels[0] = Depot.advanceEpoch.selector;
 
         vm.startPrank(admin);
-        authorities[hubChainId].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
+        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, TERMINAL_ROLE);
         authorities[hubChainId].grantRole(TERMINAL_ROLE, address(swapTerminal));
-        authorities[hubChainId].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
+        authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
         authorities[hubChainId].grantRole(EPOCH_ROLE, address(swapTerminal));
 
         bytes4[] memory settleSels = new bytes4[](2);
@@ -345,8 +345,8 @@ contract TransitTestBase is Test {
         return vault;
     }
 
-    function _hubBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
-        return hub.balanceOf(TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
+    function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
+        return depot.balanceOf(TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
@@ -374,7 +374,7 @@ contract TransitTestBase is Test {
         returns (bytes32 withdrawId)
     {
         require(shouldBeAtomic, "only signed withdraws are supported");
-        require(chain == hubChainId, "can only atomically withdraw on Hub");
+        require(chain == hubChainId, "can only atomically withdraw on Depot");
 
         _selectChain(hubChainId);
         UserTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);

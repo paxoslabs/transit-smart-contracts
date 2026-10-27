@@ -2,7 +2,7 @@
 pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
-import { Hub } from "../../src/Hub.sol";
+import { Depot } from "../../src/Depot.sol";
 import { SwapTerminal } from "../../src/SwapTerminal.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
@@ -13,8 +13,8 @@ contract HappyPaths is TransitTestBase {
         // user deposits on a spoke chain and can withdraw on that spoke chain
     }
 
-    function testDepositHubAndWithdraw() public {
-        // default hub is ETH
+    function testDepositDepotAndWithdraw() public {
+        // default depot is ETH
         uint256 amount = 100e6;
         ERC20 usdc = chainConfig[hubChainId].usdc;
 
@@ -22,20 +22,20 @@ contract HappyPaths is TransitTestBase {
 
         _selectChain(hubChainId);
 
-        assertEq(_hubBalance(alice, hubChainId, usdc), amount, "deposit: alice not credited hub balance");
+        assertEq(_depotBalance(alice, hubChainId, usdc), amount, "deposit: alice not credited depot balance");
         assertEq(usdc.balanceOf(_vaultOf(hubChainId)), amount, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
 
         _withdrawOnChain(alice, alicePk, amount, usdc, hubChainId, true);
 
-        assertEq(_hubBalance(alice, hubChainId, usdc), 0, "withdraw: alice hub balance not burned");
+        assertEq(_depotBalance(alice, hubChainId, usdc), 0, "withdraw: alice depot balance not burned");
         assertEq(usdc.balanceOf(_vaultOf(hubChainId)), 0, "withdraw: vault did not release usdc");
         assertEq(usdc.balanceOf(alice), amount, "withdraw: alice did not receive usdc back");
     }
 
     // Alice and Bob deposit and trade eth_USDC <> eth_UDSG 1:1 and withdraw.
     function testAliceBobHappyPathOneToOneSameChain() public {
-        // default hub is ETH
+        // default depot is ETH
         uint256 amount = 100e6;
         ERC20 usdc = chainConfig[hubChainId].usdc;
         ERC20 usdg = chainConfig[hubChainId].usdg;
@@ -80,19 +80,19 @@ contract HappyPaths is TransitTestBase {
         fills[1] = SwapTerminal.Fill(amount, amount);
 
         vm.startPrank(solver);
-        swapTerminal.settle(hub.settlementEpoch(), orders, signatures, fills, new SwapTerminal.Fee[](0));
+        swapTerminal.settle(depot.settlementEpoch(), orders, signatures, fills, new SwapTerminal.Fee[](0));
         vm.stopPrank();
 
-        assertEq(_hubBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");
-        assertEq(_hubBalance(bob, hubChainId, usdc), amount, "settle: bob did not receive usdc");
-        assertEq(_hubBalance(alice, hubChainId, usdc), 0, "settle: alice usdc not taken");
-        assertEq(_hubBalance(bob, hubChainId, usdg), 0, "settle: bob usdg not taken");
+        assertEq(_depotBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");
+        assertEq(_depotBalance(bob, hubChainId, usdc), amount, "settle: bob did not receive usdc");
+        assertEq(_depotBalance(alice, hubChainId, usdc), 0, "settle: alice usdc not taken");
+        assertEq(_depotBalance(bob, hubChainId, usdg), 0, "settle: bob usdg not taken");
 
         _withdrawOnChain(alice, alicePk, amount, usdg, hubChainId, true);
         _withdrawOnChain(bob, bobPk, amount, usdc, hubChainId, true);
 
-        assertEq(_hubBalance(alice, hubChainId, usdg), 0, "withdraw: alice hub usdg not burned");
-        assertEq(_hubBalance(bob, hubChainId, usdc), 0, "withdraw: bob hub usdc not burned");
+        assertEq(_depotBalance(alice, hubChainId, usdg), 0, "withdraw: alice depot usdg not burned");
+        assertEq(_depotBalance(bob, hubChainId, usdc), 0, "withdraw: bob depot usdc not burned");
         assertEq(usdg.balanceOf(alice), amount, "withdraw: alice did not receive usdg");
         assertEq(usdc.balanceOf(bob), amount, "withdraw: bob did not receive usdc");
     }
