@@ -228,14 +228,15 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](7);
+        bytes4[] memory userTerminalSels = new bytes4[](8);
         userTerminalSels[0] = Hub.requestOrderCancellation.selector;
         userTerminalSels[1] = Hub.preApprove.selector;
         userTerminalSels[2] = Hub.reserve.selector;
         userTerminalSels[3] = Hub.reserveAndRequest.selector;
-        userTerminalSels[4] = Hub.executeTransfer.selector;
-        userTerminalSels[5] = Hub.executeWithdrawal.selector;
-        userTerminalSels[6] = Hub.executeMint.selector;
+        userTerminalSels[4] = Hub.consumeRequest.selector;
+        userTerminalSels[5] = Hub.release.selector;
+        userTerminalSels[6] = Hub.transferFrom.selector;
+        userTerminalSels[7] = Hub.burn.selector;
         authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
 
@@ -377,7 +378,7 @@ contract TransitTestBase is Test {
         require(chain == hubChainId, "can only atomically withdraw on Hub");
 
         _selectChain(hubChainId);
-        Hub.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
+        UserTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
         ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
@@ -388,7 +389,7 @@ contract TransitTestBase is Test {
 
         vm.prank(solver);
         turnstile.facilitate(calls, signatures, values);
-        withdrawId = hub.hashWithdrawalRequest(request);
+        withdrawId = userTerminal.hashWithdrawalRequest(request);
     }
 
     function _withdrawalRequestFor(
@@ -398,9 +399,9 @@ contract TransitTestBase is Test {
         uint64 chain
     )
         internal
-        returns (Hub.WithdrawalRequest memory)
+        returns (UserTerminal.WithdrawalRequest memory)
     {
-        return Hub.WithdrawalRequest({
+        return UserTerminal.WithdrawalRequest({
             ownerChainId: hubChainId,
             owner: user,
             to: user,
@@ -412,7 +413,7 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _facilitatedWithdrawal(Hub.WithdrawalRequest memory request)
+    function _facilitatedWithdrawal(UserTerminal.WithdrawalRequest memory request)
         internal
         view
         returns (ITurnstile.FacilitatedCall memory)
@@ -428,7 +429,7 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(Hub.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
+    function _signWithdraw(UserTerminal.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = turnstile.hashFacilitatedCall(_facilitatedWithdrawal(request));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);

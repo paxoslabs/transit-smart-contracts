@@ -118,14 +118,15 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](7);
+        bytes4[] memory userTerminalSels = new bytes4[](8);
         userTerminalSels[0] = Hub.requestOrderCancellation.selector;
         userTerminalSels[1] = Hub.preApprove.selector;
         userTerminalSels[2] = Hub.reserve.selector;
         userTerminalSels[3] = Hub.reserveAndRequest.selector;
-        userTerminalSels[4] = Hub.executeTransfer.selector;
-        userTerminalSels[5] = Hub.executeWithdrawal.selector;
-        userTerminalSels[6] = Hub.executeMint.selector;
+        userTerminalSels[4] = Hub.consumeRequest.selector;
+        userTerminalSels[5] = Hub.release.selector;
+        userTerminalSels[6] = Hub.transferFrom.selector;
+        userTerminalSels[7] = Hub.burn.selector;
         authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
         turnstile.setRoutable(address(userTerminal), routedSels, true);
@@ -144,8 +145,8 @@ contract WarehouseUnitTest is Test {
         vm.stopPrank();
     }
 
-    function _request(address owner, uint256 amount) internal returns (Hub.WithdrawalRequest memory) {
-        return Hub.WithdrawalRequest({
+    function _request(address owner, uint256 amount) internal returns (UserTerminal.WithdrawalRequest memory) {
+        return UserTerminal.WithdrawalRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -157,7 +158,7 @@ contract WarehouseUnitTest is Test {
         });
     }
 
-    function _facilitatedCall(Hub.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
+    function _facilitatedCall(UserTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
         return ITurnstile.FacilitatedCall({
             sender: req.owner,
             target: address(userTerminal),
@@ -169,7 +170,7 @@ contract WarehouseUnitTest is Test {
         });
     }
 
-    function _withdraw(Hub.WithdrawalRequest memory req, bytes memory sig) internal {
+    function _withdraw(UserTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
         ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
         calls[0] = _facilitatedCall(req);
         bytes[] memory sigs = new bytes[](1);
@@ -178,7 +179,7 @@ contract WarehouseUnitTest is Test {
         turnstile.facilitate(calls, sigs, values);
     }
 
-    function _sign(Hub.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
+    function _sign(UserTerminal.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashFacilitatedCall(_facilitatedCall(req)));
         return abi.encodePacked(r, s, v);
     }
@@ -291,7 +292,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
+        UserTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 
@@ -305,7 +306,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
+        UserTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
@@ -316,7 +317,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
+        UserTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
@@ -329,7 +330,7 @@ contract WarehouseUnitTest is Test {
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        Hub.WithdrawalRequest memory req = _request(alice, 100e6);
+        UserTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 

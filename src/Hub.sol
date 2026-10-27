@@ -5,7 +5,6 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
@@ -40,39 +39,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         uint256 maxFee;
     }
 
-    struct TransferRequest {
-        uint64 ownerChainId;
-        address owner;
-        uint64 toChainId;
-        address to;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 nonce;
-        uint256 deadline;
-        bool partiallyFillable;
-    }
-
-    struct WithdrawalRequest {
-        uint64 ownerChainId;
-        address owner;
-        address to;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 nonce;
-        uint256 deadline;
-        bool partiallyFillable;
-    }
-
-    struct MintRequest {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 nonce;
-        uint256 deadline;
-        bool partiallyFillable;
-    }
-
     struct Reservation {
         uint256 effective;
         uint256 pending;
@@ -92,18 +58,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
 
     bytes32 public constant ORDER_CANCELLATION_REQUEST_TYPEHASH = keccak256(
         "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
-    );
-
-    bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
-    );
-
-    bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
-    );
-
-    bytes32 public constant MINT_REQUEST_TYPEHASH = keccak256(
-        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
@@ -127,12 +81,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
     event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
     event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
-    event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
-    event TransferExecuted(bytes32 indexed requestId, uint256 amount);
-    event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
-    event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
-    event MintRequested(bytes32 indexed requestId, MintRequest request, uint256 effectiveAtEpoch);
-    event MintExecuted(bytes32 indexed requestId, uint256 amount);
 
     error BadSignature();
     error RequestReplay();
@@ -368,90 +316,14 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
-    function executeTransfer(
-        bool facilitated,
-        TransferRequest calldata request
-    )
-        external
-        restricted
-        nonReentrant
-    {
+    function consumeRequest(bytes32 accountId, bytes32 requestId) external restricted {
         _requireNotPaused();
-        if (request.to == address(0)) revert ZeroAddress();
-        bytes32 requestId = hashTransferRequest(request);
-        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
         _consumeRequest(accountId, requestId);
-        if (!facilitated) _release(accountId, request.assetId, request.amount);
-
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
-        if (block.timestamp > request.deadline) {
-            emit TransferExecuted(requestId, 0);
-            return;
-        }
-
-        bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
-
-        emit TransferExecuted(requestId, amount);
     }
 
-    function executeWithdrawal(
-        bool facilitated,
-        WithdrawalRequest calldata request
-    )
-        external
-        restricted
-        nonReentrant
-        returns (uint256 amount)
-    {
+    function release(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
-        bytes32 requestId = hashWithdrawalRequest(request);
-        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-        _consumeRequest(accountId, requestId);
-        if (!facilitated) _release(accountId, request.assetId, request.amount);
-
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
-        if (block.timestamp > request.deadline) {
-            emit WithdrawalExecuted(requestId, 0);
-            return 0;
-        }
-
-        bytes32 assetId = request.assetId;
-        amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(accountId, bytes32(0), assetId, amount);
-
-        emit WithdrawalExecuted(requestId, amount);
-    }
-
-    function executeMint(
-        bool facilitated,
-        MintRequest calldata request
-    )
-        external
-        restricted
-        nonReentrant
-    {
-        _requireNotPaused();
-        bytes32 requestId = hashMintRequest(request);
-        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-        _consumeRequest(accountId, requestId);
-        if (!facilitated) _release(accountId, request.assetId, request.amount);
-
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
-        if (block.timestamp > request.deadline) {
-            emit MintExecuted(requestId, 0);
-            return;
-        }
-
-        bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
-        if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        delayedSettlementAssetRegistry.mint(accountId, assetId, amount);
-
-        emit MintExecuted(requestId, amount);
+        _release(accountId, assetId, amount);
     }
 
     // ========================================= ADAPTER ========================================
@@ -502,60 +374,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
                     request.orderHash,
                     request.sellTokenId,
                     request.maxFee
-                )
-            )
-        );
-    }
-
-    function hashTransferRequest(TransferRequest memory request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    TRANSFER_REQUEST_TYPEHASH,
-                    request.ownerChainId,
-                    request.owner,
-                    request.toChainId,
-                    request.to,
-                    request.assetId,
-                    request.amount,
-                    request.nonce,
-                    request.deadline,
-                    request.partiallyFillable
-                )
-            )
-        );
-    }
-
-    function hashWithdrawalRequest(WithdrawalRequest memory request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    WITHDRAWAL_REQUEST_TYPEHASH,
-                    request.ownerChainId,
-                    request.owner,
-                    request.to,
-                    request.assetId,
-                    request.amount,
-                    request.nonce,
-                    request.deadline,
-                    request.partiallyFillable
-                )
-            )
-        );
-    }
-
-    function hashMintRequest(MintRequest memory request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    MINT_REQUEST_TYPEHASH,
-                    request.ownerChainId,
-                    request.owner,
-                    request.assetId,
-                    request.amount,
-                    request.nonce,
-                    request.deadline,
-                    request.partiallyFillable
                 )
             )
         );
