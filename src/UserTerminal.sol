@@ -33,26 +33,12 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         bool partiallyFillable;
     }
 
-    struct MintRequest {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 nonce;
-        uint256 deadline;
-        bool partiallyFillable;
-    }
-
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
         "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
         "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
-    );
-
-    bytes32 public constant MINT_REQUEST_TYPEHASH = keccak256(
-        "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -64,10 +50,8 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
     event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
     event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
-    event MintRequested(bytes32 indexed requestId, MintRequest request, uint256 effectiveAtEpoch);
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
-    event MintExecuted(bytes32 indexed requestId, uint256 amount);
 
     error RequestReplay();
     error NotEffective();
@@ -149,22 +133,6 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function executeMint(MintRequest calldata request) external nonReentrant {
-        bytes32 requestId = hashMintRequest(request);
-        bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
-
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
-        if (block.timestamp > request.deadline) {
-            emit MintExecuted(requestId, 0);
-            return;
-        }
-
-        uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        DEPOT.delayedSettlementAssetRegistry().mint(accountId, request.assetId, amount);
-
-        emit MintExecuted(requestId, amount);
-    }
-
     /// TODO: Decide hashing. Currently plain struct hash with no EIP-712 domain, so IDs are the same across terminal versions.
     function hashTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(
@@ -190,21 +158,6 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
                 request.ownerChainId,
                 request.owner,
                 request.to,
-                request.assetId,
-                request.amount,
-                request.nonce,
-                request.deadline,
-                request.partiallyFillable
-            )
-        );
-    }
-
-    function hashMintRequest(MintRequest memory request) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                MINT_REQUEST_TYPEHASH,
-                request.ownerChainId,
-                request.owner,
                 request.assetId,
                 request.amount,
                 request.nonce,

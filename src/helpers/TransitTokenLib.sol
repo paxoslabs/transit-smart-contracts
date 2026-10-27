@@ -16,10 +16,6 @@ library TransitTokenLib {
         return bytes32(uint256(chainId) << 160 | uint160(asset));
     }
 
-    function formatMarginAssetId(bytes32 assetId) internal pure returns (bytes32) {
-        return assetId | bytes32(uint256(1) << 224);
-    }
-
     function formatFacilitatedAccountId(bytes32 accountId) internal pure returns (bytes32) {
         return accountId | bytes32(uint256(1) << 224);
     }

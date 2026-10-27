@@ -3,7 +3,6 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
-import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract Depot is AccessManaged, Pausable {
@@ -28,8 +27,6 @@ contract Depot is AccessManaged, Pausable {
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
 
-    DelayedSettlementAssetRegistry public delayedSettlementAssetRegistry;
-
     event Transfer(
         address operator,
         bytes32 indexed fromAccountId,
@@ -45,7 +42,6 @@ contract Depot is AccessManaged, Pausable {
     error BadEpoch(uint256 epoch);
     error InsufficientBalance();
     error NotZeroSum();
-    error FlaggedAssetId();
 
     constructor(address _authority) AccessManaged(_authority) {
         settlementEpoch = 1;
@@ -58,10 +54,6 @@ contract Depot is AccessManaged, Pausable {
 
     function unpause() external restricted {
         _unpause();
-    }
-
-    function setDelayedSettlementAssetRegistry(DelayedSettlementAssetRegistry registry) external restricted {
-        delayedSettlementAssetRegistry = registry;
     }
 
     // ========================================= LEDGER =========================================
@@ -135,7 +127,6 @@ contract Depot is AccessManaged, Pausable {
 
     function reserve(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
-        if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         _reserve(accountId, assetId, amount);
         emit Reserved(accountId, assetId, amount, effectiveAtEpoch);

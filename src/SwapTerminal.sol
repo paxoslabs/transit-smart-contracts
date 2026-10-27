@@ -74,7 +74,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     error Expired(bytes32 id);
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
-    error FlaggedAssetId();
     error Cancelled(bytes32 orderHash);
 
     constructor(
@@ -136,7 +135,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
 
         for (uint256 i; i < requests.length; i++) {
             OrderCancellationRequest calldata request = requests[i];
-            if (TransitTokenLib.hasFlags(request.sellTokenId)) revert FlaggedAssetId();
             bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
 
             if (ECDSA.recoverCalldata(hashOrderCancellationRequest(request), signatures[i]) != request.owner) {
