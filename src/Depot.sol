@@ -30,7 +30,13 @@ contract Depot is AccessManaged, Pausable {
 
     DelayedSettlementAssetRegistry public delayedSettlementAssetRegistry;
 
-    event Transfer(bytes32 indexed fromAccountId, bytes32 indexed toAccountId, bytes32 indexed assetId, uint256 amount);
+    event Transfer(
+        address operator,
+        bytes32 indexed fromAccountId,
+        bytes32 indexed toAccountId,
+        bytes32 indexed assetId,
+        uint256 amount
+    );
     event EpochAdvanced(uint256 epoch);
     event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
 
@@ -169,7 +175,7 @@ contract Depot is AccessManaged, Pausable {
     function _transfer(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) internal {
         if (fromAccountId != bytes32(0)) balanceOf[fromAccountId][assetId] -= amount;
         if (toAccountId != bytes32(0)) balanceOf[toAccountId][assetId] += amount;
-        emit Transfer(fromAccountId, toAccountId, assetId, amount);
+        emit Transfer(msg.sender, fromAccountId, toAccountId, assetId, amount);
     }
 
 }
