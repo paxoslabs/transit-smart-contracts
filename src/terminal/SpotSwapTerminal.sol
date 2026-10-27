@@ -46,9 +46,8 @@ contract SpotSwapTerminal is SwapTerminal {
         SwapTerminal(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     { }
 
-    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Depot" and "1". verifyingContract is now SpotSwapTerminal, so a terminal swap invalidates open signed orders (KDD #13).
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit Depot", "1");
+        return ("Transit SpotSwapTerminal", "1");
     }
 
     // ========================================= USER =========================================

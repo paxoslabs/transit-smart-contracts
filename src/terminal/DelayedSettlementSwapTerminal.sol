@@ -69,9 +69,8 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         SwapTerminal(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     { }
 
-    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Delayed Settlement" and "1".
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit Delayed Settlement", "1");
+        return ("Transit DelayedSettlementSwapTerminal", "1");
     }
 
     // ========================================= USER =========================================

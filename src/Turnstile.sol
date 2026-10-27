@@ -34,7 +34,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Turnstile", "1");
+        return ("Transit Turnstile", "1");
     }
 
     // ========================================= ADMIN =========================================
