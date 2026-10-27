@@ -22,9 +22,7 @@ contract Hub is AccessManaged, Pausable {
     }
 
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
-    uint256 public constant EXECUTED = type(uint256).max;
 
-    mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
     mapping(bytes32 accountId => mapping(bytes32 assetId => Reservation)) public reservation;
 
     uint256 public settlementEpoch;
@@ -35,9 +33,7 @@ contract Hub is AccessManaged, Pausable {
     event Transfer(bytes32 indexed fromAccountId, bytes32 indexed toAccountId, bytes32 indexed assetId, uint256 amount);
     event EpochAdvanced(uint256 epoch);
     event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
-    event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
 
-    error RequestReplay();
     error ZeroAddress();
     error ChainMismatch(uint64 chainId);
     error BadEpoch(uint256 epoch);
@@ -139,30 +135,6 @@ contract Hub is AccessManaged, Pausable {
         emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
     }
 
-    function reserveAndRequest(
-        bytes32 accountId,
-        bytes32 requestId,
-        bytes32 assetId,
-        uint256 amount
-    )
-        external
-        restricted
-    {
-        _requireNotPaused();
-        if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
-        if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
-        uint256 effectiveAtEpoch = settlementEpoch + 1;
-        requestStatus[accountId][requestId] = effectiveAtEpoch;
-        _reserve(accountId, assetId, amount);
-        emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
-        emit Requested(accountId, requestId, effectiveAtEpoch);
-    }
-
-    function consumeRequest(bytes32 accountId, bytes32 requestId) external restricted {
-        _requireNotPaused();
-        _consumeRequest(accountId, requestId);
-    }
-
     function release(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
         _release(accountId, assetId, amount);
@@ -184,12 +156,6 @@ contract Hub is AccessManaged, Pausable {
     }
 
     // ========================================= INTERNAL =========================================
-
-    function _consumeRequest(bytes32 accountId, bytes32 requestId) internal {
-        uint256 status = requestStatus[accountId][requestId];
-        if (status == EXECUTED) revert RequestReplay();
-        requestStatus[accountId][requestId] = EXECUTED;
-    }
 
     function _reserved(bytes32 accountId, bytes32 assetId) internal view returns (uint256) {
         Reservation storage res = reservation[accountId][assetId];

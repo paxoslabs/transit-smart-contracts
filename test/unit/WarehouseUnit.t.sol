@@ -116,13 +116,11 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](6);
+        bytes4[] memory userTerminalSels = new bytes4[](4);
         userTerminalSels[0] = Hub.reserve.selector;
-        userTerminalSels[1] = Hub.reserveAndRequest.selector;
-        userTerminalSels[2] = Hub.consumeRequest.selector;
-        userTerminalSels[3] = Hub.release.selector;
-        userTerminalSels[4] = Hub.transferFrom.selector;
-        userTerminalSels[5] = Hub.burn.selector;
+        userTerminalSels[1] = Hub.release.selector;
+        userTerminalSels[2] = Hub.transferFrom.selector;
+        userTerminalSels[3] = Hub.burn.selector;
         authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
         turnstile.setRoutable(address(userTerminal), routedSels, true);

@@ -55,8 +55,13 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         "MintRequest(uint64 ownerChainId,address owner,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
+    uint256 public constant EXECUTED = type(uint256).max;
+
     Hub public immutable HUB;
 
+    mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
+
+    event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
     event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
     event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
     event MintRequested(bytes32 indexed requestId, MintRequest request, uint256 effectiveAtEpoch);
@@ -64,9 +69,11 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
     event MintExecuted(bytes32 indexed requestId, uint256 amount);
 
+    error RequestReplay();
     error NotEffective();
     error ZeroAddress();
     error InsufficientBalance();
+    error HubPaused();
 
     constructor(Hub _hub, address _turnstile) TurnstileGated(_turnstile) {
         HUB = _hub;
@@ -77,7 +84,12 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     }
 
     function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
-        HUB.reserveAndRequest(_senderAccountId(), requestId, assetId, amount);
+        bytes32 accountId = _senderAccountId();
+        if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
+        uint256 effectiveAtEpoch = HUB.settlementEpoch() + 1;
+        requestStatus[accountId][requestId] = effectiveAtEpoch;
+        HUB.reserve(accountId, assetId, amount);
+        emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
     function executeTransfer(TransferRequest calldata request) external nonReentrant {
@@ -202,9 +214,11 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         private
         returns (bytes32 accountId)
     {
+        if (HUB.paused()) revert HubPaused();
         _requireEffective(ownerChainId, owner, requestId);
         accountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
-        HUB.consumeRequest(accountId, requestId);
+        if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
+        requestStatus[accountId][requestId] = EXECUTED;
         if (!_facilitated()) HUB.release(accountId, assetId, amount);
     }
 
@@ -226,8 +240,8 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
         if (_senderAccountId() == ownerAccountId) return;
-        uint256 status = HUB.requestStatus(ownerAccountId, requestId);
-        if (status == HUB.EXECUTED()) return;
+        uint256 status = requestStatus[ownerAccountId][requestId];
+        if (status == EXECUTED) return;
         if (status == 0 || HUB.settlementEpoch() < status) revert NotEffective();
     }
 
