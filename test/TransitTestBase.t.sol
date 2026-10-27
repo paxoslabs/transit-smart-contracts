@@ -8,6 +8,7 @@ import { Terminal } from "../src/Terminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
+import { HubGateway } from "../src/HubGateway.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/ITurnstile.sol";
@@ -21,7 +22,8 @@ import {
     SOLVER_ROLE,
     TERMINAL_ROLE,
     EPOCH_ROLE,
-    TURNSTILE_ROLE
+    TURNSTILE_ROLE,
+    HUB_GATEWAY_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -57,6 +59,7 @@ contract TransitTestBase is Test {
 
     Terminal terminal;
     Hub hub;
+    HubGateway gateway;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
@@ -110,7 +113,7 @@ contract TransitTestBase is Test {
                 vm.computeCreateAddress(address(this), nonce + 1),
                 vm.computeCreateAddress(address(this), nonce + 2)
             );
-            hub = new Hub(address(authority), address(chainTurnstile));
+            hub = new Hub(address(authority));
             turnstile = chainTurnstile;
         } else {
             chainTurnstile =
@@ -118,6 +121,7 @@ contract TransitTestBase is Test {
         }
         Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
+        if (chain == hubChainId) gateway = new HubGateway(hub, address(chainTurnstile));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -224,18 +228,28 @@ contract TransitTestBase is Test {
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
 
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hub));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(gateway));
+        bytes4[] memory gatewaySels = new bytes4[](7);
+        gatewaySels[0] = Hub.requestOrderCancellation.selector;
+        gatewaySels[1] = Hub.preApprove.selector;
+        gatewaySels[2] = Hub.reserve.selector;
+        gatewaySels[3] = Hub.reserveAndRequest.selector;
+        gatewaySels[4] = Hub.executeTransfer.selector;
+        gatewaySels[5] = Hub.executeWithdrawal.selector;
+        gatewaySels[6] = Hub.executeMint.selector;
+        authority.setTargetFunctionRole(address(hub), gatewaySels, HUB_GATEWAY_ROLE);
+        authority.grantRole(HUB_GATEWAY_ROLE, address(gateway));
 
         bytes4[] memory routedSels = new bytes4[](4);
-        routedSels[0] = Hub.preApprove.selector;
-        routedSels[1] = Hub.requestOrderCancellation.selector;
-        routedSels[2] = Hub.reserve.selector;
-        routedSels[3] = Hub.reserveAndRequest.selector;
-        turnstile.setRoutable(address(hub), routedSels, true);
+        routedSels[0] = HubGateway.preApprove.selector;
+        routedSels[1] = HubGateway.requestOrderCancellation.selector;
+        routedSels[2] = HubGateway.reserve.selector;
+        routedSels[3] = HubGateway.reserveAndRequest.selector;
+        turnstile.setRoutable(address(gateway), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = Hub.executeWithdrawal.selector;
-        turnstile.setRoutable(address(hub), executeSels, true);
+        executeSels[0] = HubGateway.executeWithdrawal.selector;
+        turnstile.setRoutable(address(gateway), executeSels, true);
     }
 
     function _grantTerminalRole() internal {
@@ -406,8 +420,8 @@ contract TransitTestBase is Test {
     {
         return ITurnstile.FacilitatedCall({
             sender: request.owner,
-            target: address(hub),
-            data: abi.encodeCall(Hub.executeWithdrawal, (request, _messageGas(hubChainId))),
+            target: address(gateway),
+            data: abi.encodeCall(HubGateway.executeWithdrawal, (request, _messageGas(hubChainId))),
             feeAssetId: bytes32(0),
             fee: 0,
             nonce: request.nonce,

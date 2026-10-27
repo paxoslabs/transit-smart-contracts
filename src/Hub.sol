@@ -9,10 +9,8 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { Turnstile } from "./Turnstile.sol";
-import { TurnstileGated } from "./TurnstileGated.sol";
 
-contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated {
+contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
 
     struct Order {
         uint64 ownerChainId;
@@ -143,8 +141,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     error EmptyBatch();
     error ChainMismatch(uint64 chainId);
     error BadEpoch(uint256 epoch);
-    error NotEffective();
-    error NotOwner();
     error InsufficientBalance();
     error NotZeroSum();
     error ExceedsMaxFee();
@@ -155,7 +151,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
     error NotPreApproved(bytes32 orderHash);
     error FlaggedAssetId();
 
-    constructor(address _authority, address _turnstile) AccessManaged(_authority) TurnstileGated(_turnstile) {
+    constructor(address _authority) AccessManaged(_authority) {
         settlementEpoch = 1;
         lastEpochAdvancedAt = block.timestamp;
     }
@@ -250,23 +246,25 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= ORDERS =========================================
 
-    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+    function requestOrderCancellation(
+        bytes32 accountId,
+        OrderCancellationRequest calldata request
+    )
+        external
+        restricted
+    {
         _requireNotPaused();
-        bytes32 senderAccountId = _senderAccountId();
-        if (senderAccountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
-        if (cancelledFrom[senderAccountId][request.orderHash] != 0) return;
+        if (cancelledFrom[accountId][request.orderHash] != 0) return;
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        cancelledFrom[senderAccountId][request.orderHash] = effectiveAtEpoch;
-        emit OrderCancellationRequested(senderAccountId, request.orderHash, effectiveAtEpoch);
+        cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
+        emit OrderCancellationRequested(accountId, request.orderHash, effectiveAtEpoch);
     }
 
-    function preApprove(Order calldata order) external {
+    function preApprove(bytes32 accountId, Order calldata order) external restricted {
         _requireNotPaused();
-        bytes32 senderAccountId = _senderAccountId();
-        if (senderAccountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
-        emit PreApproved(senderAccountId, orderHash, order);
+        emit PreApproved(accountId, orderHash, order);
     }
 
     function facilitateOrderCancellation(
@@ -343,34 +341,47 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
     }
 
-    function reserve(bytes32 assetId, uint256 amount) external {
+    function reserve(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
         if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
-        bytes32 senderAccountId = _senderAccountId();
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        _reserve(senderAccountId, assetId, amount);
-        emit Reserved(senderAccountId, assetId, amount, effectiveAtEpoch);
+        _reserve(accountId, assetId, amount);
+        emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
     }
 
-    function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
+    function reserveAndRequest(
+        bytes32 accountId,
+        bytes32 requestId,
+        bytes32 assetId,
+        uint256 amount
+    )
+        external
+        restricted
+    {
         _requireNotPaused();
         if (TransitTokenLib.hasFlags(assetId)) revert FlaggedAssetId();
-        bytes32 senderAccountId = _senderAccountId();
-        if (requestStatus[senderAccountId][requestId] != 0) revert RequestReplay();
+        if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
         uint256 effectiveAtEpoch = settlementEpoch + 1;
-        requestStatus[senderAccountId][requestId] = effectiveAtEpoch;
-        _reserve(senderAccountId, assetId, amount);
-        emit Reserved(senderAccountId, assetId, amount, effectiveAtEpoch);
-        emit Requested(senderAccountId, requestId, effectiveAtEpoch);
+        requestStatus[accountId][requestId] = effectiveAtEpoch;
+        _reserve(accountId, assetId, amount);
+        emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
+        emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
-    function executeTransfer(TransferRequest calldata request) external nonReentrant {
+    function executeTransfer(
+        bool facilitated,
+        TransferRequest calldata request
+    )
+        external
+        restricted
+        nonReentrant
+    {
         _requireNotPaused();
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = hashTransferRequest(request);
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-        _consumeRequest(ownerAccountId, requestId);
-        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
+        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
+        _consumeRequest(accountId, requestId);
+        if (!facilitated) _release(accountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -379,45 +390,55 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
 
         bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(ownerAccountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
+        _transfer(accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), assetId, amount);
 
         emit TransferExecuted(requestId, amount);
     }
 
-    function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable nonReentrant {
+    function executeWithdrawal(
+        bool facilitated,
+        WithdrawalRequest calldata request
+    )
+        external
+        restricted
+        nonReentrant
+        returns (uint256 amount)
+    {
         _requireNotPaused();
         bytes32 requestId = hashWithdrawalRequest(request);
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-        _consumeRequest(ownerAccountId, requestId);
-        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
+        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
+        _consumeRequest(accountId, requestId);
+        if (!facilitated) _release(accountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
             emit WithdrawalExecuted(requestId, 0);
-            return;
+            return 0;
         }
 
         bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        _transfer(ownerAccountId, bytes32(0), assetId, amount);
-
-        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(assetId);
-        Turnstile(turnstile).sendWithdrawalMessage{ value: msg.value }(
-            assetChainId, messageGas, asset, amount, request.to
-        );
+        _transfer(accountId, bytes32(0), assetId, amount);
 
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function executeMint(MintRequest calldata request) external nonReentrant {
+    function executeMint(
+        bool facilitated,
+        MintRequest calldata request
+    )
+        external
+        restricted
+        nonReentrant
+    {
         _requireNotPaused();
         bytes32 requestId = hashMintRequest(request);
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-        _consumeRequest(ownerAccountId, requestId);
-        if (!_facilitated()) _release(ownerAccountId, request.assetId, request.amount);
+        bytes32 accountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
+        _consumeRequest(accountId, requestId);
+        if (!facilitated) _release(accountId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
         if (block.timestamp > request.deadline) {
@@ -426,9 +447,9 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
         }
 
         bytes32 assetId = request.assetId;
-        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[ownerAccountId][assetId]);
+        uint256 amount = FixedPointMathLib.min(request.amount, balanceOf[accountId][assetId]);
         if (!request.partiallyFillable && amount < request.amount) revert InsufficientBalance();
-        delayedSettlementAssetRegistry.mint(ownerAccountId, assetId, amount);
+        delayedSettlementAssetRegistry.mint(accountId, assetId, amount);
 
         emit MintExecuted(requestId, amount);
     }
@@ -542,11 +563,10 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712, TurnstileGated
 
     // ========================================= INTERNAL =========================================
 
-    function _consumeRequest(bytes32 ownerAccountId, bytes32 requestId) internal {
-        uint256 status = requestStatus[ownerAccountId][requestId];
+    function _consumeRequest(bytes32 accountId, bytes32 requestId) internal {
+        uint256 status = requestStatus[accountId][requestId];
         if (status == EXECUTED) revert RequestReplay();
-        if (_senderAccountId() != ownerAccountId && (status == 0 || settlementEpoch < status)) revert NotEffective();
-        requestStatus[ownerAccountId][requestId] = EXECUTED;
+        requestStatus[accountId][requestId] = EXECUTED;
     }
 
     function _reserved(bytes32 accountId, bytes32 assetId) internal view returns (uint256) {
