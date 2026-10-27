@@ -74,9 +74,20 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     error ZeroAddress();
     error InsufficientBalance();
     error DepotPaused();
+    error NotTurnstile();
 
     constructor(Depot _depot, address _turnstile) TurnstileGated(_turnstile) {
         DEPOT = _depot;
+    }
+
+    function receiveDeposit(uint64 sourceChainId, address asset, uint256 amount, bytes32 toAccountId) external {
+        if (msg.sender != TURNSTILE) revert NotTurnstile();
+        DEPOT.mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
+    }
+
+    function chargeFee(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external {
+        if (msg.sender != TURNSTILE) revert NotTurnstile();
+        DEPOT.transferFrom(fromAccountId, toAccountId, assetId, amount);
     }
 
     function reserve(bytes32 assetId, uint256 amount) external {

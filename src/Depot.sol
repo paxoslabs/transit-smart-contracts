@@ -140,21 +140,6 @@ contract Depot is AccessManaged, Pausable {
         _release(accountId, assetId, amount);
     }
 
-    // ========================================= ADAPTER ========================================
-
-    function receiveDeposit(
-        uint64 sourceChainId,
-        address asset,
-        uint256 amount,
-        bytes32 toAccountId
-    )
-        external
-        restricted
-    {
-        _requireNotPaused();
-        _transfer(bytes32(0), toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
-    }
-
     // ========================================= INTERNAL =========================================
 
     function _reserved(bytes32 accountId, bytes32 assetId) internal view returns (uint256) {

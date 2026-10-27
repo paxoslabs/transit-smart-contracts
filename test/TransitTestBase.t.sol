@@ -110,16 +110,12 @@ contract TransitTestBase is Test {
         uint256 nonce = vm.getNonce(address(this));
         Turnstile chainTurnstile;
         if (chain == hubChainId) {
-            chainTurnstile = new Turnstile(
-                address(authority),
-                vm.computeCreateAddress(address(this), nonce + 1),
-                vm.computeCreateAddress(address(this), nonce + 2)
-            );
+            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
             depot = new Depot(address(authority));
             turnstile = chainTurnstile;
         } else {
             chainTurnstile =
-                new Turnstile(address(authority), address(0), vm.computeCreateAddress(address(this), nonce + 1));
+                new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
         Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
@@ -207,9 +203,10 @@ contract TransitTestBase is Test {
         receiveSels[0] = Turnstile.receiveMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](2);
+        bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
+        turnstileAdminSels[2] = Turnstile.setUserTerminal.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
         bytes4[] memory turnstileSendSels = new bytes4[](2);
@@ -222,18 +219,17 @@ contract TransitTestBase is Test {
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = Depot.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(depot), receiveDepositSels, TURNSTILE_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](4);
+        bytes4[] memory userTerminalSels = new bytes4[](5);
         userTerminalSels[0] = Depot.reserve.selector;
         userTerminalSels[1] = Depot.release.selector;
         userTerminalSels[2] = Depot.transferFrom.selector;
         userTerminalSels[3] = Depot.burn.selector;
+        userTerminalSels[4] = Depot.mint.selector;
         authority.setTargetFunctionRole(address(depot), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
+        turnstile.setUserTerminal(address(userTerminal));
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserTerminal.reserve.selector;

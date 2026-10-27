@@ -45,11 +45,7 @@ contract WarehouseUnitTest is Test {
 
         authority = new TransitAuthority(admin);
         uint256 nonce = vm.getNonce(address(this));
-        turnstile = new Turnstile(
-            address(authority),
-            vm.computeCreateAddress(address(this), nonce + 1),
-            vm.computeCreateAddress(address(this), nonce + 2)
-        );
+        turnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
         depot = new Depot(address(authority));
         warehouse = new Warehouse(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
@@ -89,16 +85,14 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory sels = new bytes4[](1);
         sels[0] = Turnstile.receiveMessage.selector;
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](2);
+        bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
+        turnstileAdminSels[2] = Turnstile.setUserTerminal.selector;
 
         bytes4[] memory turnstileSendSels = new bytes4[](2);
         turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
         turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
-
-        bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = Depot.receiveDeposit.selector;
 
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
         receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
@@ -113,16 +107,17 @@ contract WarehouseUnitTest is Test {
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(depot), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](4);
+        bytes4[] memory userTerminalSels = new bytes4[](5);
         userTerminalSels[0] = Depot.reserve.selector;
         userTerminalSels[1] = Depot.release.selector;
         userTerminalSels[2] = Depot.transferFrom.selector;
         userTerminalSels[3] = Depot.burn.selector;
+        userTerminalSels[4] = Depot.mint.selector;
         authority.setTargetFunctionRole(address(depot), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
+        turnstile.setUserTerminal(address(userTerminal));
         turnstile.setRoutable(address(userTerminal), routedSels, true);
         bytes4[] memory executeSels = new bytes4[](1);
         executeSels[0] = UserTerminal.executeWithdrawal.selector;
@@ -205,9 +200,7 @@ contract WarehouseUnitTest is Test {
 
     function testSpokeDepositCreditsDepot() public {
         vm.chainId(SPOKE_CHAIN_ID);
-        Turnstile spokeTurnstile = new Turnstile(
-            address(authority), address(0), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1)
-        );
+        Turnstile spokeTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
         Warehouse spokeWarehouse = new Warehouse(address(authority), vault, address(spokeTurnstile), HUB_CHAIN_ID);
         MockMessagingAdapter spokeAdapter = new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
@@ -279,7 +272,7 @@ contract WarehouseUnitTest is Test {
 
         vm.prank(mallory);
         vm.expectRevert();
-        depot.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
+        userTerminal.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
     }
 
     // ---------------------------------------------------------------- withdraw

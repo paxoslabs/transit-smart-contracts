@@ -44,6 +44,7 @@ interface ITurnstile is IMessagingReceiver {
     }
 
     event MessagingAdapterUpdated(address indexed adapter);
+    event UserTerminalUpdated(address indexed userTerminal);
     event MessageFailed(
         uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash, bytes body
     );
@@ -62,11 +63,11 @@ interface ITurnstile is IMessagingReceiver {
 
     function FACILITATED_CALL_TYPEHASH() external view returns (bytes32);
 
-    function DEPOT() external view returns (address);
-
     function WAREHOUSE() external view returns (address);
 
     function messagingAdapter() external view returns (IMessagingAdapter);
+
+    function userTerminal() external view returns (address);
 
     function outboundNonce() external view returns (uint256);
 
@@ -78,6 +79,8 @@ interface ITurnstile is IMessagingReceiver {
 
 
     function setMessagingAdapter(IMessagingAdapter adapter) external;
+
+    function setUserTerminal(address _userTerminal) external;
 
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
 
