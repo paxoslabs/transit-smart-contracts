@@ -4,11 +4,11 @@ pragma solidity ^0.8.37;
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { Terminal } from "../src/Terminal.sol";
+import { SwapTerminal } from "../src/SwapTerminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Hub } from "../src/Hub.sol";
-import { HubGateway } from "../src/HubGateway.sol";
+import { UserTerminal } from "../src/UserTerminal.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/ITurnstile.sol";
@@ -22,8 +22,7 @@ import {
     SOLVER_ROLE,
     TERMINAL_ROLE,
     EPOCH_ROLE,
-    TURNSTILE_ROLE,
-    HUB_GATEWAY_ROLE
+    TURNSTILE_ROLE
 } from "../src/helpers/Constants.sol";
 
 contract TransitTestBase is Test {
@@ -57,9 +56,9 @@ contract TransitTestBase is Test {
     uint64 hubChainId;
     uint256 withdrawNonce;
 
-    Terminal terminal;
+    SwapTerminal swapTerminal;
     Hub hub;
-    HubGateway gateway;
+    UserTerminal userTerminal;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
     mapping(uint64 => Warehouse) warehouses;
@@ -92,10 +91,10 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubChainId);
-        terminal = new Terminal(
+        swapTerminal = new SwapTerminal(
             address(authorities[hubChainId]), hub, TransitTokenLib.formatAccountId(hubChainId, surplusRecipient)
         );
-        _grantTerminalRole();
+        _grantSwapTerminalRole();
 
         _wireChains();
         _approveVault();
@@ -121,7 +120,7 @@ contract TransitTestBase is Test {
         }
         Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
-        if (chain == hubChainId) gateway = new HubGateway(hub, address(chainTurnstile));
+        if (chain == hubChainId) userTerminal = new UserTerminal(hub, address(chainTurnstile));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -228,31 +227,31 @@ contract TransitTestBase is Test {
         receiveDepositSels[0] = Hub.receiveDeposit.selector;
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
 
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(gateway));
-        bytes4[] memory gatewaySels = new bytes4[](7);
-        gatewaySels[0] = Hub.requestOrderCancellation.selector;
-        gatewaySels[1] = Hub.preApprove.selector;
-        gatewaySels[2] = Hub.reserve.selector;
-        gatewaySels[3] = Hub.reserveAndRequest.selector;
-        gatewaySels[4] = Hub.executeTransfer.selector;
-        gatewaySels[5] = Hub.executeWithdrawal.selector;
-        gatewaySels[6] = Hub.executeMint.selector;
-        authority.setTargetFunctionRole(address(hub), gatewaySels, HUB_GATEWAY_ROLE);
-        authority.grantRole(HUB_GATEWAY_ROLE, address(gateway));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
+        bytes4[] memory userTerminalSels = new bytes4[](7);
+        userTerminalSels[0] = Hub.requestOrderCancellation.selector;
+        userTerminalSels[1] = Hub.preApprove.selector;
+        userTerminalSels[2] = Hub.reserve.selector;
+        userTerminalSels[3] = Hub.reserveAndRequest.selector;
+        userTerminalSels[4] = Hub.executeTransfer.selector;
+        userTerminalSels[5] = Hub.executeWithdrawal.selector;
+        userTerminalSels[6] = Hub.executeMint.selector;
+        authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
+        authority.grantRole(TERMINAL_ROLE, address(userTerminal));
 
         bytes4[] memory routedSels = new bytes4[](4);
-        routedSels[0] = HubGateway.preApprove.selector;
-        routedSels[1] = HubGateway.requestOrderCancellation.selector;
-        routedSels[2] = HubGateway.reserve.selector;
-        routedSels[3] = HubGateway.reserveAndRequest.selector;
-        turnstile.setRoutable(address(gateway), routedSels, true);
+        routedSels[0] = UserTerminal.preApprove.selector;
+        routedSels[1] = UserTerminal.requestOrderCancellation.selector;
+        routedSels[2] = UserTerminal.reserve.selector;
+        routedSels[3] = UserTerminal.reserveAndRequest.selector;
+        turnstile.setRoutable(address(userTerminal), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = HubGateway.executeWithdrawal.selector;
-        turnstile.setRoutable(address(gateway), executeSels, true);
+        executeSels[0] = UserTerminal.executeWithdrawal.selector;
+        turnstile.setRoutable(address(userTerminal), executeSels, true);
     }
 
-    function _grantTerminalRole() internal {
+    function _grantSwapTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](2);
         moveSels[0] = Hub.transferFrom.selector;
         moveSels[1] = Hub.facilitateFill.selector;
@@ -262,13 +261,13 @@ contract TransitTestBase is Test {
 
         vm.startPrank(admin);
         authorities[hubChainId].setTargetFunctionRole(address(hub), moveSels, TERMINAL_ROLE);
-        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(terminal));
+        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(swapTerminal));
         authorities[hubChainId].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
-        authorities[hubChainId].grantRole(EPOCH_ROLE, address(terminal));
+        authorities[hubChainId].grantRole(EPOCH_ROLE, address(swapTerminal));
 
         bytes4[] memory settleSels = new bytes4[](1);
-        settleSels[0] = Terminal.settle.selector;
-        authorities[hubChainId].setTargetFunctionRole(address(terminal), settleSels, SOLVER_ROLE);
+        settleSels[0] = SwapTerminal.settle.selector;
+        authorities[hubChainId].setTargetFunctionRole(address(swapTerminal), settleSels, SOLVER_ROLE);
         vm.stopPrank();
     }
 
@@ -420,8 +419,8 @@ contract TransitTestBase is Test {
     {
         return ITurnstile.FacilitatedCall({
             sender: request.owner,
-            target: address(gateway),
-            data: abi.encodeCall(HubGateway.executeWithdrawal, (request, _messageGas(hubChainId))),
+            target: address(userTerminal),
+            data: abi.encodeCall(UserTerminal.executeWithdrawal, (request, _messageGas(hubChainId))),
             feeAssetId: bytes32(0),
             fee: 0,
             nonce: request.nonce,

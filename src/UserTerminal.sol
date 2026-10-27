@@ -6,8 +6,7 @@ import { ITurnstile } from "./ITurnstile.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "./TurnstileGated.sol";
 
-/// TODO: Decide contract name (HUB_GATEWAY_ROLE follows it).
-contract HubGateway is TurnstileGated {
+contract UserTerminal is TurnstileGated {
 
     Hub public immutable HUB;
 

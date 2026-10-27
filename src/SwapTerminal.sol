@@ -6,7 +6,7 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { Hub } from "./Hub.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Terminal is AccessManaged {
+contract SwapTerminal is AccessManaged {
 
     struct Fee {
         bytes32 assetId;

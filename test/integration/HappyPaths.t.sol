@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Hub } from "../../src/Hub.sol";
-import { Terminal } from "../../src/Terminal.sol";
+import { SwapTerminal } from "../../src/SwapTerminal.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
@@ -80,7 +80,7 @@ contract HappyPaths is TransitTestBase {
         fills[1] = Hub.Fill(amount, amount);
 
         vm.startPrank(solver);
-        terminal.settle(hub.settlementEpoch(), orders, signatures, fills, new Terminal.Fee[](0));
+        swapTerminal.settle(hub.settlementEpoch(), orders, signatures, fills, new SwapTerminal.Fee[](0));
         vm.stopPrank();
 
         assertEq(_hubBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");

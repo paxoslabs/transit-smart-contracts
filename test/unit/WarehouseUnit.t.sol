@@ -7,14 +7,14 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
 import { Hub } from "../../src/Hub.sol";
-import { HubGateway } from "../../src/HubGateway.sol";
+import { UserTerminal } from "../../src/UserTerminal.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
 import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE, TURNSTILE_ROLE, HUB_GATEWAY_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE, TURNSTILE_ROLE, TERMINAL_ROLE } from "../../src/helpers/Constants.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract WarehouseUnitTest is Test {
@@ -26,7 +26,7 @@ contract WarehouseUnitTest is Test {
     Warehouse warehouse;
     ERC20 usdc;
     Hub hub;
-    HubGateway gateway;
+    UserTerminal userTerminal;
     Turnstile turnstile;
     MockMessagingAdapter local;
 
@@ -53,7 +53,7 @@ contract WarehouseUnitTest is Test {
         hub = new Hub(address(authority));
         warehouse = new Warehouse(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
-        gateway = new HubGateway(hub, address(turnstile));
+        userTerminal = new UserTerminal(hub, address(turnstile));
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
@@ -104,10 +104,10 @@ contract WarehouseUnitTest is Test {
         receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
 
         bytes4[] memory routedSels = new bytes4[](4);
-        routedSels[0] = HubGateway.preApprove.selector;
-        routedSels[1] = HubGateway.requestOrderCancellation.selector;
-        routedSels[2] = HubGateway.reserve.selector;
-        routedSels[3] = HubGateway.reserveAndRequest.selector;
+        routedSels[0] = UserTerminal.preApprove.selector;
+        routedSels[1] = UserTerminal.requestOrderCancellation.selector;
+        routedSels[2] = UserTerminal.reserve.selector;
+        routedSels[3] = UserTerminal.reserveAndRequest.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
@@ -117,21 +117,21 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(gateway));
-        bytes4[] memory gatewaySels = new bytes4[](7);
-        gatewaySels[0] = Hub.requestOrderCancellation.selector;
-        gatewaySels[1] = Hub.preApprove.selector;
-        gatewaySels[2] = Hub.reserve.selector;
-        gatewaySels[3] = Hub.reserveAndRequest.selector;
-        gatewaySels[4] = Hub.executeTransfer.selector;
-        gatewaySels[5] = Hub.executeWithdrawal.selector;
-        gatewaySels[6] = Hub.executeMint.selector;
-        authority.setTargetFunctionRole(address(hub), gatewaySels, HUB_GATEWAY_ROLE);
-        authority.grantRole(HUB_GATEWAY_ROLE, address(gateway));
-        turnstile.setRoutable(address(gateway), routedSels, true);
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
+        bytes4[] memory userTerminalSels = new bytes4[](7);
+        userTerminalSels[0] = Hub.requestOrderCancellation.selector;
+        userTerminalSels[1] = Hub.preApprove.selector;
+        userTerminalSels[2] = Hub.reserve.selector;
+        userTerminalSels[3] = Hub.reserveAndRequest.selector;
+        userTerminalSels[4] = Hub.executeTransfer.selector;
+        userTerminalSels[5] = Hub.executeWithdrawal.selector;
+        userTerminalSels[6] = Hub.executeMint.selector;
+        authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
+        authority.grantRole(TERMINAL_ROLE, address(userTerminal));
+        turnstile.setRoutable(address(userTerminal), routedSels, true);
         bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = HubGateway.executeWithdrawal.selector;
-        turnstile.setRoutable(address(gateway), executeSels, true);
+        executeSels[0] = UserTerminal.executeWithdrawal.selector;
+        turnstile.setRoutable(address(userTerminal), executeSels, true);
         turnstile.setMessagingAdapter(local);
         vm.stopPrank();
     }
@@ -160,8 +160,8 @@ contract WarehouseUnitTest is Test {
     function _facilitatedCall(Hub.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
         return ITurnstile.FacilitatedCall({
             sender: req.owner,
-            target: address(gateway),
-            data: abi.encodeCall(HubGateway.executeWithdrawal, (req, 0)),
+            target: address(userTerminal),
+            data: abi.encodeCall(UserTerminal.executeWithdrawal, (req, 0)),
             feeAssetId: bytes32(0),
             fee: 0,
             nonce: req.nonce,
