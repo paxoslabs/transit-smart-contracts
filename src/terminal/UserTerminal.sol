@@ -47,8 +47,6 @@ contract UserTerminal is TurnstileGated {
     mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
 
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
-    event TransferRequested(bytes32 indexed requestId, TransferRequest request, uint256 effectiveAtEpoch);
-    event WithdrawalRequested(bytes32 indexed requestId, WithdrawalRequest request, uint256 effectiveAtEpoch);
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
