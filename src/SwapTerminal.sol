@@ -76,7 +76,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     error NotPartiallyFillable(bytes32 orderHash);
     error FlaggedAssetId();
     error Cancelled(bytes32 orderHash);
-    error DepotPaused();
 
     constructor(
         address _authority,
@@ -105,7 +104,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     function requestOrderCancellation(OrderCancellationRequest calldata request) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
-        _requireDepotNotPaused();
         if (cancelledFrom[accountId][request.orderHash] != 0) return;
         uint256 effectiveAtEpoch = DEPOT.settlementEpoch() + 1;
         cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
@@ -116,7 +114,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
     function preApprove(Order calldata order) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
-        _requireDepotNotPaused();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash);
@@ -133,7 +130,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
         restricted
         nonReentrant
     {
-        _requireDepotNotPaused();
         if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
         uint256 settlementEpoch = DEPOT.settlementEpoch();
@@ -259,10 +255,6 @@ contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, TurnstileGated 
 
             emit Filled(orderHashes[i], ownerAccountIds[i], fills[i].sellFilled, fills[i].buyFilled);
         }
-    }
-
-    function _requireDepotNotPaused() internal view {
-        if (DEPOT.paused()) revert DepotPaused();
     }
 
     // ========================================= VIEWS =========================================

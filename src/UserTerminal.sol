@@ -73,7 +73,6 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     error NotEffective();
     error ZeroAddress();
     error InsufficientBalance();
-    error DepotPaused();
     error NotTurnstile();
 
     constructor(Depot _depot, address _turnstile) TurnstileGated(_turnstile) {
@@ -225,7 +224,6 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         private
         returns (bytes32 accountId)
     {
-        if (DEPOT.paused()) revert DepotPaused();
         _requireEffective(ownerChainId, owner, requestId);
         accountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
         if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
