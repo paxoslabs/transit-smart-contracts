@@ -4,11 +4,12 @@ pragma solidity ^0.8.37;
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SwapTerminal } from "../src/SwapTerminal.sol";
+import { SpotSwapTerminal } from "../src/terminal/SpotSwapTerminal.sol";
+import { SwapTerminal } from "../src/terminal/SwapTerminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
 import { Depot } from "../src/Depot.sol";
-import { UserTerminal } from "../src/UserTerminal.sol";
+import { UserTerminal } from "../src/terminal/UserTerminal.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/ITurnstile.sol";
@@ -56,7 +57,7 @@ contract TransitTestBase is Test {
     uint64 hubChainId;
     uint256 withdrawNonce;
 
-    SwapTerminal swapTerminal;
+    SpotSwapTerminal spotSwapTerminal;
     Depot depot;
     UserTerminal userTerminal;
     Turnstile turnstile;
@@ -91,13 +92,13 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubChainId);
-        swapTerminal = new SwapTerminal(
+        spotSwapTerminal = new SpotSwapTerminal(
             address(authorities[hubChainId]),
             depot,
             TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
-        _grantSwapTerminalRole();
+        _grantSpotSwapTerminalRole();
 
         _wireChains();
         _approveVault();
@@ -241,7 +242,7 @@ contract TransitTestBase is Test {
         turnstile.setRoutable(address(userTerminal), executeSels, true);
     }
 
-    function _grantSwapTerminalRole() internal {
+    function _grantSpotSwapTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](2);
         moveSels[0] = Depot.transferFrom.selector;
         moveSels[1] = Depot.transferAmong.selector;
@@ -251,19 +252,19 @@ contract TransitTestBase is Test {
 
         vm.startPrank(admin);
         authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, TERMINAL_ROLE);
-        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(swapTerminal));
+        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(spotSwapTerminal));
         authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
-        authorities[hubChainId].grantRole(EPOCH_ROLE, address(swapTerminal));
+        authorities[hubChainId].grantRole(EPOCH_ROLE, address(spotSwapTerminal));
 
         bytes4[] memory settleSels = new bytes4[](2);
-        settleSels[0] = SwapTerminal.settle.selector;
+        settleSels[0] = SpotSwapTerminal.settle.selector;
         settleSels[1] = SwapTerminal.facilitateOrderCancellation.selector;
-        authorities[hubChainId].setTargetFunctionRole(address(swapTerminal), settleSels, SOLVER_ROLE);
+        authorities[hubChainId].setTargetFunctionRole(address(spotSwapTerminal), settleSels, SOLVER_ROLE);
 
         bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = SwapTerminal.preApprove.selector;
+        routedSels[0] = SpotSwapTerminal.preApprove.selector;
         routedSels[1] = SwapTerminal.requestOrderCancellation.selector;
-        turnstile.setRoutable(address(swapTerminal), routedSels, true);
+        turnstile.setRoutable(address(spotSwapTerminal), routedSels, true);
         vm.stopPrank();
     }
 
@@ -430,8 +431,8 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(SwapTerminal.Order memory order, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, swapTerminal.hashOrder(order));
+    function _signOrder(SpotSwapTerminal.Order memory order, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapTerminal.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }
 

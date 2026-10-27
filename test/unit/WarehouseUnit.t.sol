@@ -7,7 +7,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
 import { Depot } from "../../src/Depot.sol";
-import { UserTerminal } from "../../src/UserTerminal.sol";
+import { UserTerminal } from "../../src/terminal/UserTerminal.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
 import { Turnstile } from "../../src/Turnstile.sol";

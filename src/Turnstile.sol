@@ -7,7 +7,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import { UserTerminal } from "./UserTerminal.sol";
+import { UserTerminal } from "./terminal/UserTerminal.sol";
 import { Warehouse } from "./Warehouse.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";

@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/Depot.sol";
-import { SwapTerminal } from "../../src/SwapTerminal.sol";
+import { SpotSwapTerminal } from "../../src/terminal/SpotSwapTerminal.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
@@ -43,8 +43,8 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubChainId);
         _selectChain(hubChainId);
 
-        SwapTerminal.Order[] memory orders = new SwapTerminal.Order[](2);
-        orders[0] = SwapTerminal.Order(
+        SpotSwapTerminal.Order[] memory orders = new SpotSwapTerminal.Order[](2);
+        orders[0] = SpotSwapTerminal.Order(
             hubChainId,
             alice,
             TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
@@ -57,7 +57,7 @@ contract HappyPaths is TransitTestBase {
             bytes32(uint256(1)),
             false
         );
-        orders[1] = SwapTerminal.Order(
+        orders[1] = SpotSwapTerminal.Order(
             hubChainId,
             bob,
             TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
@@ -75,12 +75,12 @@ contract HappyPaths is TransitTestBase {
         signatures[0] = _signOrder(orders[0], alicePk);
         signatures[1] = _signOrder(orders[1], bobPk);
 
-        SwapTerminal.Fill[] memory fills = new SwapTerminal.Fill[](2);
-        fills[0] = SwapTerminal.Fill(amount, amount);
-        fills[1] = SwapTerminal.Fill(amount, amount);
+        SpotSwapTerminal.Fill[] memory fills = new SpotSwapTerminal.Fill[](2);
+        fills[0] = SpotSwapTerminal.Fill(amount, amount);
+        fills[1] = SpotSwapTerminal.Fill(amount, amount);
 
         vm.startPrank(solver);
-        swapTerminal.settle(depot.settlementEpoch(), orders, signatures, fills, new SwapTerminal.Fee[](0));
+        spotSwapTerminal.settle(depot.settlementEpoch(), orders, signatures, fills, new SpotSwapTerminal.Fee[](0));
         vm.stopPrank();
 
         assertEq(_depotBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");
