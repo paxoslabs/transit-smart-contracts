@@ -2,26 +2,11 @@
 pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
 abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
-
-    /// TODO: Decide fields. The full Order would allow keying cancelledFrom by hash alone.
-    struct OrderCancellationRequest {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 orderHash;
-        bytes32 sellTokenId;
-        uint256 maxFee;
-    }
-
-    bytes32 public constant ORDER_CANCELLATION_REQUEST_TYPEHASH = keccak256(
-        "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
-    );
 
     address public immutable DEPOT;
     bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
@@ -38,9 +23,7 @@ abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
     error BadSignature();
     error NotPreApproved(bytes32 orderHash);
     error LengthMismatch();
-    error EmptyBatch();
     error NotOwner();
-    error ExceedsMaxFee();
     error Expired(bytes32 id);
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
@@ -65,71 +48,14 @@ abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
 
     // ========================================= USER =========================================
 
-    function requestOrderCancellation(OrderCancellationRequest calldata request) external {
+    function requestOrderCancellation(bytes32 orderHash) external {
         bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
-        if (cancelledFrom[accountId][request.orderHash] != 0) return;
-        uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
-        cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
-        emit OrderCancellationRequested(accountId, request.orderHash, effectiveAtEpoch);
-    }
-
-    // ========================================= SOLVER =========================================
-
-    function facilitateOrderCancellation(
-        OrderCancellationRequest[] calldata requests,
-        bytes[] calldata signatures,
-        uint256[] calldata fees
-    )
-        external
-        restricted
-    {
-        if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
-
-        for (uint256 i; i < requests.length; i++) {
-            OrderCancellationRequest calldata request = requests[i];
-            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-
-            if (ECDSA.recoverCalldata(hashOrderCancellationRequest(request), signatures[i]) != request.owner) {
-                revert BadSignature();
-            }
-            uint256 cancelled = cancelledFrom[ownerAccountId][request.orderHash];
-            if (cancelled != 0 && cancelled <= settlementEpoch) continue;
-            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-
-            cancelledFrom[ownerAccountId][request.orderHash] = settlementEpoch;
-
-            /// TODO: Decide fee recipient. Currently msg.sender.
-            if (fees[i] != 0) {
-                IDepot(DEPOT).transferFrom(
-                    ownerAccountId,
-                    TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
-                    request.sellTokenId,
-                    fees[i]
-                );
-            }
-
-            emit OrderCancellationRequested(ownerAccountId, request.orderHash, settlementEpoch);
-        }
-    }
-
-    // ========================================= VIEWS =========================================
-
-    function hashOrderCancellationRequest(OrderCancellationRequest memory request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    ORDER_CANCELLATION_REQUEST_TYPEHASH,
-                    request.ownerChainId,
-                    request.owner,
-                    request.orderHash,
-                    request.sellTokenId,
-                    request.maxFee
-                )
-            )
-        );
+        uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();
+        if (!_facilitated()) effectiveAtEpoch++;
+        uint256 cancelled = cancelledFrom[accountId][orderHash];
+        if (cancelled != 0 && cancelled <= effectiveAtEpoch) return;
+        cancelledFrom[accountId][orderHash] = effectiveAtEpoch;
+        emit OrderCancellationRequested(accountId, orderHash, effectiveAtEpoch);
     }
 
 }

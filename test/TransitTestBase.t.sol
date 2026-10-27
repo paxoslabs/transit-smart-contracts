@@ -256,9 +256,8 @@ contract TransitTestBase is Test {
         authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
         authorities[hubChainId].grantRole(EPOCH_ROLE, address(spotSwapTerminal));
 
-        bytes4[] memory settleSels = new bytes4[](2);
+        bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = SpotSwapTerminal.settle.selector;
-        settleSels[1] = SwapTerminal.facilitateOrderCancellation.selector;
         authorities[hubChainId].setTargetFunctionRole(address(spotSwapTerminal), settleSels, SOLVER_ROLE);
 
         bytes4[] memory routedSels = new bytes4[](2);
