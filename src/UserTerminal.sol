@@ -64,25 +64,12 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
     event MintExecuted(bytes32 indexed requestId, uint256 amount);
 
-    error NotOwner();
     error NotEffective();
     error ZeroAddress();
     error InsufficientBalance();
 
     constructor(Hub _hub, address _turnstile) TurnstileGated(_turnstile) {
         HUB = _hub;
-    }
-
-    function requestOrderCancellation(Hub.OrderCancellationRequest calldata request) external {
-        bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
-        HUB.requestOrderCancellation(accountId, request);
-    }
-
-    function preApprove(Hub.Order calldata order) external {
-        bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
-        HUB.preApprove(accountId, order);
     }
 
     function reserve(bytes32 assetId, uint256 amount) external {

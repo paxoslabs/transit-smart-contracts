@@ -103,11 +103,9 @@ contract WarehouseUnitTest is Test {
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
         receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
 
-        bytes4[] memory routedSels = new bytes4[](4);
-        routedSels[0] = UserTerminal.preApprove.selector;
-        routedSels[1] = UserTerminal.requestOrderCancellation.selector;
-        routedSels[2] = UserTerminal.reserve.selector;
-        routedSels[3] = UserTerminal.reserveAndRequest.selector;
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = UserTerminal.reserve.selector;
+        routedSels[1] = UserTerminal.reserveAndRequest.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
         authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
@@ -118,15 +116,13 @@ contract WarehouseUnitTest is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](8);
-        userTerminalSels[0] = Hub.requestOrderCancellation.selector;
-        userTerminalSels[1] = Hub.preApprove.selector;
-        userTerminalSels[2] = Hub.reserve.selector;
-        userTerminalSels[3] = Hub.reserveAndRequest.selector;
-        userTerminalSels[4] = Hub.consumeRequest.selector;
-        userTerminalSels[5] = Hub.release.selector;
-        userTerminalSels[6] = Hub.transferFrom.selector;
-        userTerminalSels[7] = Hub.burn.selector;
+        bytes4[] memory userTerminalSels = new bytes4[](6);
+        userTerminalSels[0] = Hub.reserve.selector;
+        userTerminalSels[1] = Hub.reserveAndRequest.selector;
+        userTerminalSels[2] = Hub.consumeRequest.selector;
+        userTerminalSels[3] = Hub.release.selector;
+        userTerminalSels[4] = Hub.transferFrom.selector;
+        userTerminalSels[5] = Hub.burn.selector;
         authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
         turnstile.setRoutable(address(userTerminal), routedSels, true);

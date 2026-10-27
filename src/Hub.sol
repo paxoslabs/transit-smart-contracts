@@ -3,41 +3,10 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
-import { ECDSA } from "solady/utils/ECDSA.sol";
-import { EIP712 } from "solady/utils/EIP712.sol";
-import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { DelayedSettlementAssetRegistry } from "./DelayedSettlementAssetRegistry.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
-contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
-
-    struct Order {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 sellTokenId;
-        bytes32 buyTokenId;
-        uint256 sellAmount;
-        uint256 buyAmount;
-        uint64 receiverChainId;
-        address receiver;
-        uint256 expiresAt;
-        bytes32 salt;
-        bool partiallyFillable;
-    }
-
-    struct Fill {
-        uint256 sellFilled;
-        uint256 buyFilled;
-    }
-
-    /// TODO: Decide fields. The full Order would allow keying cancelledFrom by hash alone.
-    struct OrderCancellationRequest {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 orderHash;
-        bytes32 sellTokenId;
-        uint256 maxFee;
-    }
+contract Hub is AccessManaged, Pausable {
 
     struct Reservation {
         uint256 effective;
@@ -52,23 +21,11 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         uint256 amount;
     }
 
-    bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
-    );
-
-    bytes32 public constant ORDER_CANCELLATION_REQUEST_TYPEHASH = keccak256(
-        "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
-    );
-
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
     uint256 public constant EXECUTED = type(uint256).max;
 
     mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
     mapping(bytes32 accountId => mapping(bytes32 assetId => Reservation)) public reservation;
-
-    mapping(bytes32 orderHash => uint256) public filledAmount;
-    mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
-    mapping(bytes32 orderHash => bool) public preApproved;
 
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
@@ -77,40 +34,20 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
 
     event Transfer(bytes32 indexed fromAccountId, bytes32 indexed toAccountId, bytes32 indexed assetId, uint256 amount);
     event EpochAdvanced(uint256 epoch);
-    event OrderCancellationRequested(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
-    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
     event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
 
-    error BadSignature();
     error RequestReplay();
     error ZeroAddress();
-    error LengthMismatch();
-    error EmptyBatch();
     error ChainMismatch(uint64 chainId);
     error BadEpoch(uint256 epoch);
     error InsufficientBalance();
     error NotZeroSum();
-    error ExceedsMaxFee();
-    error Expired(bytes32 id);
-    error Overfill(bytes32 orderHash);
-    error NotPartiallyFillable(bytes32 orderHash);
-    error Cancelled(bytes32 orderHash);
-    error NotPreApproved(bytes32 orderHash);
     error FlaggedAssetId();
 
     constructor(address _authority) AccessManaged(_authority) {
         settlementEpoch = 1;
         lastEpochAdvancedAt = block.timestamp;
-    }
-
-    /// TODO: Decide the EIP712 domain name and version. Currently "Transit Hub" and "1".
-    function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit Hub", "1");
-    }
-
-    function DOMAIN_SEPARATOR() external view returns (bytes32) {
-        return _domainSeparator();
     }
 
     function pause() external restricted {
@@ -192,102 +129,7 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         emit EpochAdvanced(epoch + 1);
     }
 
-    // ========================================= ORDERS =========================================
-
-    function requestOrderCancellation(
-        bytes32 accountId,
-        OrderCancellationRequest calldata request
-    )
-        external
-        restricted
-    {
-        _requireNotPaused();
-        if (cancelledFrom[accountId][request.orderHash] != 0) return;
-        uint256 effectiveAtEpoch = settlementEpoch + 1;
-        cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
-        emit OrderCancellationRequested(accountId, request.orderHash, effectiveAtEpoch);
-    }
-
-    function preApprove(bytes32 accountId, Order calldata order) external restricted {
-        _requireNotPaused();
-        bytes32 orderHash = hashOrder(order);
-        preApproved[orderHash] = true;
-        emit PreApproved(accountId, orderHash, order);
-    }
-
-    function facilitateOrderCancellation(
-        OrderCancellationRequest[] calldata requests,
-        bytes[] calldata signatures,
-        uint256[] calldata fees
-    )
-        external
-        restricted
-        nonReentrant
-    {
-        _requireNotPaused();
-        if (requests.length == 0) revert EmptyBatch();
-        if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-
-        for (uint256 i; i < requests.length; i++) {
-            OrderCancellationRequest calldata request = requests[i];
-            if (TransitTokenLib.hasFlags(request.sellTokenId)) revert FlaggedAssetId();
-            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(request.ownerChainId, request.owner);
-
-            bytes32 cancelId = hashOrderCancellationRequest(request);
-            if (ECDSA.recoverCalldata(cancelId, signatures[i]) != request.owner) {
-                revert BadSignature();
-            }
-            uint256 cancelled = cancelledFrom[ownerAccountId][request.orderHash];
-            if (cancelled != 0 && cancelled <= settlementEpoch) continue;
-            if (fees[i] > request.maxFee) revert ExceedsMaxFee();
-
-            cancelledFrom[ownerAccountId][request.orderHash] = settlementEpoch;
-
-            /// TODO: Decide fee recipient. Currently msg.sender.
-            if (fees[i] != 0) _transfer(ownerAccountId, _hubAccountId(msg.sender), request.sellTokenId, fees[i]);
-
-            emit OrderCancellationRequested(ownerAccountId, request.orderHash, settlementEpoch);
-        }
-    }
-
     // ========================================= USER =========================================
-
-    function facilitateFill(
-        Order[] calldata orders,
-        bytes[] calldata signatures,
-        Fill[] calldata fills
-    )
-        external
-        restricted
-        returns (bytes32[] memory orderHashes)
-    {
-        if (orders.length == 0) revert EmptyBatch();
-        if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
-
-        orderHashes = new bytes32[](orders.length);
-        for (uint256 i; i < orders.length; i++) {
-            Order calldata order = orders[i];
-            bytes32 orderHash = hashOrder(order);
-            orderHashes[i] = orderHash;
-
-            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
-            uint256 sellFilled = fills[i].sellFilled;
-            uint256 filled = filledAmount[orderHash] + sellFilled;
-            if (filled > order.sellAmount) revert Overfill(orderHash);
-            if (!order.partiallyFillable && sellFilled != order.sellAmount) revert NotPartiallyFillable(orderHash);
-            filledAmount[orderHash] = filled;
-
-            // Empty signature: pre-approved order. Otherwise ECDSA.
-            if (signatures[i].length == 0) {
-                if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
-            } else if (ECDSA.recoverCalldata(orderHash, signatures[i]) != order.owner) {
-                revert BadSignature();
-            }
-            uint256 cancelled =
-                cancelledFrom[TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)][orderHash];
-            if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
-        }
-    }
 
     function reserve(bytes32 accountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
@@ -341,44 +183,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         _transfer(bytes32(0), toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    // ========================================= VIEWS =========================================
-
-    function hashOrder(Order memory order) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    ORDER_TYPEHASH,
-                    order.ownerChainId,
-                    order.owner,
-                    order.sellTokenId,
-                    order.buyTokenId,
-                    order.sellAmount,
-                    order.buyAmount,
-                    order.receiverChainId,
-                    order.receiver,
-                    order.expiresAt,
-                    order.salt,
-                    order.partiallyFillable
-                )
-            )
-        );
-    }
-
-    function hashOrderCancellationRequest(OrderCancellationRequest memory request) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    ORDER_CANCELLATION_REQUEST_TYPEHASH,
-                    request.ownerChainId,
-                    request.owner,
-                    request.orderHash,
-                    request.sellTokenId,
-                    request.maxFee
-                )
-            )
-        );
-    }
-
     // ========================================= INTERNAL =========================================
 
     function _consumeRequest(bytes32 accountId, bytes32 requestId) internal {
@@ -415,10 +219,6 @@ contract Hub is AccessManaged, Pausable, ReentrancyGuard, EIP712 {
         if (fromAccountId != bytes32(0)) balanceOf[fromAccountId][assetId] -= amount;
         if (toAccountId != bytes32(0)) balanceOf[toAccountId][assetId] += amount;
         emit Transfer(fromAccountId, toAccountId, assetId, amount);
-    }
-
-    function _hubAccountId(address account) internal view returns (bytes32) {
-        return TransitTokenLib.formatAccountId(uint64(block.chainid), account);
     }
 
 }

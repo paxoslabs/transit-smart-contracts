@@ -92,7 +92,10 @@ contract TransitTestBase is Test {
 
         _selectChain(hubChainId);
         swapTerminal = new SwapTerminal(
-            address(authorities[hubChainId]), hub, TransitTokenLib.formatAccountId(hubChainId, surplusRecipient)
+            address(authorities[hubChainId]),
+            hub,
+            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
+            address(turnstile)
         );
         _grantSwapTerminalRole();
 
@@ -184,10 +187,6 @@ contract TransitTestBase is Test {
         if (chain == hubChainId) {
             _wireHub(authority);
 
-            bytes4[] memory withdrawSels = new bytes4[](1);
-            withdrawSels[0] = Hub.facilitateOrderCancellation.selector;
-            authority.setTargetFunctionRole(address(hub), withdrawSels, SOLVER_ROLE);
-
             bytes4[] memory facilitateSels = new bytes4[](1);
             facilitateSels[0] = Turnstile.facilitate.selector;
             authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
@@ -228,23 +227,19 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(hub), receiveDepositSels, TURNSTILE_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](8);
-        userTerminalSels[0] = Hub.requestOrderCancellation.selector;
-        userTerminalSels[1] = Hub.preApprove.selector;
-        userTerminalSels[2] = Hub.reserve.selector;
-        userTerminalSels[3] = Hub.reserveAndRequest.selector;
-        userTerminalSels[4] = Hub.consumeRequest.selector;
-        userTerminalSels[5] = Hub.release.selector;
-        userTerminalSels[6] = Hub.transferFrom.selector;
-        userTerminalSels[7] = Hub.burn.selector;
+        bytes4[] memory userTerminalSels = new bytes4[](6);
+        userTerminalSels[0] = Hub.reserve.selector;
+        userTerminalSels[1] = Hub.reserveAndRequest.selector;
+        userTerminalSels[2] = Hub.consumeRequest.selector;
+        userTerminalSels[3] = Hub.release.selector;
+        userTerminalSels[4] = Hub.transferFrom.selector;
+        userTerminalSels[5] = Hub.burn.selector;
         authority.setTargetFunctionRole(address(hub), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
 
-        bytes4[] memory routedSels = new bytes4[](4);
-        routedSels[0] = UserTerminal.preApprove.selector;
-        routedSels[1] = UserTerminal.requestOrderCancellation.selector;
-        routedSels[2] = UserTerminal.reserve.selector;
-        routedSels[3] = UserTerminal.reserveAndRequest.selector;
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = UserTerminal.reserve.selector;
+        routedSels[1] = UserTerminal.reserveAndRequest.selector;
         turnstile.setRoutable(address(userTerminal), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
@@ -255,7 +250,7 @@ contract TransitTestBase is Test {
     function _grantSwapTerminalRole() internal {
         bytes4[] memory moveSels = new bytes4[](2);
         moveSels[0] = Hub.transferFrom.selector;
-        moveSels[1] = Hub.facilitateFill.selector;
+        moveSels[1] = Hub.transferAmong.selector;
 
         bytes4[] memory epochSels = new bytes4[](1);
         epochSels[0] = Hub.advanceEpoch.selector;
@@ -266,9 +261,15 @@ contract TransitTestBase is Test {
         authorities[hubChainId].setTargetFunctionRole(address(hub), epochSels, EPOCH_ROLE);
         authorities[hubChainId].grantRole(EPOCH_ROLE, address(swapTerminal));
 
-        bytes4[] memory settleSels = new bytes4[](1);
+        bytes4[] memory settleSels = new bytes4[](2);
         settleSels[0] = SwapTerminal.settle.selector;
+        settleSels[1] = SwapTerminal.facilitateOrderCancellation.selector;
         authorities[hubChainId].setTargetFunctionRole(address(swapTerminal), settleSels, SOLVER_ROLE);
+
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = SwapTerminal.preApprove.selector;
+        routedSels[1] = SwapTerminal.requestOrderCancellation.selector;
+        turnstile.setRoutable(address(swapTerminal), routedSels, true);
         vm.stopPrank();
     }
 
@@ -435,8 +436,8 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(Hub.Order memory order, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, hub.hashOrder(order));
+    function _signOrder(SwapTerminal.Order memory order, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, swapTerminal.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }
 

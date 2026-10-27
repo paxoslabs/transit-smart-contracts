@@ -43,8 +43,8 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubChainId);
         _selectChain(hubChainId);
 
-        Hub.Order[] memory orders = new Hub.Order[](2);
-        orders[0] = Hub.Order(
+        SwapTerminal.Order[] memory orders = new SwapTerminal.Order[](2);
+        orders[0] = SwapTerminal.Order(
             hubChainId,
             alice,
             TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
@@ -57,7 +57,7 @@ contract HappyPaths is TransitTestBase {
             bytes32(uint256(1)),
             false
         );
-        orders[1] = Hub.Order(
+        orders[1] = SwapTerminal.Order(
             hubChainId,
             bob,
             TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
@@ -75,9 +75,9 @@ contract HappyPaths is TransitTestBase {
         signatures[0] = _signOrder(orders[0], alicePk);
         signatures[1] = _signOrder(orders[1], bobPk);
 
-        Hub.Fill[] memory fills = new Hub.Fill[](2);
-        fills[0] = Hub.Fill(amount, amount);
-        fills[1] = Hub.Fill(amount, amount);
+        SwapTerminal.Fill[] memory fills = new SwapTerminal.Fill[](2);
+        fills[0] = SwapTerminal.Fill(amount, amount);
+        fills[1] = SwapTerminal.Fill(amount, amount);
 
         vm.startPrank(solver);
         swapTerminal.settle(hub.settlementEpoch(), orders, signatures, fills, new SwapTerminal.Fee[](0));
