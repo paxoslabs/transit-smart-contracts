@@ -5,7 +5,7 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
-import { Depot } from "../Depot.sol";
+import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
@@ -24,7 +24,7 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
         "OrderCancellationRequest(uint64 ownerChainId,address owner,bytes32 orderHash,bytes32 sellTokenId,uint256 maxFee)"
     );
 
-    Depot public immutable DEPOT;
+    address public immutable DEPOT;
     bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
@@ -49,7 +49,7 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
 
     constructor(
         address _authority,
-        Depot _depot,
+        address _depot,
         bytes32 _surplusRecipientAccountId,
         address _turnstile
     )
@@ -70,7 +70,7 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(request.ownerChainId, request.owner)) revert NotOwner();
         if (cancelledFrom[accountId][request.orderHash] != 0) return;
-        uint256 effectiveAtEpoch = DEPOT.settlementEpoch() + 1;
+        uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
         cancelledFrom[accountId][request.orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(accountId, request.orderHash, effectiveAtEpoch);
     }
@@ -88,7 +88,7 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
     {
         if (requests.length == 0) revert EmptyBatch();
         if (requests.length != signatures.length || requests.length != fees.length) revert LengthMismatch();
-        uint256 settlementEpoch = DEPOT.settlementEpoch();
+        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
 
         for (uint256 i; i < requests.length; i++) {
             OrderCancellationRequest calldata request = requests[i];
@@ -105,7 +105,7 @@ abstract contract SwapTerminal is AccessManaged, ReentrancyGuard, EIP712, Turnst
 
             /// TODO: Decide fee recipient. Currently msg.sender.
             if (fees[i] != 0) {
-                DEPOT.transferFrom(
+                IDepot(DEPOT).transferFrom(
                     ownerAccountId,
                     TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
                     request.sellTokenId,

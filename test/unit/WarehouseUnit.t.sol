@@ -6,7 +6,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { Warehouse } from "../../src/Warehouse.sol";
-import { Depot } from "../../src/Depot.sol";
+import { Depot } from "../../src/depot/Depot.sol";
 import { UserTerminal } from "../../src/terminal/UserTerminal.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
@@ -49,7 +49,7 @@ contract WarehouseUnitTest is Test {
         depot = new Depot(address(authority));
         warehouse = new Warehouse(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
-        userTerminal = new UserTerminal(depot, address(turnstile));
+        userTerminal = new UserTerminal(address(depot), address(turnstile));
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);

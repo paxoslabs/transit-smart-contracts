@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { Depot } from "../Depot.sol";
+import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapTerminal } from "./SwapTerminal.sol";
 
@@ -62,7 +62,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
 
     constructor(
         address _authority,
-        Depot _depot,
+        address _depot,
         bytes32 _surplusRecipientAccountId,
         address _turnstile
     )
@@ -91,7 +91,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         if (amount > leg.owed) revert ExceedsOwed();
         leg.owed -= amount;
 
-        DEPOT.transferFrom(leg.accountId, _terminalAccountId(), leg.assetId, amount);
+        IDepot(DEPOT).transferFrom(leg.accountId, _terminalAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
 
         if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
@@ -107,9 +107,9 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         for (uint256 s; s < 2; s++) {
             Leg memory leg = legs[s];
             uint256 delivered = leg.amount - leg.owed;
-            if (delivered != 0) DEPOT.transferFrom(terminalAccountId, leg.accountId, leg.assetId, delivered);
+            if (delivered != 0) IDepot(DEPOT).transferFrom(terminalAccountId, leg.accountId, leg.assetId, delivered);
             if (leg.collateral != 0) {
-                DEPOT.transferFrom(
+                IDepot(DEPOT).transferFrom(
                     terminalAccountId,
                     leg.owed == 0 ? leg.accountId : SURPLUS_RECIPIENT_ACCOUNT_ID,
                     leg.assetId,
@@ -135,7 +135,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         if (orders.length != signatures.length) revert LengthMismatch();
         (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures);
 
-        Depot.TransferDelta[] memory deltas = new Depot.TransferDelta[](fills.length * 2);
+        IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](fills.length * 2);
         uint256[] memory sellFilled = new uint256[](orders.length);
         uint256[] memory buyFilled = new uint256[](orders.length);
         for (uint256 i; i < fills.length; i++) {
@@ -150,9 +150,9 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
 
         _fillOrders(orders, ownerAccountIds, orderHashes, sellFilled, buyFilled);
 
-        DEPOT.transferAmong(deltas);
+        IDepot(DEPOT).transferAmong(deltas);
 
-        DEPOT.advanceEpoch(epoch);
+        IDepot(DEPOT).advanceEpoch(epoch);
     }
 
     function _checkOrders(
@@ -188,7 +188,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         bytes32[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
         uint256 index,
-        Depot.TransferDelta[] memory deltas
+        IDepot.TransferDelta[] memory deltas
     )
         internal
     {
@@ -221,7 +221,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
                 owed: order.collateralized ? amount : 0,
                 collateral: collateral
             });
-            deltas[index * 2 + s] = Depot.TransferDelta(
+            deltas[index * 2 + s] = IDepot.TransferDelta(
                 ownerAccountIds[orderIndex], terminalAccountId, order.sellTokenId, order.collateralized ? collateral : amount
             );
         }
@@ -236,9 +236,9 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
 
         bytes32 terminalAccountId = _terminalAccountId();
         for (uint256 s; s < 2; s++) {
-            DEPOT.transferFrom(terminalAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
+            IDepot(DEPOT).transferFrom(terminalAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
             if (legs[s].collateral != 0) {
-                DEPOT.transferFrom(terminalAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
+                IDepot(DEPOT).transferFrom(terminalAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
             }
         }
 
@@ -254,7 +254,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
     )
         internal
     {
-        uint256 settlementEpoch = DEPOT.settlementEpoch();
+        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
         for (uint256 i; i < orders.length; i++) {
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = orderHashes[i];

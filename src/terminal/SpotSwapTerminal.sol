@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { Depot } from "../Depot.sol";
+import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapTerminal } from "./SwapTerminal.sol";
 
@@ -39,7 +39,7 @@ contract SpotSwapTerminal is SwapTerminal {
 
     constructor(
         address _authority,
-        Depot _depot,
+        address _depot,
         bytes32 _surplusRecipientAccountId,
         address _turnstile
     )
@@ -74,7 +74,7 @@ contract SpotSwapTerminal is SwapTerminal {
         external
         restricted
     {
-        Depot.TransferDelta[] memory deltas = new Depot.TransferDelta[](orders.length * 2 + fees.length);
+        IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](orders.length * 2 + fees.length);
         if (orders.length != 0) {
             if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
             (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures, fills);
@@ -84,12 +84,12 @@ contract SpotSwapTerminal is SwapTerminal {
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
             deltas[orders.length * 2 + i] =
-                Depot.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
+                IDepot.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
         }
 
-        DEPOT.transferAmong(deltas);
+        IDepot(DEPOT).transferAmong(deltas);
 
-        DEPOT.advanceEpoch(epoch);
+        IDepot(DEPOT).advanceEpoch(epoch);
     }
 
     function _checkOrders(
@@ -128,11 +128,11 @@ contract SpotSwapTerminal is SwapTerminal {
         Fill[] calldata fills,
         bytes32[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
-        Depot.TransferDelta[] memory deltas
+        IDepot.TransferDelta[] memory deltas
     )
         internal
     {
-        uint256 settlementEpoch = DEPOT.settlementEpoch();
+        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
             uint256 filled = filledAmount[orderHashes[i]] + fills[i].sellFilled;
@@ -147,8 +147,8 @@ contract SpotSwapTerminal is SwapTerminal {
             ) {
                 revert LimitPrice(orderHashes[i]);
             }
-            deltas[i] = Depot.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
-            deltas[orders.length + i] = Depot.TransferDelta(
+            deltas[i] = IDepot.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
+            deltas[orders.length + i] = IDepot.TransferDelta(
                 bytes32(0),
                 TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
                 order.buyTokenId,

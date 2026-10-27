@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
-import { Depot } from "../Depot.sol";
+import { IDepot } from "../depot/IDepot.sol";
 import { ITurnstile } from "../ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
@@ -43,7 +43,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
 
     uint256 public constant EXECUTED = type(uint256).max;
 
-    Depot public immutable DEPOT;
+    address public immutable DEPOT;
 
     mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
 
@@ -59,30 +59,30 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
     error InsufficientBalance();
     error NotTurnstile();
 
-    constructor(Depot _depot, address _turnstile) TurnstileGated(_turnstile) {
+    constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
         DEPOT = _depot;
     }
 
     function receiveDeposit(uint64 sourceChainId, address asset, uint256 amount, bytes32 toAccountId) external {
         if (msg.sender != TURNSTILE) revert NotTurnstile();
-        DEPOT.mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
+        IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
     function chargeFee(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external {
         if (msg.sender != TURNSTILE) revert NotTurnstile();
-        DEPOT.transferFrom(fromAccountId, toAccountId, assetId, amount);
+        IDepot(DEPOT).transferFrom(fromAccountId, toAccountId, assetId, amount);
     }
 
     function reserve(bytes32 assetId, uint256 amount) external {
-        DEPOT.reserve(_senderAccountId(), assetId, amount);
+        IDepot(DEPOT).reserve(_senderAccountId(), assetId, amount);
     }
 
     function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
         bytes32 accountId = _senderAccountId();
         if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
-        uint256 effectiveAtEpoch = DEPOT.settlementEpoch() + 1;
+        uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
         requestStatus[accountId][requestId] = effectiveAtEpoch;
-        DEPOT.reserve(accountId, assetId, amount);
+        IDepot(DEPOT).reserve(accountId, assetId, amount);
         emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
@@ -98,7 +98,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         }
 
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        DEPOT.transferFrom(
+        IDepot(DEPOT).transferFrom(
             accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
         );
 
@@ -123,7 +123,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         }
 
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        DEPOT.burn(accountId, request.assetId, amount);
+        IDepot(DEPOT).burn(accountId, request.assetId, amount);
 
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(request.assetId);
         ITurnstile(TURNSTILE).sendWithdrawalMessage{ value: msg.value }(
@@ -181,7 +181,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         accountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
         if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
         requestStatus[accountId][requestId] = EXECUTED;
-        if (!_facilitated()) DEPOT.release(accountId, assetId, amount);
+        if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
     /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other reservations and revert InsufficientBalance.
@@ -195,7 +195,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         view
         returns (uint256 amount)
     {
-        amount = FixedPointMathLib.min(requested, DEPOT.balanceOf(accountId, assetId));
+        amount = FixedPointMathLib.min(requested, IDepot(DEPOT).balanceOf(accountId, assetId));
         if (!partiallyFillable && amount < requested) revert InsufficientBalance();
     }
 
@@ -204,7 +204,7 @@ contract UserTerminal is TurnstileGated, ReentrancyGuard {
         if (_senderAccountId() == ownerAccountId) return;
         uint256 status = requestStatus[ownerAccountId][requestId];
         if (status == EXECUTED) return;
-        if (status == 0 || DEPOT.settlementEpoch() < status) revert NotEffective();
+        if (status == 0 || IDepot(DEPOT).settlementEpoch() < status) revert NotEffective();
     }
 
 }

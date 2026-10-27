@@ -8,7 +8,7 @@ import { SpotSwapTerminal } from "../src/terminal/SpotSwapTerminal.sol";
 import { SwapTerminal } from "../src/terminal/SwapTerminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { Warehouse } from "../src/Warehouse.sol";
-import { Depot } from "../src/Depot.sol";
+import { Depot } from "../src/depot/Depot.sol";
 import { UserTerminal } from "../src/terminal/UserTerminal.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
@@ -94,7 +94,7 @@ contract TransitTestBase is Test {
         _selectChain(hubChainId);
         spotSwapTerminal = new SpotSwapTerminal(
             address(authorities[hubChainId]),
-            depot,
+            address(depot),
             TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
@@ -120,7 +120,7 @@ contract TransitTestBase is Test {
         }
         Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
-        if (chain == hubChainId) userTerminal = new UserTerminal(depot, address(chainTurnstile));
+        if (chain == hubChainId) userTerminal = new UserTerminal(address(depot), address(chainTurnstile));
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;

@@ -3,22 +3,9 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
-import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { IDepot } from "./IDepot.sol";
 
-contract Depot is AccessManaged, Pausable {
-
-    struct Reservation {
-        uint256 effective;
-        uint256 pending;
-        uint256 pendingEpoch;
-    }
-
-    struct TransferDelta {
-        bytes32 fromAccountId;
-        bytes32 toAccountId;
-        bytes32 assetId;
-        uint256 amount;
-    }
+contract Depot is IDepot, AccessManaged, Pausable {
 
     mapping(bytes32 accountId => mapping(bytes32 assetId => uint256)) public balanceOf;
 
@@ -26,22 +13,6 @@ contract Depot is AccessManaged, Pausable {
 
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
-
-    event Transfer(
-        address operator,
-        bytes32 indexed fromAccountId,
-        bytes32 indexed toAccountId,
-        bytes32 indexed assetId,
-        uint256 amount
-    );
-    event EpochAdvanced(uint256 epoch);
-    event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
-
-    error ZeroAddress();
-    error ChainMismatch(uint64 chainId);
-    error BadEpoch(uint256 epoch);
-    error InsufficientBalance();
-    error NotZeroSum();
 
     constructor(address _authority) AccessManaged(_authority) {
         settlementEpoch = 1;
