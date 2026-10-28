@@ -147,17 +147,17 @@ contract WarehouseUnitTest is Test {
         });
     }
 
-    function _facilitatedCall(UserTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.FacilitatedCall memory) {
+    function _genericMessage(UserTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.GenericMessage memory) {
         ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
         calls[0] = ITurnstile.Call({
             target: address(userTerminal), data: abi.encodeCall(UserTerminal.executeWithdrawal, (req, 0))
         });
-        return ITurnstile.FacilitatedCall({ sender: req.owner, calls: calls, nonce: req.nonce, deadline: req.deadline });
+        return ITurnstile.GenericMessage({ sender: req.owner, calls: calls, nonce: req.nonce, deadline: req.deadline });
     }
 
     function _withdraw(UserTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
-        ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
-        calls[0] = _facilitatedCall(req);
+        ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
+        calls[0] = _genericMessage(req);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
         uint256[][] memory values = new uint256[][](1);
@@ -166,7 +166,7 @@ contract WarehouseUnitTest is Test {
     }
 
     function _sign(UserTerminal.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashFacilitatedCall(_facilitatedCall(req)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericMessage(_genericMessage(req)));
         return abi.encodePacked(r, s, v);
     }
 

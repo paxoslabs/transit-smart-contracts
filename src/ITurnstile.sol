@@ -24,18 +24,11 @@ interface ITurnstile is IMessagingReceiver {
         bytes data;
     }
 
-    struct FacilitatedCall {
+    struct GenericMessage {
         address sender;
         Call[] calls;
         uint256 nonce;
         uint256 deadline;
-    }
-
-    struct GenericMessage {
-        uint256 nonce;
-        address sender;
-        address target;
-        bytes data;
     }
 
     struct WithdrawalMessage {
@@ -51,6 +44,7 @@ interface ITurnstile is IMessagingReceiver {
         uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash, bytes body
     );
     event MessageRetried(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
+    event MessageExpired(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
 
     error MessageReplay();
     error UnknownAdapter();
@@ -62,10 +56,11 @@ interface ITurnstile is IMessagingReceiver {
     error LengthMismatch();
     error Expired();
     error BadSignature();
+    error NotSelf();
 
     function CALL_TYPEHASH() external view returns (bytes32);
 
-    function FACILITATED_CALL_TYPEHASH() external view returns (bytes32);
+    function GENERIC_MESSAGE_TYPEHASH() external view returns (bytes32);
 
     function WAREHOUSE() external view returns (address);
 
@@ -114,17 +109,19 @@ interface ITurnstile is IMessagingReceiver {
         payable
         returns (bytes32 messageId);
 
-    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable;
+    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas) external payable;
 
     function facilitate(
-        FacilitatedCall[] calldata calls,
+        GenericMessage[] calldata calls,
         bytes[] calldata signatures,
         uint256[][] calldata values
     )
         external
         payable;
 
-    function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) external view returns (bytes32);
+    function executeCalls(Call[] calldata calls, bytes32 accountId) external;
+
+    function hashGenericMessage(GenericMessage calldata message) external view returns (bytes32);
 
     function quoteDepositMessage(
         uint64 chainId,
@@ -149,8 +146,8 @@ interface ITurnstile is IMessagingReceiver {
         returns (uint256 fee);
 
     function quoteGenericMessage(
-        address target,
-        bytes calldata data,
+        Call[] calldata calls,
+        uint256 deadline,
         uint64 messageGas
     )
         external

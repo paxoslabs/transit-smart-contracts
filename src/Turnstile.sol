@@ -15,8 +15,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     bytes32 public constant CALL_TYPEHASH = keccak256("Call(address target,bytes data)");
 
-    bytes32 public constant FACILITATED_CALL_TYPEHASH = keccak256(
-        "FacilitatedCall(address sender,Call[] calls,uint256 nonce,uint256 deadline)Call(address target,bytes data)"
+    bytes32 public constant GENERIC_MESSAGE_TYPEHASH = keccak256(
+        "GenericMessage(address sender,Call[] calls,uint256 nonce,uint256 deadline)Call(address target,bytes data)"
     );
 
     address public immutable WAREHOUSE;
@@ -105,7 +105,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function sendGenericMessage(address target, bytes calldata data, uint64 messageGas) external payable {
+    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas) external payable {
         _requireNotPaused();
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();
@@ -113,12 +113,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             adapter.HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ nonce: ++outboundNonce, sender: msg.sender, target: target, data: data }))
+            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, nonce: ++outboundNonce, deadline: deadline }))
         );
     }
 
     function facilitate(
-        FacilitatedCall[] calldata calls,
+        GenericMessage[] calldata calls,
         bytes[] calldata signatures,
         uint256[][] calldata values
     )
@@ -129,43 +129,38 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _requireNotPaused();
         if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
         for (uint256 i; i < calls.length; i++) {
-            FacilitatedCall calldata facilitatedCall = calls[i];
-            if (block.timestamp > facilitatedCall.deadline) revert Expired();
-            if (facilitatedCall.calls.length != values[i].length) revert LengthMismatch();
-            bytes32 digest = hashFacilitatedCall(facilitatedCall);
-            if (ECDSA.recoverCalldata(digest, signatures[i]) != facilitatedCall.sender) revert BadSignature();
+            GenericMessage calldata message = calls[i];
+            if (block.timestamp > message.deadline) revert Expired();
+            if (message.calls.length != values[i].length) revert LengthMismatch();
+            bytes32 digest = hashGenericMessage(message);
+            if (ECDSA.recoverCalldata(digest, signatures[i]) != message.sender) revert BadSignature();
             _consume(digest);
             bytes32 senderAccountId = TransitTokenLib.formatFacilitatedAccountId(
-                TransitTokenLib.formatAccountId(uint64(block.chainid), facilitatedCall.sender)
+                TransitTokenLib.formatAccountId(uint64(block.chainid), message.sender)
             );
-            for (uint256 j; j < facilitatedCall.calls.length; j++) {
-                Call calldata facilitated = facilitatedCall.calls[j];
-                if (!routable[facilitated.target][bytes4(facilitated.data)]) revert NotRoutable();
-                (bool ok, bytes memory result) =
-                    facilitated.target.call{ value: values[i][j] }(abi.encodePacked(facilitated.data, senderAccountId));
-                if (!ok) {
-                    assembly {
-                        revert(add(result, 0x20), mload(result))
-                    }
-                }
-            }
+            _executeCalls(message.calls, values[i], senderAccountId);
         }
     }
 
-    function hashFacilitatedCall(FacilitatedCall calldata facilitatedCall) public view returns (bytes32) {
-        bytes32[] memory callHashes = new bytes32[](facilitatedCall.calls.length);
+    function executeCalls(Call[] calldata calls, bytes32 accountId) external {
+        if (msg.sender != address(this)) revert NotSelf();
+        _executeCalls(calls, new uint256[](calls.length), accountId);
+    }
+
+    function hashGenericMessage(GenericMessage calldata message) public view returns (bytes32) {
+        bytes32[] memory callHashes = new bytes32[](message.calls.length);
         for (uint256 i; i < callHashes.length; i++) {
-            Call calldata facilitated = facilitatedCall.calls[i];
+            Call calldata facilitated = message.calls[i];
             callHashes[i] = keccak256(abi.encode(CALL_TYPEHASH, facilitated.target, keccak256(facilitated.data)));
         }
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    FACILITATED_CALL_TYPEHASH,
-                    facilitatedCall.sender,
+                    GENERIC_MESSAGE_TYPEHASH,
+                    message.sender,
                     keccak256(abi.encodePacked(callHashes)),
-                    facilitatedCall.nonce,
-                    facilitatedCall.deadline
+                    message.nonce,
+                    message.deadline
                 )
             )
         );
@@ -210,8 +205,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     function quoteGenericMessage(
-        address target,
-        bytes calldata data,
+        Call[] calldata calls,
+        uint256 deadline,
         uint64 messageGas
     )
         external
@@ -224,7 +219,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             adapter.HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ nonce: outboundNonce + 1, sender: msg.sender, target: target, data: data }))
+            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, nonce: outboundNonce + 1, deadline: deadline }))
         );
     }
 
@@ -290,6 +285,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageConsumed[messageHash] = true;
     }
 
+    function _executeCalls(Call[] memory calls, uint256[] memory values, bytes32 accountId) internal {
+        for (uint256 i; i < calls.length; i++) {
+            if (!routable[calls[i].target][bytes4(calls[i].data)]) revert NotRoutable();
+            (bool ok, bytes memory result) =
+                calls[i].target.call{ value: values[i] }(abi.encodePacked(calls[i].data, accountId));
+            if (!ok) {
+                assembly {
+                    revert(add(result, 0x20), mload(result))
+                }
+            }
+        }
+    }
+
     function _execute(uint64 sourceChainId, MessageType messageType, bytes memory body) internal {
         bool ok;
         bytes memory result;
@@ -306,14 +314,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             (ok, result) = WAREHOUSE.call(abi.encodeCall(Warehouse.receiveWithdrawal, (message.asset, message.amount, message.to)));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
-            if (routable[message.target][bytes4(message.data)]) {
-                gasBefore = gasleft();
-                (ok, result) = message.target.call(
-                    abi.encodePacked(message.data, TransitTokenLib.formatAccountId(sourceChainId, message.sender))
-                );
-            } else {
-                result = abi.encodeWithSelector(NotRoutable.selector);
+            if (block.timestamp > message.deadline) {
+                if (sourceChainId == block.chainid) revert Expired();
+                emit MessageExpired(sourceChainId, messageType, keccak256(abi.encode(sourceChainId, messageType, body)));
+                return;
             }
+            gasBefore = gasleft();
+            (ok, result) = address(this).call(
+                abi.encodeCall(this.executeCalls, (message.calls, TransitTokenLib.formatAccountId(sourceChainId, message.sender)))
+            );
         }
         if (ok) return;
         if (sourceChainId == block.chainid) {

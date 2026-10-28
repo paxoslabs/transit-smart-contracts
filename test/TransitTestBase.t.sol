@@ -376,7 +376,7 @@ contract TransitTestBase is Test {
         UserTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
-        ITurnstile.FacilitatedCall[] memory calls = new ITurnstile.FacilitatedCall[](1);
+        ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
         calls[0] = _facilitatedWithdrawal(request);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
@@ -412,20 +412,20 @@ contract TransitTestBase is Test {
     function _facilitatedWithdrawal(UserTerminal.WithdrawalRequest memory request)
         internal
         view
-        returns (ITurnstile.FacilitatedCall memory)
+        returns (ITurnstile.GenericMessage memory)
     {
         ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
         calls[0] = ITurnstile.Call({
             target: address(userTerminal),
             data: abi.encodeCall(UserTerminal.executeWithdrawal, (request, _messageGas(hubChainId)))
         });
-        return ITurnstile.FacilitatedCall({
+        return ITurnstile.GenericMessage({
             sender: request.owner, calls: calls, nonce: request.nonce, deadline: request.deadline
         });
     }
 
     function _signWithdraw(UserTerminal.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = turnstile.hashFacilitatedCall(_facilitatedWithdrawal(request));
+        bytes32 digest = turnstile.hashGenericMessage(_facilitatedWithdrawal(request));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
