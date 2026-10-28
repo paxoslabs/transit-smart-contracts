@@ -123,6 +123,8 @@ interface ITurnstile is IMessagingReceiver {
 
     function hashGenericMessage(GenericMessage calldata message) external view returns (bytes32);
 
+    function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) external pure returns (bytes32);
+
     function quoteDepositMessage(
         uint64 chainId,
         uint64 messageGas,

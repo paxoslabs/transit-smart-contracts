@@ -134,7 +134,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (message.calls.length != values[i].length) revert LengthMismatch();
             bytes32 digest = hashGenericMessage(message);
             if (ECDSA.recoverCalldata(digest, signatures[i]) != message.sender) revert BadSignature();
-            _consume(digest);
+            _consume(digestMessage(uint64(block.chainid), MessageType.Generic, abi.encode(message)));
             bytes32 senderAccountId = TransitTokenLib.formatFacilitatedAccountId(
                 TransitTokenLib.formatAccountId(uint64(block.chainid), message.sender)
             );
@@ -164,6 +164,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 )
             )
         );
+    }
+
+    function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) public pure returns (bytes32) {
+        return keccak256(abi.encode(chainId, messageType, body));
     }
 
     function quoteDepositMessage(
@@ -225,7 +229,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted {
         _requireNotPaused();
-        bytes32 messageHash = keccak256(abi.encode(sourceChainId, messageType, body));
+        bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
         if (!failed[messageHash]) revert NotFailed();
         delete failed[messageHash];
         emit MessageRetried(sourceChainId, messageType, messageHash);
@@ -275,7 +279,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {
         _requireNotPaused();
-        _consume(keccak256(abi.encode(chainId, messageType, body)));
+        _consume(digestMessage(chainId, messageType, body));
         _execute(chainId, messageType, body);
     }
 
@@ -316,7 +320,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (block.timestamp > message.deadline) {
                 if (sourceChainId == block.chainid) revert Expired();
-                emit MessageExpired(sourceChainId, messageType, keccak256(abi.encode(sourceChainId, messageType, body)));
+                emit MessageExpired(sourceChainId, messageType, digestMessage(sourceChainId, messageType, body));
                 return;
             }
             gasBefore = gasleft();
@@ -331,7 +335,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
         }
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
-        bytes32 messageHash = keccak256(abi.encode(sourceChainId, messageType, body));
+        bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
         failed[messageHash] = true;
         emit MessageFailed(sourceChainId, messageType, messageHash, body);
     }
