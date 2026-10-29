@@ -1,0 +1,16 @@
+if git cat-file commit HEAD | sed '/^$/q' | grep -Eq '^gpgsig(-sha256)? '; then
+    exit 0
+fi
+
+cat <<'BANNER'
+  ███████╗████████╗ ██████╗ ██████╗
+  ██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗
+  ███████╗   ██║   ██║   ██║██████╔╝
+  ╚════██║   ██║   ██║   ██║██╔═══╝
+  ███████║   ██║   ╚██████╔╝██║
+  ╚══════╝   ╚═╝    ╚═════╝ ╚═╝
+
+  Warning: the commit you just created is not signed.
+  Please amend it with: git commit --amend -S
+BANNER
+exit 0
