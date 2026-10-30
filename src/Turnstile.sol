@@ -6,8 +6,8 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import { UserTerminal } from "./terminal/UserTerminal.sol";
-import { Warehouse } from "./Warehouse.sol";
+import { HubWarehouseTerminal } from "./terminal/HubWarehouseTerminal.sol";
+import { SpokeWarehouseTerminal } from "./terminal/SpokeWarehouseTerminal.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
@@ -19,18 +19,18 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         "GenericMessage(address sender,Call[] calls,uint256 nonce,uint256 deadline)Call(address target,bytes data)"
     );
 
-    address public immutable WAREHOUSE;
+    address public immutable SPOKE_WAREHOUSE_TERMINAL;
 
     IMessagingAdapter public messagingAdapter;
-    address public userTerminal;
+    address public hubWarehouseTerminal;
     uint256 public outboundNonce;
 
     mapping(bytes32 messageHash => bool) public messageConsumed;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
     mapping(bytes32 messageHash => bool) public failed;
 
-    constructor(address _authority, address _warehouse) AccessManaged(_authority) {
-        WAREHOUSE = _warehouse;
+    constructor(address _authority, address _spokeWarehouseTerminal) AccessManaged(_authority) {
+        SPOKE_WAREHOUSE_TERMINAL = _spokeWarehouseTerminal;
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -44,9 +44,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         emit MessagingAdapterUpdated(address(adapter));
     }
 
-    function setUserTerminal(address _userTerminal) external restricted {
-        userTerminal = _userTerminal;
-        emit UserTerminalUpdated(_userTerminal);
+    function setHubWarehouseTerminal(address _hubWarehouseTerminal) external restricted {
+        hubWarehouseTerminal = _hubWarehouseTerminal;
+        emit HubWarehouseTerminalUpdated(_hubWarehouseTerminal);
     }
 
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
@@ -307,15 +307,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes memory result;
         uint256 gasBefore;
         if (messageType == MessageType.Deposit) {
-            if (userTerminal == address(0)) revert NoHandler();
+            if (hubWarehouseTerminal == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = userTerminal.call(abi.encodeCall(UserTerminal.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
+            (ok, result) = hubWarehouseTerminal.call(abi.encodeCall(HubWarehouseTerminal.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
         } else if (messageType == MessageType.Withdrawal) {
-            if (WAREHOUSE == address(0)) revert NoHandler();
+            if (SPOKE_WAREHOUSE_TERMINAL == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
-            (ok, result) = WAREHOUSE.call(abi.encodeCall(Warehouse.receiveWithdrawal, (message.asset, message.amount, message.to)));
+            (ok, result) = SPOKE_WAREHOUSE_TERMINAL.call(abi.encodeCall(SpokeWarehouseTerminal.receiveWithdrawal, (message.asset, message.amount, message.to)));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (block.timestamp > message.deadline) {

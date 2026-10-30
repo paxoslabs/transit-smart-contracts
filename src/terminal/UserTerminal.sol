@@ -3,7 +3,6 @@ pragma solidity ^0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { ITurnstile } from "../ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
@@ -21,23 +20,8 @@ contract UserTerminal is TurnstileGated {
         bool partiallyFillable;
     }
 
-    struct WithdrawalRequest {
-        uint64 ownerChainId;
-        address owner;
-        address to;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 nonce;
-        uint256 deadline;
-        bool partiallyFillable;
-    }
-
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
         "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
-    );
-
-    bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -48,21 +32,14 @@ contract UserTerminal is TurnstileGated {
 
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
-    event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
     error RequestReplay();
     error NotEffective();
     error ZeroAddress();
     error InsufficientBalance();
-    error NotTurnstile();
 
     constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
         DEPOT = _depot;
-    }
-
-    function receiveDeposit(uint64 sourceChainId, address asset, uint256 amount, bytes32 toAccountId) external {
-        if (msg.sender != TURNSTILE) revert NotTurnstile();
-        IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
     function reserve(bytes32 assetId, uint256 amount) external {
@@ -97,33 +74,6 @@ contract UserTerminal is TurnstileGated {
         emit TransferExecuted(requestId, amount);
     }
 
-    function executeWithdrawal(
-        WithdrawalRequest calldata request,
-        uint64 messageGas
-    )
-        external
-        payable
-    {
-        bytes32 requestId = hashWithdrawalRequest(request);
-        bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
-
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
-        if (block.timestamp > request.deadline) {
-            emit WithdrawalExecuted(requestId, 0);
-            return;
-        }
-
-        uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        IDepot(DEPOT).burn(accountId, request.assetId, amount);
-
-        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(request.assetId);
-        ITurnstile(TURNSTILE).sendWithdrawalMessage{ value: msg.value }(
-            assetChainId, messageGas, asset, amount, request.to
-        );
-
-        emit WithdrawalExecuted(requestId, amount);
-    }
-
     /// TODO: Decide hashing. Currently plain struct hash with no EIP-712 domain, so IDs are the same across terminal versions.
     function hashTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(
@@ -132,22 +82,6 @@ contract UserTerminal is TurnstileGated {
                 request.ownerChainId,
                 request.owner,
                 request.toChainId,
-                request.to,
-                request.assetId,
-                request.amount,
-                request.nonce,
-                request.deadline,
-                request.partiallyFillable
-            )
-        );
-    }
-
-    function hashWithdrawalRequest(WithdrawalRequest memory request) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                WITHDRAWAL_REQUEST_TYPEHASH,
-                request.ownerChainId,
-                request.owner,
                 request.to,
                 request.assetId,
                 request.amount,

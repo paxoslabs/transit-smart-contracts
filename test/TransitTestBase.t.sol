@@ -7,7 +7,8 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SpotSwapTerminal } from "../src/terminal/SpotSwapTerminal.sol";
 import { SwapTerminal } from "../src/terminal/SwapTerminal.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
-import { Warehouse } from "../src/Warehouse.sol";
+import { HubWarehouseTerminal } from "../src/terminal/HubWarehouseTerminal.sol";
+import { SpokeWarehouseTerminal } from "../src/terminal/SpokeWarehouseTerminal.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { UserTerminal } from "../src/terminal/UserTerminal.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
@@ -60,9 +61,10 @@ contract TransitTestBase is Test {
     SpotSwapTerminal spotSwapTerminal;
     Depot depot;
     UserTerminal userTerminal;
+    HubWarehouseTerminal hubWarehouseTerminal;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => Warehouse) warehouses;
+    mapping(uint64 => SpokeWarehouseTerminal) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -118,9 +120,12 @@ contract TransitTestBase is Test {
             chainTurnstile =
                 new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        Warehouse warehouse = new Warehouse(address(authority), vault, address(chainTurnstile), hubChainId);
+        SpokeWarehouseTerminal warehouse = new SpokeWarehouseTerminal(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
-        if (chain == hubChainId) userTerminal = new UserTerminal(address(depot), address(chainTurnstile));
+        if (chain == hubChainId) {
+            userTerminal = new UserTerminal(address(depot), address(chainTurnstile));
+            hubWarehouseTerminal = new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(chainTurnstile));
+        }
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
@@ -149,17 +154,17 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        Warehouse warehouse = warehouses[chain];
+        SpokeWarehouseTerminal warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = Warehouse.setAssetWhitelisted.selector;
+        adminSels[0] = SpokeWarehouseTerminal.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
 
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = Warehouse.receiveWithdrawal.selector;
+        receiveWithdrawalSels[0] = SpokeWarehouseTerminal.receiveWithdrawal.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -207,7 +212,7 @@ contract TransitTestBase is Test {
         bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
-        turnstileAdminSels[2] = Turnstile.setUserTerminal.selector;
+        turnstileAdminSels[2] = Turnstile.setHubWarehouseTerminal.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
         bytes4[] memory turnstileSendSels = new bytes4[](2);
@@ -221,7 +226,7 @@ contract TransitTestBase is Test {
 
     function _wireDepot(TransitAuthority authority) internal {
 
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(userTerminal));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseTerminal));
         bytes4[] memory userTerminalSels = new bytes4[](5);
         userTerminalSels[0] = Depot.reserve.selector;
         userTerminalSels[1] = Depot.release.selector;
@@ -230,7 +235,11 @@ contract TransitTestBase is Test {
         userTerminalSels[4] = Depot.mint.selector;
         authority.setTargetFunctionRole(address(depot), userTerminalSels, TERMINAL_ROLE);
         authority.grantRole(TERMINAL_ROLE, address(userTerminal));
-        turnstile.setUserTerminal(address(userTerminal));
+        authority.grantRole(TERMINAL_ROLE, address(hubWarehouseTerminal));
+        bytes4[] memory receiveDepositSels = new bytes4[](1);
+        receiveDepositSels[0] = HubWarehouseTerminal.receiveDeposit.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseTerminal), receiveDepositSels, TURNSTILE_ROLE);
+        turnstile.setHubWarehouseTerminal(address(hubWarehouseTerminal));
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserTerminal.reserve.selector;
@@ -238,8 +247,8 @@ contract TransitTestBase is Test {
         turnstile.setRoutable(address(userTerminal), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = UserTerminal.executeWithdrawal.selector;
-        turnstile.setRoutable(address(userTerminal), executeSels, true);
+        executeSels[0] = HubWarehouseTerminal.executeWithdrawal.selector;
+        turnstile.setRoutable(address(hubWarehouseTerminal), executeSels, true);
     }
 
     function _grantSpotSwapTerminalRole() internal {
@@ -373,7 +382,7 @@ contract TransitTestBase is Test {
         require(chain == hubChainId, "can only atomically withdraw on Depot");
 
         _selectChain(hubChainId);
-        UserTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
+        HubWarehouseTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
         ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
@@ -385,7 +394,7 @@ contract TransitTestBase is Test {
 
         vm.prank(solver);
         turnstile.facilitate(calls, signatures, values);
-        withdrawId = userTerminal.hashWithdrawalRequest(request);
+        withdrawId = hubWarehouseTerminal.hashWithdrawalRequest(request);
     }
 
     function _withdrawalRequestFor(
@@ -395,9 +404,9 @@ contract TransitTestBase is Test {
         uint64 chain
     )
         internal
-        returns (UserTerminal.WithdrawalRequest memory)
+        returns (HubWarehouseTerminal.WithdrawalRequest memory)
     {
-        return UserTerminal.WithdrawalRequest({
+        return HubWarehouseTerminal.WithdrawalRequest({
             ownerChainId: hubChainId,
             owner: user,
             to: user,
@@ -409,22 +418,22 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _facilitatedWithdrawal(UserTerminal.WithdrawalRequest memory request)
+    function _facilitatedWithdrawal(HubWarehouseTerminal.WithdrawalRequest memory request)
         internal
         view
         returns (ITurnstile.GenericMessage memory)
     {
         ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
         calls[0] = ITurnstile.Call({
-            target: address(userTerminal),
-            data: abi.encodeCall(UserTerminal.executeWithdrawal, (request, _messageGas(hubChainId)))
+            target: address(hubWarehouseTerminal),
+            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (request, _messageGas(hubChainId)))
         });
         return ITurnstile.GenericMessage({
             sender: request.owner, calls: calls, nonce: request.nonce, deadline: request.deadline
         });
     }
 
-    function _signWithdraw(UserTerminal.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
+    function _signWithdraw(HubWarehouseTerminal.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = turnstile.hashGenericMessage(_facilitatedWithdrawal(request));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);

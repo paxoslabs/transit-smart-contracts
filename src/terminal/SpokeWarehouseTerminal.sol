@@ -3,10 +3,10 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { ITurnstile } from "./ITurnstile.sol";
-import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { ITurnstile } from "../ITurnstile.sol";
+import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 
-contract Warehouse is AccessManaged {
+contract SpokeWarehouseTerminal is AccessManaged {
 
     address public immutable VAULT;
     address public immutable TURNSTILE;
