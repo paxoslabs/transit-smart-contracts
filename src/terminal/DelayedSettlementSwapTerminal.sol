@@ -20,9 +20,9 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         uint64 receiverChainId;
         address receiver;
         uint256 expiresAt;
-        bytes32 salt;
         bool partiallyFillable;
         bool collateralized;
+        bytes32 salt;
     }
 
     struct PairedFill {
@@ -40,7 +40,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
     }
 
     bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable,bool collateralized)"
+        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool collateralized,bytes32 salt)"
     );
 
     uint256 public constant FILL_RATIO = 100;
@@ -288,9 +288,9 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
                     order.receiverChainId,
                     order.receiver,
                     order.expiresAt,
-                    order.salt,
                     order.partiallyFillable,
-                    order.collateralized
+                    order.collateralized,
+                    order.salt
                 )
             )
         );

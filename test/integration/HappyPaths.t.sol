@@ -54,8 +54,8 @@ contract HappyPaths is TransitTestBase {
             hubChainId,
             alice,
             block.timestamp,
-            bytes32(uint256(1)),
-            false
+            false,
+            bytes32(uint256(1))
         );
         orders[1] = SpotSwapTerminal.Order(
             hubChainId,
@@ -67,8 +67,8 @@ contract HappyPaths is TransitTestBase {
             hubChainId,
             bob,
             block.timestamp,
-            bytes32(uint256(2)),
-            false
+            false,
+            bytes32(uint256(2))
         );
 
         bytes[] memory signatures = new bytes[](2);

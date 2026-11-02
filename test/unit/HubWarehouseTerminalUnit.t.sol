@@ -15,9 +15,9 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
             to: owner,
             assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
-            nonce: ++withdrawNonce,
             deadline: type(uint256).max,
-            partiallyFillable: true
+            partiallyFillable: true,
+            salt: bytes32(++withdrawSalt)
         });
     }
 
@@ -26,7 +26,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         calls[0] = ITurnstile.Call({
             target: address(hubWarehouseTerminal), data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (req, 0))
         });
-        return ITurnstile.GenericMessage({ sender: req.owner, calls: calls, nonce: req.nonce, deadline: req.deadline });
+        return ITurnstile.GenericMessage({ sender: req.owner, calls: calls, deadline: req.deadline, salt: req.salt });
     }
 
     function _withdraw(HubWarehouseTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
@@ -47,7 +47,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
     // ---------------------------------------------------------------- depot auth
 
     function testOnlyWarehouseCanMint() public {
-        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), nonce: 1, amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory) });
+        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory), salt: bytes32(uint256(1)) });
         bytes memory payload = abi.encode(ITurnstile.MessageType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();

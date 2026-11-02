@@ -106,7 +106,7 @@ contract SpokeWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
 
     function testReceiveMessageFromNonAdapterReverts() public {
         ITurnstile.WithdrawalMessage memory m =
-            ITurnstile.WithdrawalMessage({ asset: address(usdc), nonce: ++withdrawNonce, amount: 1e6, to: alice });
+            ITurnstile.WithdrawalMessage({ asset: address(usdc), amount: 1e6, to: alice, salt: bytes32(++withdrawSalt) });
         bytes memory payload = abi.encode(ITurnstile.MessageType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);

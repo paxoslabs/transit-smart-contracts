@@ -16,7 +16,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     bytes32 public constant CALL_TYPEHASH = keccak256("Call(address target,bytes data)");
 
     bytes32 public constant GENERIC_MESSAGE_TYPEHASH = keccak256(
-        "GenericMessage(address sender,Call[] calls,uint256 nonce,uint256 deadline)Call(address target,bytes data)"
+        "GenericMessage(address sender,Call[] calls,uint256 deadline,bytes32 salt)Call(address target,bytes data)"
     );
 
     address public immutable SPOKE_WAREHOUSE_TERMINAL;
@@ -80,7 +80,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Deposit,
-            abi.encode(DepositMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, toAccountId: toAccountId }))
+            abi.encode(DepositMessage({ asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce) }))
         );
     }
 
@@ -101,11 +101,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Withdrawal,
-            abi.encode(WithdrawalMessage({ asset: asset, nonce: ++outboundNonce, amount: amount, to: to }))
+            abi.encode(WithdrawalMessage({ asset: asset, amount: amount, to: to, salt: bytes32(++outboundNonce) }))
         );
     }
 
-    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas) external payable {
+    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas, bytes32 salt) external payable {
         _requireNotPaused();
         IMessagingAdapter adapter = messagingAdapter;
         if (address(adapter) == address(0)) revert UnknownAdapter();
@@ -113,7 +113,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             adapter.HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, nonce: ++outboundNonce, deadline: deadline }))
+            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, deadline: deadline, salt: salt }))
         );
     }
 
@@ -159,8 +159,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     GENERIC_MESSAGE_TYPEHASH,
                     message.sender,
                     keccak256(abi.encodePacked(callHashes)),
-                    message.nonce,
-                    message.deadline
+                    message.deadline,
+                    message.salt
                 )
             )
         );
@@ -185,7 +185,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Deposit,
-            abi.encode(DepositMessage({ asset: asset, nonce: outboundNonce + 1, amount: amount, toAccountId: toAccountId }))
+            abi.encode(DepositMessage({ asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(outboundNonce + 1) }))
         );
     }
 
@@ -204,14 +204,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Withdrawal,
-            abi.encode(WithdrawalMessage({ asset: asset, nonce: outboundNonce + 1, amount: amount, to: to }))
+            abi.encode(WithdrawalMessage({ asset: asset, amount: amount, to: to, salt: bytes32(outboundNonce + 1) }))
         );
     }
 
     function quoteGenericMessage(
         Call[] calldata calls,
         uint256 deadline,
-        uint64 messageGas
+        uint64 messageGas,
+        bytes32 salt
     )
         external
         view
@@ -223,7 +224,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             adapter.HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, nonce: outboundNonce + 1, deadline: deadline }))
+            abi.encode(GenericMessage({ sender: msg.sender, calls: calls, deadline: deadline, salt: salt }))
         );
     }
 

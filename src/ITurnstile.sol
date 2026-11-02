@@ -14,9 +14,9 @@ interface ITurnstile is IMessagingReceiver {
 
     struct DepositMessage {
         address asset;
-        uint256 nonce;
         uint256 amount;
         bytes32 toAccountId;
+        bytes32 salt;
     }
 
     struct Call {
@@ -27,15 +27,15 @@ interface ITurnstile is IMessagingReceiver {
     struct GenericMessage {
         address sender;
         Call[] calls;
-        uint256 nonce;
         uint256 deadline;
+        bytes32 salt;
     }
 
     struct WithdrawalMessage {
         address asset;
-        uint256 nonce;
         uint256 amount;
         address to;
+        bytes32 salt;
     }
 
     event MessagingAdapterUpdated(address indexed adapter);
@@ -109,7 +109,7 @@ interface ITurnstile is IMessagingReceiver {
         payable
         returns (bytes32 messageId);
 
-    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas) external payable;
+    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas, bytes32 salt) external payable;
 
     function facilitate(
         GenericMessage[] calldata calls,
@@ -150,7 +150,8 @@ interface ITurnstile is IMessagingReceiver {
     function quoteGenericMessage(
         Call[] calldata calls,
         uint256 deadline,
-        uint64 messageGas
+        uint64 messageGas,
+        bytes32 salt
     )
         external
         view

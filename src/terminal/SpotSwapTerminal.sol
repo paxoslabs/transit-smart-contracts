@@ -19,8 +19,8 @@ contract SpotSwapTerminal is SwapTerminal {
         uint64 receiverChainId;
         address receiver;
         uint256 expiresAt;
-        bytes32 salt;
         bool partiallyFillable;
+        bytes32 salt;
     }
 
     struct Fill {
@@ -34,7 +34,7 @@ contract SpotSwapTerminal is SwapTerminal {
     }
 
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bytes32 salt,bool partiallyFillable)"
+        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bytes32 salt)"
     );
 
     constructor(
@@ -174,8 +174,8 @@ contract SpotSwapTerminal is SwapTerminal {
                     order.receiverChainId,
                     order.receiver,
                     order.expiresAt,
-                    order.salt,
-                    order.partiallyFillable
+                    order.partiallyFillable,
+                    order.salt
                 )
             )
         );

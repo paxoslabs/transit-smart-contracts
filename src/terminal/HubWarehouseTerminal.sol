@@ -17,13 +17,13 @@ contract HubWarehouseTerminal is AccessManaged, TurnstileGated {
         address to;
         bytes32 assetId;
         uint256 amount;
-        uint256 nonce;
         uint256 deadline;
         bool partiallyFillable;
+        bytes32 salt;
     }
 
     bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -92,9 +92,9 @@ contract HubWarehouseTerminal is AccessManaged, TurnstileGated {
                 request.to,
                 request.assetId,
                 request.amount,
-                request.nonce,
                 request.deadline,
-                request.partiallyFillable
+                request.partiallyFillable,
+                request.salt
             )
         );
     }

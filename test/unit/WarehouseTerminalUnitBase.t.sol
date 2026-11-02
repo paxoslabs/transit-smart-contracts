@@ -35,7 +35,7 @@ abstract contract WarehouseTerminalUnitBase is Test {
 
     address backend = makeAddr("backend");
     uint256 alicePk;
-    uint256 withdrawNonce;
+    uint256 withdrawSalt;
 
     function setUp() public {
         vm.chainId(HUB_CHAIN_ID);

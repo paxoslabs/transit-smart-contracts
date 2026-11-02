@@ -15,13 +15,13 @@ contract UserTerminal is TurnstileGated {
         address to;
         bytes32 assetId;
         uint256 amount;
-        uint256 nonce;
         uint256 deadline;
         bool partiallyFillable;
+        bytes32 salt;
     }
 
     bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 nonce,uint256 deadline,bool partiallyFillable)"
+        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -85,9 +85,9 @@ contract UserTerminal is TurnstileGated {
                 request.to,
                 request.assetId,
                 request.amount,
-                request.nonce,
                 request.deadline,
-                request.partiallyFillable
+                request.partiallyFillable,
+                request.salt
             )
         );
     }

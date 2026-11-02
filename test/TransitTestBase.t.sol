@@ -56,7 +56,7 @@ contract TransitTestBase is Test {
 
     uint64[] spokeIDs;
     uint64 hubChainId;
-    uint256 withdrawNonce;
+    uint256 withdrawSalt;
 
     SpotSwapTerminal spotSwapTerminal;
     Depot depot;
@@ -412,9 +412,9 @@ contract TransitTestBase is Test {
             to: user,
             assetId: TransitTokenLib.formatAssetId(chain, address(asset)),
             amount: amount,
-            nonce: ++withdrawNonce,
             deadline: type(uint256).max,
-            partiallyFillable: true
+            partiallyFillable: true,
+            salt: bytes32(++withdrawSalt)
         });
     }
 
@@ -429,7 +429,7 @@ contract TransitTestBase is Test {
             data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (request, _messageGas(hubChainId)))
         });
         return ITurnstile.GenericMessage({
-            sender: request.owner, calls: calls, nonce: request.nonce, deadline: request.deadline
+            sender: request.owner, calls: calls, deadline: request.deadline, salt: request.salt
         });
     }
 
