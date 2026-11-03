@@ -89,7 +89,7 @@ interface ITurnstile is IMessagingReceiver {
     )
         external
         payable
-        returns (bytes32 messageId);
+        returns (bytes32 messageHash);
 
     function sendWithdrawalMessage(
         uint64 chainId,
@@ -100,9 +100,18 @@ interface ITurnstile is IMessagingReceiver {
     )
         external
         payable
-        returns (bytes32 messageId);
+        returns (bytes32 messageHash);
 
-    function sendGenericMessage(address target, bytes calldata data, uint256 deadline, uint64 messageGas, bytes32 salt) external payable;
+    function sendGenericMessage(
+        address target,
+        bytes calldata data,
+        uint256 deadline,
+        uint64 messageGas,
+        bytes32 salt
+    )
+        external
+        payable
+        returns (bytes32 messageHash);
 
     function facilitate(
         GenericMessage[] calldata calls,
