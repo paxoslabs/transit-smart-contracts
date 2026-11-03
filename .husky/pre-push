@@ -1,20 +1,24 @@
 check_foundry_version() {
-  local_version=$(forge --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+  [ -n "$SKIP_FOUNDRY_VERSION_CHECK" ] && return 0
+  local_version=$(forge --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' | head -n 1)
+  local_version=${local_version%-stable}
   latest_version=$(curl -fsSL --max-time 5 https://api.github.com/repos/foundry-rs/foundry/releases/latest 2>/dev/null \
     | grep -Eo '"tag_name": *"v?[0-9]+\.[0-9]+\.[0-9]+"' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+')
 
   [ -z "$local_version" ] || [ -z "$latest_version" ] && return 0
   [ "$local_version" = "$latest_version" ] && return 0
 
-  newest=$(printf '%s\n%s\n' "$local_version" "$latest_version" | sort -V | tail -n 1)
-  [ "$newest" = "$local_version" ] && return 0
+  # A prerelease sorts below its release, so compare only X.Y.Z and require strictly newer.
+  local_core=${local_version%%-*}
+  newest=$(printf '%s\n%s\n' "$local_core" "$latest_version" | sort -V | tail -n 1)
+  [ "$local_core" != "$latest_version" ] && [ "$newest" = "$local_core" ] && return 0
 
   echo ""
   echo "Foundry $latest_version is out (you have $local_version)."
   echo "Review the changes: https://github.com/foundry-rs/foundry/releases"
   echo ""
   echo "  - Includes critical security patches? Update now: foundryup"
-  echo "  - Otherwise wait a few days before updating, and push with --no-verify until then."
+  echo "  - Otherwise wait a few days before updating, and until then push with: SKIP_FOUNDRY_VERSION_CHECK=1 git push"
   echo ""
   return 1
 }
