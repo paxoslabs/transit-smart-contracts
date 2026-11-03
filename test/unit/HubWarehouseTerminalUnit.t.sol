@@ -22,11 +22,13 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
     }
 
     function _genericMessage(HubWarehouseTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.GenericMessage memory) {
-        ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
-        calls[0] = ITurnstile.Call({
-            target: address(hubWarehouseTerminal), data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (req, 0))
+        return ITurnstile.GenericMessage({
+            sender: req.owner,
+            target: address(hubWarehouseTerminal),
+            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (req, 0)),
+            deadline: req.deadline,
+            salt: req.salt
         });
-        return ITurnstile.GenericMessage({ sender: req.owner, calls: calls, deadline: req.deadline, salt: req.salt });
     }
 
     function _withdraw(HubWarehouseTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
@@ -34,8 +36,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         calls[0] = _genericMessage(req);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        uint256[][] memory values = new uint256[][](1);
-        values[0] = new uint256[](1);
+        uint256[] memory values = new uint256[](1);
         turnstile.facilitate(calls, sigs, values);
     }
 

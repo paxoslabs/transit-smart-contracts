@@ -389,8 +389,7 @@ contract TransitTestBase is Test {
         calls[0] = _facilitatedWithdrawal(request);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
-        uint256[][] memory values = new uint256[][](1);
-        values[0] = new uint256[](1);
+        uint256[] memory values = new uint256[](1);
 
         vm.prank(solver);
         turnstile.facilitate(calls, signatures, values);
@@ -423,13 +422,12 @@ contract TransitTestBase is Test {
         view
         returns (ITurnstile.GenericMessage memory)
     {
-        ITurnstile.Call[] memory calls = new ITurnstile.Call[](1);
-        calls[0] = ITurnstile.Call({
-            target: address(hubWarehouseTerminal),
-            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (request, _messageGas(hubChainId)))
-        });
         return ITurnstile.GenericMessage({
-            sender: request.owner, calls: calls, deadline: request.deadline, salt: request.salt
+            sender: request.owner,
+            target: address(hubWarehouseTerminal),
+            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (request, _messageGas(hubChainId))),
+            deadline: request.deadline,
+            salt: request.salt
         });
     }
 

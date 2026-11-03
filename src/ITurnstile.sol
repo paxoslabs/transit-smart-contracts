@@ -19,14 +19,10 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 salt;
     }
 
-    struct Call {
-        address target;
-        bytes data;
-    }
-
     struct GenericMessage {
         address sender;
-        Call[] calls;
+        address target;
+        bytes data;
         uint256 deadline;
         bytes32 salt;
     }
@@ -56,9 +52,6 @@ interface ITurnstile is IMessagingReceiver {
     error LengthMismatch();
     error Expired();
     error BadSignature();
-    error NotSelf();
-
-    function CALL_TYPEHASH() external view returns (bytes32);
 
     function GENERIC_MESSAGE_TYPEHASH() external view returns (bytes32);
 
@@ -109,17 +102,15 @@ interface ITurnstile is IMessagingReceiver {
         payable
         returns (bytes32 messageId);
 
-    function sendGenericMessage(Call[] calldata calls, uint256 deadline, uint64 messageGas, bytes32 salt) external payable;
+    function sendGenericMessage(address target, bytes calldata data, uint256 deadline, uint64 messageGas, bytes32 salt) external payable;
 
     function facilitate(
         GenericMessage[] calldata calls,
         bytes[] calldata signatures,
-        uint256[][] calldata values
+        uint256[] calldata values
     )
         external
         payable;
-
-    function executeCalls(Call[] calldata calls, bytes32 accountId) external;
 
     function hashGenericMessage(GenericMessage calldata message) external view returns (bytes32);
 
@@ -148,7 +139,8 @@ interface ITurnstile is IMessagingReceiver {
         returns (uint256 fee);
 
     function quoteGenericMessage(
-        Call[] calldata calls,
+        address target,
+        bytes calldata data,
         uint256 deadline,
         uint64 messageGas,
         bytes32 salt
