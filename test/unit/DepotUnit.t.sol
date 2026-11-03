@@ -16,7 +16,14 @@ import { Turnstile } from "../../src/Turnstile.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE, TURNSTILE_ROLE, TERMINAL_ROLE, EPOCH_ROLE } from "../../src/helpers/Constants.sol";
+import {
+    ADMIN_ROLE,
+    MESSAGING_ADAPTER_ROLE,
+    SOLVER_ROLE,
+    TURNSTILE_ROLE,
+    TERMINAL_ROLE,
+    EPOCH_ROLE
+} from "../../src/helpers/Constants.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract DepotUnitTest is Test {
@@ -53,11 +60,12 @@ contract DepotUnitTest is Test {
         warehouse = new SpokeWarehouseTerminal(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userTerminal = new UserTerminal(address(depot), address(turnstile));
-        hubWarehouseTerminal = new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(turnstile));
-        spotSwapTerminal = new SpotSwapTerminal(address(authority), address(depot), _account(backend), address(turnstile));
+        hubWarehouseTerminal =
+            new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(turnstile));
+        spotSwapTerminal =
+            new SpotSwapTerminal(address(authority), address(depot), _account(backend), address(turnstile));
         usdc = ERC20(address(new MockERC20("USD Coin", "USDC", 6)));
         usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
-
 
         bytes4[] memory warehouseAdminSels = new bytes4[](1);
         warehouseAdminSels[0] = SpokeWarehouseTerminal.setAssetWhitelisted.selector;
@@ -153,7 +161,14 @@ contract DepotUnitTest is Test {
         depot.advanceEpoch(depot.settlementEpoch());
     }
 
-    function _transferRequest(address owner, address to, uint256 amount) internal returns (UserTerminal.TransferRequest memory) {
+    function _transferRequest(
+        address owner,
+        address to,
+        uint256 amount
+    )
+        internal
+        returns (UserTerminal.TransferRequest memory)
+    {
         return UserTerminal.TransferRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
@@ -167,7 +182,13 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _withdrawalRequest(address owner, uint256 amount) internal returns (HubWarehouseTerminal.WithdrawalRequest memory) {
+    function _withdrawalRequest(
+        address owner,
+        uint256 amount
+    )
+        internal
+        returns (HubWarehouseTerminal.WithdrawalRequest memory)
+    {
         return HubWarehouseTerminal.WithdrawalRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
@@ -206,7 +227,14 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _signFacilitated(ITurnstile.GenericMessage memory message, uint256 pk) internal view returns (bytes memory) {
+    function _signFacilitated(
+        ITurnstile.GenericMessage memory message,
+        uint256 pk
+    )
+        internal
+        view
+        returns (bytes memory)
+    {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericMessage(message));
         return abi.encodePacked(r, s, v);
     }
@@ -250,9 +278,19 @@ contract DepotUnitTest is Test {
 
         bytes32 requestId = userTerminal.hashTransferRequest(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(userTerminal), abi.encodeCall(UserTerminal.reserveAndRequest, (requestId, request.assetId, request.amount)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(userTerminal),
+            abi.encodeCall(UserTerminal.reserveAndRequest, (requestId, request.assetId, request.amount)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
-        assertEq(userTerminal.requestStatus(_account(alice), requestId), depot.settlementEpoch() + 1, "request: status not pending next epoch");
+        assertEq(
+            userTerminal.requestStatus(_account(alice), requestId),
+            depot.settlementEpoch() + 1,
+            "request: status not pending next epoch"
+        );
         assertEq(_depotBalance(alice), 100e6, "request: balance moved early");
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
 
@@ -265,7 +303,11 @@ contract DepotUnitTest is Test {
         vm.prank(bob);
         userTerminal.executeTransfer(request);
 
-        assertEq(userTerminal.requestStatus(_account(alice), requestId), userTerminal.EXECUTED(), "execute: status not executed");
+        assertEq(
+            userTerminal.requestStatus(_account(alice), requestId),
+            userTerminal.EXECUTED(),
+            "execute: status not executed"
+        );
         assertEq(_depotBalance(alice), 40e6, "execute: alice not debited");
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
 
@@ -278,7 +320,9 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         UserTerminal.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
-        bytes memory data = abi.encodeCall(UserTerminal.reserveAndRequest, (userTerminal.hashTransferRequest(request), request.assetId, request.amount));
+        bytes memory data = abi.encodeCall(
+            UserTerminal.reserveAndRequest, (userTerminal.hashTransferRequest(request), request.assetId, request.amount)
+        );
 
         vm.prank(alice);
         turnstile.sendGenericMessage(address(userTerminal), data, block.timestamp, 0, bytes32(++requestSalt));
@@ -296,9 +340,19 @@ contract DepotUnitTest is Test {
 
         bytes32 requestId = hubWarehouseTerminal.hashWithdrawalRequest(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(userTerminal), abi.encodeCall(UserTerminal.reserveAndRequest, (requestId, request.assetId, request.amount)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(userTerminal),
+            abi.encodeCall(UserTerminal.reserveAndRequest, (requestId, request.assetId, request.amount)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
-        assertEq(userTerminal.requestStatus(_account(alice), requestId), depot.settlementEpoch() + 1, "request: status not pending next epoch");
+        assertEq(
+            userTerminal.requestStatus(_account(alice), requestId),
+            depot.settlementEpoch() + 1,
+            "request: status not pending next epoch"
+        );
         assertEq(usdc.balanceOf(alice), 0, "request: alice received usdc early");
 
         _advanceEpoch();
@@ -306,7 +360,11 @@ contract DepotUnitTest is Test {
         vm.prank(bob);
         hubWarehouseTerminal.executeWithdrawal(request, 0);
 
-        assertEq(hubWarehouseTerminal.requestStatus(_account(alice), requestId), hubWarehouseTerminal.EXECUTED(), "execute: status not executed");
+        assertEq(
+            hubWarehouseTerminal.requestStatus(_account(alice), requestId),
+            hubWarehouseTerminal.EXECUTED(),
+            "execute: status not executed"
+        );
         assertEq(_depotBalance(alice), 60e6, "execute: alice depot balance not burned");
         assertEq(usdc.balanceOf(alice), 40e6, "execute: alice did not receive usdc");
     }
@@ -315,7 +373,10 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         HubWarehouseTerminal.WithdrawalRequest memory request = _withdrawalRequest(alice, 40e6);
 
-        bytes memory data = abi.encodeCall(UserTerminal.reserveAndRequest, (hubWarehouseTerminal.hashWithdrawalRequest(request), request.assetId, request.amount));
+        bytes memory data = abi.encodeCall(
+            UserTerminal.reserveAndRequest,
+            (hubWarehouseTerminal.hashWithdrawalRequest(request), request.assetId, request.amount)
+        );
 
         vm.prank(alice);
         turnstile.sendGenericMessage(address(userTerminal), data, block.timestamp, 0, bytes32(++requestSalt));
@@ -333,7 +394,13 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapTerminal.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SpotSwapTerminal.preApprove, (order)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SpotSwapTerminal.preApprove, (order)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
         assertTrue(spotSwapTerminal.preApproved(orderHash), "preApprove: hash not marked");
 
@@ -356,12 +423,28 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapTerminal.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SpotSwapTerminal.preApprove, (order)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SpotSwapTerminal.preApprove, (order)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SwapTerminal.requestOrderCancellation, (orderHash)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SwapTerminal.requestOrderCancellation, (orderHash)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
-        assertEq(spotSwapTerminal.cancelledFrom(_account(alice), orderHash), depot.settlementEpoch() + 1, "cancel: not effective next epoch");
+        assertEq(
+            spotSwapTerminal.cancelledFrom(_account(alice), orderHash),
+            depot.settlementEpoch() + 1,
+            "cancel: not effective next epoch"
+        );
 
         _settle(order, "", 60e6, "");
 
@@ -378,7 +461,13 @@ contract DepotUnitTest is Test {
         orderHash = spotSwapTerminal.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SpotSwapTerminal.preApprove, (order)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SpotSwapTerminal.preApprove, (order)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
     }
 
     function testFacilitatedOrderCancellationIsImmediateAndPaysFee() public {
@@ -387,7 +476,11 @@ contract DepotUnitTest is Test {
 
         _facilitate(message, _signFacilitated(message, alicePk));
 
-        assertEq(spotSwapTerminal.cancelledFrom(_account(alice), orderHash), depot.settlementEpoch(), "facilitate: cancel not immediate");
+        assertEq(
+            spotSwapTerminal.cancelledFrom(_account(alice), orderHash),
+            depot.settlementEpoch(),
+            "facilitate: cancel not immediate"
+        );
         /// TODO: Restore fee assertions once facilitate charges fees.
 
         _settle(order, "", 100e6, abi.encodeWithSelector(SwapTerminal.Cancelled.selector, orderHash));
@@ -408,14 +501,28 @@ contract DepotUnitTest is Test {
         (, bytes32 orderHash) = _preApprovedOrder();
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SwapTerminal.requestOrderCancellation, (orderHash)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SwapTerminal.requestOrderCancellation, (orderHash)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
 
-        assertEq(spotSwapTerminal.cancelledFrom(_account(alice), orderHash), depot.settlementEpoch() + 1, "setup: user cancel not pending");
+        assertEq(
+            spotSwapTerminal.cancelledFrom(_account(alice), orderHash),
+            depot.settlementEpoch() + 1,
+            "setup: user cancel not pending"
+        );
 
         ITurnstile.GenericMessage memory message = _facilitatedCancellation(orderHash);
         _facilitate(message, _signFacilitated(message, alicePk));
 
-        assertEq(spotSwapTerminal.cancelledFrom(_account(alice), orderHash), depot.settlementEpoch(), "facilitate: did not take earliest epoch");
+        assertEq(
+            spotSwapTerminal.cancelledFrom(_account(alice), orderHash),
+            depot.settlementEpoch(),
+            "facilitate: did not take earliest epoch"
+        );
     }
 
     function testFacilitatedOrderCancellationBadSignatureReverts() public {
@@ -427,7 +534,11 @@ contract DepotUnitTest is Test {
         vm.expectRevert(ITurnstile.BadSignature.selector);
         _facilitate(message, sig);
 
-        assertEq(spotSwapTerminal.cancelledFrom(_account(alice), orderHash), 0, "bad sig: cancellation recorded despite revert");
+        assertEq(
+            spotSwapTerminal.cancelledFrom(_account(alice), orderHash),
+            0,
+            "bad sig: cancellation recorded despite revert"
+        );
     }
 
     // ---------------------------------------------------------------- auth
@@ -437,7 +548,13 @@ contract DepotUnitTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(SwapTerminal.NotOwner.selector);
-        turnstile.sendGenericMessage(address(spotSwapTerminal), abi.encodeCall(SpotSwapTerminal.preApprove, (order)), block.timestamp, 0, bytes32(++requestSalt));
+        turnstile.sendGenericMessage(
+            address(spotSwapTerminal),
+            abi.encodeCall(SpotSwapTerminal.preApprove, (order)),
+            block.timestamp,
+            0,
+            bytes32(++requestSalt)
+        );
     }
 
     function _depotBalance(address user) internal view returns (uint256) {

@@ -15,7 +15,9 @@ abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
     mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
     mapping(bytes32 orderHash => bool) public preApproved;
 
-    event OrderCancellationRequested(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch);
+    event OrderCancellationRequested(
+        bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
+    );
     event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash);
     event Filled(bytes32 indexed orderHash, bytes32 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
 

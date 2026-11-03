@@ -21,7 +21,11 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         });
     }
 
-    function _genericMessage(HubWarehouseTerminal.WithdrawalRequest memory req) internal view returns (ITurnstile.GenericMessage memory) {
+    function _genericMessage(HubWarehouseTerminal.WithdrawalRequest memory req)
+        internal
+        view
+        returns (ITurnstile.GenericMessage memory)
+    {
         return ITurnstile.GenericMessage({
             sender: req.owner,
             target: address(hubWarehouseTerminal),
@@ -48,7 +52,12 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
     // ---------------------------------------------------------------- depot auth
 
     function testOnlyWarehouseCanMint() public {
-        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({ asset: address(usdc), amount: 1e6, toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory), salt: bytes32(uint256(1)) });
+        ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
+            asset: address(usdc),
+            amount: 1e6,
+            toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory),
+            salt: bytes32(uint256(1))
+        });
         bytes memory payload = abi.encode(ITurnstile.MessageType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
@@ -70,7 +79,14 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         vm.prank(backend);
         _withdraw(req, sig);
 
-        assertEq(depot.balanceOf(TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))), 0, "withdraw: depot balance not burned");
+        assertEq(
+            depot.balanceOf(
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
+            ),
+            0,
+            "withdraw: depot balance not burned"
+        );
         assertEq(usdc.balanceOf(alice), 100e6, "withdraw: alice did not receive usdc back");
         assertEq(usdc.balanceOf(vault), 0, "withdraw: vault did not release usdc");
     }

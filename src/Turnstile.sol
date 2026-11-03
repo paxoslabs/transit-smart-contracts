@@ -13,9 +13,8 @@ import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
-    bytes32 public constant GENERIC_MESSAGE_TYPEHASH = keccak256(
-        "GenericMessage(address sender,address target,bytes data,uint256 deadline,bytes32 salt)"
-    );
+    bytes32 public constant GENERIC_MESSAGE_TYPEHASH =
+        keccak256("GenericMessage(address sender,address target,bytes data,uint256 deadline,bytes32 salt)");
 
     address public immutable SPOKE_WAREHOUSE_TERMINAL;
 
@@ -77,7 +76,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Deposit,
-            abi.encode(DepositMessage({ asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce) }))
+            abi.encode(
+                DepositMessage({
+                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
+                })
+            )
         );
     }
 
@@ -120,7 +123,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt }))
+            abi.encode(
+                GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt })
+            )
         );
     }
 
@@ -190,7 +195,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             chainId,
             messageGas,
             MessageType.Deposit,
-            abi.encode(DepositMessage({ asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(outboundNonce + 1) }))
+            abi.encode(
+                DepositMessage({
+                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(outboundNonce + 1)
+                })
+            )
         );
     }
 
@@ -230,7 +239,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt }))
+            abi.encode(
+                GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt })
+            )
         );
     }
 
@@ -314,12 +325,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (hubWarehouseTerminal == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = hubWarehouseTerminal.call(abi.encodeCall(HubWarehouseTerminal.receiveDeposit, (sourceChainId, message.asset, message.amount, message.toAccountId)));
+            (ok, result) = hubWarehouseTerminal.call(
+                abi.encodeCall(
+                    HubWarehouseTerminal.receiveDeposit,
+                    (sourceChainId, message.asset, message.amount, message.toAccountId)
+                )
+            );
         } else if (messageType == MessageType.Withdrawal) {
             if (SPOKE_WAREHOUSE_TERMINAL == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
-            (ok, result) = SPOKE_WAREHOUSE_TERMINAL.call(abi.encodeCall(SpokeWarehouseTerminal.receiveWithdrawal, (message.asset, message.amount, message.to)));
+            (ok, result) = SPOKE_WAREHOUSE_TERMINAL.call(
+                abi.encodeCall(SpokeWarehouseTerminal.receiveWithdrawal, (message.asset, message.amount, message.to))
+            );
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (block.timestamp > message.deadline) {
@@ -330,7 +348,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 return;
             }
             gasBefore = gasleft();
-            (ok, result) = _executeCall(message.target, message.data, 0, TransitTokenLib.formatAccountId(sourceChainId, message.sender));
+            (ok, result) = _executeCall(
+                message.target, message.data, 0, TransitTokenLib.formatAccountId(sourceChainId, message.sender)
+            );
         }
         if (ok) return;
         if (sourceChainId == block.chainid) {

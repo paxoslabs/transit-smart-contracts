@@ -52,21 +52,24 @@ contract HubWarehouseTerminal is AccessManaged, TurnstileGated {
         USER_TERMINAL = _userTerminal;
     }
 
-    function receiveDeposit(uint64 sourceChainId, address asset, uint256 amount, bytes32 toAccountId) external restricted {
+    function receiveDeposit(
+        uint64 sourceChainId,
+        address asset,
+        uint256 amount,
+        bytes32 toAccountId
+    )
+        external
+        restricted
+    {
         IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    function executeWithdrawal(
-        WithdrawalRequest calldata request,
-        uint64 messageGas
-    )
-        external
-        payable
-    {
+    function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable {
         bytes32 requestId = hashWithdrawalRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
 
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
+        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving
+        /// funds.
         if (block.timestamp > request.deadline) {
             emit WithdrawalExecuted(requestId, 0);
             return;
@@ -116,7 +119,8 @@ contract HubWarehouseTerminal is AccessManaged, TurnstileGated {
         if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
-    /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other reservations and revert InsufficientBalance.
+    /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other
+    /// reservations and revert InsufficientBalance.
     function _fillAmount(
         bytes32 accountId,
         bytes32 assetId,
@@ -131,7 +135,8 @@ contract HubWarehouseTerminal is AccessManaged, TurnstileGated {
         if (!partiallyFillable && amount < requested) revert InsufficientBalance();
     }
 
-    /// TODO: Decide request-state ownership. Currently effectiveness is read from UserTerminal.requestStatus (set by reserveAndRequest) and execution is tracked here.
+    /// TODO: Decide request-state ownership. Currently effectiveness is read from UserTerminal.requestStatus (set by
+    /// reserveAndRequest) and execution is tracked here.
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
         if (_senderAccountId() == ownerAccountId) return;

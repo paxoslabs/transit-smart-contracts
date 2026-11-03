@@ -12,7 +12,13 @@ import { UserTerminal } from "../../src/terminal/UserTerminal.sol";
 import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, SOLVER_ROLE, TURNSTILE_ROLE, TERMINAL_ROLE } from "../../src/helpers/Constants.sol";
+import {
+    ADMIN_ROLE,
+    MESSAGING_ADAPTER_ROLE,
+    SOLVER_ROLE,
+    TURNSTILE_ROLE,
+    TERMINAL_ROLE
+} from "../../src/helpers/Constants.sol";
 
 abstract contract WarehouseTerminalUnitBase is Test {
 
@@ -48,12 +54,12 @@ abstract contract WarehouseTerminalUnitBase is Test {
         warehouse = new SpokeWarehouseTerminal(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userTerminal = new UserTerminal(address(depot), address(turnstile));
-        hubWarehouseTerminal = new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(turnstile));
+        hubWarehouseTerminal =
+            new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(turnstile));
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
         adminSels[0] = SpokeWarehouseTerminal.setAssetWhitelisted.selector;
-
 
         bytes4[] memory facilitateSels = new bytes4[](1);
         facilitateSels[0] = Turnstile.facilitate.selector;

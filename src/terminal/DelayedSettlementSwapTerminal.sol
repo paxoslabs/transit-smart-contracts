@@ -113,12 +113,13 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
             uint256 delivered = leg.amount - leg.owed;
             if (delivered != 0) IDepot(DEPOT).transferFrom(terminalAccountId, leg.accountId, leg.assetId, delivered);
             if (leg.collateral != 0) {
-                IDepot(DEPOT).transferFrom(
-                    terminalAccountId,
-                    leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
-                    leg.assetId,
-                    leg.collateral
-                );
+                IDepot(DEPOT)
+                    .transferFrom(
+                        terminalAccountId,
+                        leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
+                        leg.assetId,
+                        leg.collateral
+                    );
             }
         }
 
@@ -226,7 +227,10 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
                 collateral: collateral
             });
             deltas[index * 2 + s] = IDepot.TransferDelta(
-                ownerAccountIds[orderIndex], terminalAccountId, order.sellTokenId, order.collateralized ? collateral : amount
+                ownerAccountIds[orderIndex],
+                terminalAccountId,
+                order.sellTokenId,
+                order.collateralized ? collateral : amount
             );
         }
 
@@ -240,7 +244,8 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
 
         bytes32 terminalAccountId = _terminalAccountId();
         for (uint256 s; s < 2; s++) {
-            IDepot(DEPOT).transferFrom(terminalAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
+            IDepot(DEPOT)
+                .transferFrom(terminalAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
             if (legs[s].collateral != 0) {
                 IDepot(DEPOT).transferFrom(terminalAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
             }

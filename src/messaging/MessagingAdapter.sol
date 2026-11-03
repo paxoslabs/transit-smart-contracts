@@ -44,13 +44,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     error MessagesNotAllowedFrom(uint64 chainId);
     error MessagesNotAllowedTo(uint64 chainId);
 
-    constructor(
-        address _authority,
-        address _endpoint,
-        uint64 _hubChainId
-    )
-        AccessManaged(_authority)
-    {
+    constructor(address _authority, address _endpoint, uint64 _hubChainId) AccessManaged(_authority) {
         ENDPOINT = _endpoint;
         HUB_CHAIN_ID = _hubChainId;
     }
@@ -71,9 +65,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         peers[chainId] =
             PeerConfig(peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
         chainIdForRemoteId[remoteId] = chainId;
-        emit PeerSet(
-            chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo
-        );
+        emit PeerSet(chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
     }
 
     function removePeer(uint64 chainId) external restricted {
@@ -95,11 +87,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         peers[chainId].messageGasLimit = messageGasLimit;
     }
 
-    function send(
-        uint64 chainId,
-        uint64 gasLimit,
-        bytes calldata payload
-    )
+    function send(uint64 chainId, uint64 gasLimit, bytes calldata payload)
         external
         payable
         returns (bytes32 messageId)

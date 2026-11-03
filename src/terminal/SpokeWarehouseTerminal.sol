@@ -20,14 +20,7 @@ contract SpokeWarehouseTerminal is AccessManaged {
     error ZeroAssets();
     error AssetNotWhitelisted();
 
-    constructor(
-        address _authority,
-        address _vault,
-        address _turnstile,
-        uint64 _hubChainId
-    )
-        AccessManaged(_authority)
-    {
+    constructor(address _authority, address _vault, address _turnstile, uint64 _hubChainId) AccessManaged(_authority) {
         if (_vault == address(0)) revert VaultUnset();
         VAULT = _vault;
         TURNSTILE = _turnstile;
@@ -44,16 +37,7 @@ contract SpokeWarehouseTerminal is AccessManaged {
 
     // ========================================= USER =========================================
 
-    function deposit(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
-        uint64 messageGas
-    )
-        external
-        payable
-    {
+    function deposit(address asset, uint256 amount, uint64 toChainId, address to, uint64 messageGas) external payable {
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
 

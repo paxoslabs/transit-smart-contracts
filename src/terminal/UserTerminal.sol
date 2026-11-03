@@ -60,21 +60,24 @@ contract UserTerminal is TurnstileGated {
         bytes32 requestId = hashTransferRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
 
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving funds.
+        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving
+        /// funds.
         if (block.timestamp > request.deadline) {
             emit TransferExecuted(requestId, 0);
             return;
         }
 
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        IDepot(DEPOT).transferFrom(
-            accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
-        );
+        IDepot(DEPOT)
+            .transferFrom(
+                accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
+            );
 
         emit TransferExecuted(requestId, amount);
     }
 
-    /// TODO: Decide hashing. Currently plain struct hash with no EIP-712 domain, so IDs are the same across terminal versions.
+    /// TODO: Decide hashing. Currently plain struct hash with no EIP-712 domain, so IDs are the same across terminal
+    /// versions.
     function hashTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -109,7 +112,8 @@ contract UserTerminal is TurnstileGated {
         if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
-    /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other reservations and revert InsufficientBalance.
+    /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other
+    /// reservations and revert InsufficientBalance.
     function _fillAmount(
         bytes32 accountId,
         bytes32 assetId,

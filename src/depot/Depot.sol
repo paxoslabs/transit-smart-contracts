@@ -40,7 +40,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
     {
         _requireNotPaused();
         if (fromAccountId == bytes32(0) || toAccountId == bytes32(0)) revert ZeroAddress();
-        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) revert InsufficientBalance();
+        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
+            revert InsufficientBalance();
+        }
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
@@ -82,7 +84,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
     function burn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
         if (fromAccountId == bytes32(0)) revert ZeroAddress();
-        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) revert InsufficientBalance();
+        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
+            revert InsufficientBalance();
+        }
         _transfer(fromAccountId, bytes32(0), assetId, amount);
     }
 

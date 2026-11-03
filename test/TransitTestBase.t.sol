@@ -117,14 +117,16 @@ contract TransitTestBase is Test {
             depot = new Depot(address(authority));
             turnstile = chainTurnstile;
         } else {
-            chainTurnstile =
-                new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
+            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        SpokeWarehouseTerminal warehouse = new SpokeWarehouseTerminal(address(authority), vault, address(chainTurnstile), hubChainId);
+        SpokeWarehouseTerminal warehouse =
+            new SpokeWarehouseTerminal(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
             userTerminal = new UserTerminal(address(depot), address(chainTurnstile));
-            hubWarehouseTerminal = new HubWarehouseTerminal(address(authority), address(depot), address(userTerminal), address(chainTurnstile));
+            hubWarehouseTerminal = new HubWarehouseTerminal(
+                address(authority), address(depot), address(userTerminal), address(chainTurnstile)
+            );
         }
 
         authorities[chain] = authority;
@@ -225,7 +227,6 @@ contract TransitTestBase is Test {
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseTerminal));
         bytes4[] memory userTerminalSels = new bytes4[](5);
         userTerminalSels[0] = Depot.reserve.selector;
@@ -351,7 +352,9 @@ contract TransitTestBase is Test {
     }
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
-        return depot.balanceOf(TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset)));
+        return depot.balanceOf(
+            TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset))
+        );
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
@@ -431,7 +434,14 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(HubWarehouseTerminal.WithdrawalRequest memory request, uint256 pk) internal view returns (bytes memory) {
+    function _signWithdraw(
+        HubWarehouseTerminal.WithdrawalRequest memory request,
+        uint256 pk
+    )
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 digest = turnstile.hashGenericMessage(_facilitatedWithdrawal(request));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
