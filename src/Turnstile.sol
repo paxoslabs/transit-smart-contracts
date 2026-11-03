@@ -23,9 +23,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     address public hubWarehouseTerminal;
     uint256 public outboundNonce;
 
-    mapping(bytes32 messageHash => bool) public messageConsumed;
+    mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
-    mapping(bytes32 messageHash => bool) public failed;
 
     constructor(address _authority, address _spokeWarehouseTerminal) AccessManaged(_authority) {
         SPOKE_WAREHOUSE_TERMINAL = _spokeWarehouseTerminal;
@@ -142,7 +141,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (block.timestamp > message.deadline) revert Expired();
             bytes32 digest = hashGenericMessage(message);
             if (ECDSA.recoverCalldata(digest, signatures[i]) != message.sender) revert BadSignature();
-            _consume(digestMessage(uint64(block.chainid), MessageType.Generic, abi.encode(message)));
+            bytes32 messageHash = digestMessage(uint64(block.chainid), MessageType.Generic, abi.encode(message));
+            if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
+            messageStatus[messageHash] = MessageStatus.Executed;
             bytes32 senderAccountId = TransitTokenLib.formatFacilitatedAccountId(
                 TransitTokenLib.formatAccountId(uint64(block.chainid), message.sender)
             );
@@ -236,8 +237,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted {
         _requireNotPaused();
         bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
-        if (!failed[messageHash]) revert NotFailed();
-        delete failed[messageHash];
+        if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
+        messageStatus[messageHash] = MessageStatus.Executed;
         emit MessageRetried(sourceChainId, messageType, messageHash);
         _execute(sourceChainId, messageType, body);
     }
@@ -285,14 +286,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {
         _requireNotPaused();
-        _consume(digestMessage(chainId, messageType, body));
-        _execute(chainId, messageType, body);
-    }
-
-    function _consume(bytes32 messageHash) internal {
+        bytes32 messageHash = digestMessage(chainId, messageType, body);
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        if (messageConsumed[messageHash]) revert MessageReplay();
-        messageConsumed[messageHash] = true;
+        if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
+        messageStatus[messageHash] = MessageStatus.Executed;
+        _execute(chainId, messageType, body);
     }
 
     function _executeCall(
@@ -326,7 +324,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (block.timestamp > message.deadline) {
                 if (sourceChainId == block.chainid) revert Expired();
-                emit MessageExpired(sourceChainId, messageType, digestMessage(sourceChainId, messageType, body));
+                bytes32 expiredHash = digestMessage(sourceChainId, messageType, body);
+                messageStatus[expiredHash] = MessageStatus.Expired;
+                emit MessageExpired(sourceChainId, messageType, expiredHash);
                 return;
             }
             gasBefore = gasleft();
@@ -340,7 +340,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
         bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
-        failed[messageHash] = true;
+        messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(sourceChainId, messageType, messageHash, body);
     }
 

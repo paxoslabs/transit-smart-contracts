@@ -11,6 +11,13 @@ interface ITurnstile is IMessagingReceiver {
         Generic
     }
 
+    enum MessageStatus {
+        None,
+        Failed,
+        Expired,
+        Executed
+    }
+
     struct DepositMessage {
         address asset;
         uint256 amount;
@@ -62,11 +69,9 @@ interface ITurnstile is IMessagingReceiver {
 
     function outboundNonce() external view returns (uint256);
 
-    function messageConsumed(bytes32 messageHash) external view returns (bool);
+    function messageStatus(bytes32 messageHash) external view returns (MessageStatus);
 
     function routable(address target, bytes4 selector) external view returns (bool);
-
-    function failed(bytes32 messageHash) external view returns (bool);
 
 
     function setMessagingAdapter(address adapter) external;
