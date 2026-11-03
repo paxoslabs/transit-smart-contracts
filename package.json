@@ -1,0 +1,11 @@
+{
+  "name": "transit-contracts",
+  "private": true,
+  "license": "BUSL-1.1",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}
