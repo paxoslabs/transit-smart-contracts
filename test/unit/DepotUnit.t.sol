@@ -128,7 +128,7 @@ contract DepotUnitTest is Test {
         authority.grantRole(TERMINAL_ROLE, address(spotSwapTerminal));
         turnstile.setRoutable(address(userTerminal), routedSels, true);
         turnstile.setRoutable(address(spotSwapTerminal), swapRoutedSels, true);
-        turnstile.setMessagingAdapter(local);
+        turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
 
         vm.prank(vault);

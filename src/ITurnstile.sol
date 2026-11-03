@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "./messaging/IMessagingReceiver.sol";
 
 interface ITurnstile is IMessagingReceiver {
@@ -57,7 +56,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function SPOKE_WAREHOUSE_TERMINAL() external view returns (address);
 
-    function messagingAdapter() external view returns (IMessagingAdapter);
+    function messagingAdapter() external view returns (address);
 
     function hubWarehouseTerminal() external view returns (address);
 
@@ -70,7 +69,7 @@ interface ITurnstile is IMessagingReceiver {
     function failed(bytes32 messageHash) external view returns (bool);
 
 
-    function setMessagingAdapter(IMessagingAdapter adapter) external;
+    function setMessagingAdapter(address adapter) external;
 
     function setHubWarehouseTerminal(address _hubWarehouseTerminal) external;
 

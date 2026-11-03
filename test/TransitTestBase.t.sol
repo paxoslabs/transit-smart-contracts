@@ -221,7 +221,7 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
 
         authority.grantRole(TURNSTILE_ROLE, address(chainTurnstile));
-        chainTurnstile.setMessagingAdapter(adapters[chain]);
+        chainTurnstile.setMessagingAdapter(address(adapters[chain]));
     }
 
     function _wireDepot(TransitAuthority authority) internal {

@@ -19,7 +19,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     address public immutable SPOKE_WAREHOUSE_TERMINAL;
 
-    IMessagingAdapter public messagingAdapter;
+    address public messagingAdapter;
     address public hubWarehouseTerminal;
     uint256 public outboundNonce;
 
@@ -37,9 +37,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     // ========================================= ADMIN =========================================
 
-    function setMessagingAdapter(IMessagingAdapter adapter) external restricted {
+    function setMessagingAdapter(address adapter) external restricted {
         messagingAdapter = adapter;
-        emit MessagingAdapterUpdated(address(adapter));
+        emit MessagingAdapterUpdated(adapter);
     }
 
     function setHubWarehouseTerminal(address _hubWarehouseTerminal) external restricted {
@@ -115,10 +115,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (bytes32 messageHash)
     {
         _requireNotPaused();
-        IMessagingAdapter adapter = messagingAdapter;
-        if (address(adapter) == address(0)) revert UnknownAdapter();
+        address adapter = messagingAdapter;
+        if (adapter == address(0)) revert UnknownAdapter();
         messageHash = _sendMessage(
-            adapter.HUB_CHAIN_ID(),
+            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
             abi.encode(GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt }))
@@ -223,10 +223,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         view
         returns (uint256 fee)
     {
-        IMessagingAdapter adapter = messagingAdapter;
-        if (address(adapter) == address(0)) revert UnknownAdapter();
+        address adapter = messagingAdapter;
+        if (adapter == address(0)) revert UnknownAdapter();
         return _quote(
-            adapter.HUB_CHAIN_ID(),
+            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
             abi.encode(GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt }))
@@ -263,9 +263,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (msg.value != 0) revert NoFee();
             _handleMessage(chainId, messageType, body);
         } else {
-            IMessagingAdapter adapter = messagingAdapter;
-            if (address(adapter) == address(0)) revert UnknownAdapter();
-            adapter.send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
+            address adapter = messagingAdapter;
+            if (adapter == address(0)) revert UnknownAdapter();
+            IMessagingAdapter(adapter).send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
         }
     }
 
@@ -280,7 +280,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint256)
     {
         if (chainId == block.chainid) return 0;
-        return messagingAdapter.quote(chainId, messageGas, abi.encode(messageType, body));
+        return IMessagingAdapter(messagingAdapter).quote(chainId, messageGas, abi.encode(messageType, body));
     }
 
     function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {

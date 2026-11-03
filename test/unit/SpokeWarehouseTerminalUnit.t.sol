@@ -76,7 +76,7 @@ contract SpokeWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
 
-        spokeTurnstile.setMessagingAdapter(spokeAdapter);
+        spokeTurnstile.setMessagingAdapter(address(spokeAdapter));
         spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);
         spokeAdapter.setPeer(HUB_CHAIN_ID, bytes32(uint256(uint160(address(hubAdapter)))), HUB_CHAIN_ID, 200_000, 0, true, true);
 

@@ -125,7 +125,7 @@ abstract contract WarehouseTerminalUnitBase is Test {
         bytes4[] memory executeSels = new bytes4[](1);
         executeSels[0] = HubWarehouseTerminal.executeWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseTerminal), executeSels, true);
-        turnstile.setMessagingAdapter(local);
+        turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
     }
 
