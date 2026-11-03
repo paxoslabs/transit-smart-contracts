@@ -46,6 +46,8 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
     uint256 public constant FILL_RATIO = 100;
     uint256 public constant SETTLEMENT_PERIOD = 30 minutes;
 
+    bytes32 public immutable PENALTY_RECIPIENT_ACCOUNT_ID;
+
     uint256 public escrowCount;
     mapping(uint256 escrowId => Leg[2]) public escrowLegs;
     mapping(uint256 escrowId => uint256) public escrowDeadline;
@@ -64,10 +66,13 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         address _authority,
         address _depot,
         bytes32 _surplusRecipientAccountId,
+        bytes32 _penaltyRecipientAccountId,
         address _turnstile
     )
         SwapTerminal(_authority, _depot, _surplusRecipientAccountId, _turnstile)
-    { }
+    {
+        PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;
+    }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
         return ("Transit DelayedSettlementSwapTerminal", "1");
@@ -110,7 +115,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
             if (leg.collateral != 0) {
                 IDepot(DEPOT).transferFrom(
                     terminalAccountId,
-                    leg.owed == 0 ? leg.accountId : SURPLUS_RECIPIENT_ACCOUNT_ID,
+                    leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
                     leg.assetId,
                     leg.collateral
                 );
