@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { HubWarehouseTerminal } from "../../src/terminal/HubWarehouseTerminal.sol";
+import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
-import { WarehouseTerminalUnitBase } from "./WarehouseTerminalUnitBase.t.sol";
+import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
-contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
+contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
-    function _request(address owner, uint256 amount) internal returns (HubWarehouseTerminal.WithdrawalRequest memory) {
-        return HubWarehouseTerminal.WithdrawalRequest({
+    function _request(address owner, uint256 amount) internal returns (HubWarehouseConductor.WithdrawalRequest memory) {
+        return HubWarehouseConductor.WithdrawalRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -21,21 +21,21 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         });
     }
 
-    function _genericMessage(HubWarehouseTerminal.WithdrawalRequest memory req)
+    function _genericMessage(HubWarehouseConductor.WithdrawalRequest memory req)
         internal
         view
         returns (ITurnstile.GenericMessage memory)
     {
         return ITurnstile.GenericMessage({
             sender: req.owner,
-            target: address(hubWarehouseTerminal),
-            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (req, 0)),
+            target: address(hubWarehouseConductor),
+            data: abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (req, 0)),
             deadline: req.deadline,
             salt: req.salt
         });
     }
 
-    function _withdraw(HubWarehouseTerminal.WithdrawalRequest memory req, bytes memory sig) internal {
+    function _withdraw(HubWarehouseConductor.WithdrawalRequest memory req, bytes memory sig) internal {
         ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
         calls[0] = _genericMessage(req);
         bytes[] memory sigs = new bytes[](1);
@@ -44,7 +44,11 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         turnstile.facilitate(calls, sigs, values);
     }
 
-    function _sign(HubWarehouseTerminal.WithdrawalRequest memory req, uint256 pk) internal view returns (bytes memory) {
+    function _sign(HubWarehouseConductor.WithdrawalRequest memory req, uint256 pk)
+        internal
+        view
+        returns (bytes memory)
+    {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericMessage(_genericMessage(req)));
         return abi.encodePacked(r, s, v);
     }
@@ -65,14 +69,14 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
 
         vm.prank(mallory);
         vm.expectRevert();
-        hubWarehouseTerminal.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
+        hubWarehouseConductor.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
     }
 
     // ---------------------------------------------------------------- withdraw
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        HubWarehouseTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
+        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 
@@ -93,7 +97,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        HubWarehouseTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
+        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
@@ -104,7 +108,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        HubWarehouseTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
+        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
@@ -117,7 +121,7 @@ contract HubWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        HubWarehouseTerminal.WithdrawalRequest memory req = _request(alice, 100e6);
+        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 

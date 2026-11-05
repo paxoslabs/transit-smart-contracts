@@ -41,7 +41,7 @@ interface ITurnstile is IMessagingReceiver {
     }
 
     event MessagingAdapterUpdated(address indexed adapter);
-    event HubWarehouseTerminalUpdated(address indexed hubWarehouseTerminal);
+    event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
     event MessageFailed(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash, bytes body);
     event MessageRetried(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
     event MessageExpired(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
@@ -59,11 +59,11 @@ interface ITurnstile is IMessagingReceiver {
 
     function GENERIC_MESSAGE_TYPEHASH() external view returns (bytes32);
 
-    function SPOKE_WAREHOUSE_TERMINAL() external view returns (address);
+    function SPOKE_WAREHOUSE_CONDUCTOR() external view returns (address);
 
     function messagingAdapter() external view returns (address);
 
-    function hubWarehouseTerminal() external view returns (address);
+    function hubWarehouseConductor() external view returns (address);
 
     function outboundNonce() external view returns (uint256);
 
@@ -73,7 +73,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function setMessagingAdapter(address adapter) external;
 
-    function setHubWarehouseTerminal(address _hubWarehouseTerminal) external;
+    function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
 

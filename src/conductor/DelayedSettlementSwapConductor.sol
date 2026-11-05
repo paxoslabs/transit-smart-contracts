@@ -5,9 +5,9 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { SwapTerminal } from "./SwapTerminal.sol";
+import { SwapConductor } from "./SwapConductor.sol";
 
-contract DelayedSettlementSwapTerminal is SwapTerminal {
+contract DelayedSettlementSwapConductor is SwapConductor {
 
     /// TODO: Decide the name of `collateralized` (true: posts sellAmount / FILL_RATIO now, delivers sellAmount later).
     struct DelayedSettlementOrder {
@@ -69,13 +69,13 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         bytes32 _penaltyRecipientAccountId,
         address _turnstile
     )
-        SwapTerminal(_authority, _depot, _surplusRecipientAccountId, _turnstile)
+        SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     {
         PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit DelayedSettlementSwapTerminal", "1");
+        return ("Transit DelayedSettlementSwapConductor", "1");
     }
 
     // ========================================= USER =========================================
@@ -95,7 +95,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         if (amount > leg.owed) revert ExceedsOwed();
         leg.owed -= amount;
 
-        IDepot(DEPOT).transferFrom(leg.accountId, _terminalAccountId(), leg.assetId, amount);
+        IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
 
         if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
@@ -107,15 +107,15 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
-        bytes32 terminalAccountId = _terminalAccountId();
+        bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             Leg memory leg = legs[s];
             uint256 delivered = leg.amount - leg.owed;
-            if (delivered != 0) IDepot(DEPOT).transferFrom(terminalAccountId, leg.accountId, leg.assetId, delivered);
+            if (delivered != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, delivered);
             if (leg.collateral != 0) {
                 IDepot(DEPOT)
                     .transferFrom(
-                        terminalAccountId,
+                        conductorAccountId,
                         leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
                         leg.assetId,
                         leg.collateral
@@ -208,7 +208,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
 
         uint256 escrowId = ++escrowCount;
         escrowDeadline[escrowId] = block.timestamp + SETTLEMENT_PERIOD;
-        bytes32 terminalAccountId = _terminalAccountId();
+        bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             uint256 orderIndex = fill.indexes[s];
             DelayedSettlementOrder calldata order = orders[orderIndex];
@@ -228,7 +228,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
             });
             deltas[index * 2 + s] = IDepot.TransferDelta(
                 ownerAccountIds[orderIndex],
-                terminalAccountId,
+                conductorAccountId,
                 order.sellTokenId,
                 order.collateralized ? collateral : amount
             );
@@ -242,12 +242,12 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
-        bytes32 terminalAccountId = _terminalAccountId();
+        bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             IDepot(DEPOT)
-                .transferFrom(terminalAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
+                .transferFrom(conductorAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
             if (legs[s].collateral != 0) {
-                IDepot(DEPOT).transferFrom(terminalAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
+                IDepot(DEPOT).transferFrom(conductorAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
             }
         }
 
@@ -278,7 +278,7 @@ contract DelayedSettlementSwapTerminal is SwapTerminal {
         }
     }
 
-    function _terminalAccountId() internal view returns (bytes32) {
+    function _conductorAccountId() internal view returns (bytes32) {
         return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this));
     }
 

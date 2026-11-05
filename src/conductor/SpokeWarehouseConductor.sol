@@ -7,7 +7,7 @@ import { ITurnstile } from "../ITurnstile.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 
-contract SpokeWarehouseTerminal is AccessManaged, TurnstileGated {
+contract SpokeWarehouseConductor is AccessManaged, TurnstileGated {
 
     address public immutable VAULT;
     uint64 public immutable HUB_CHAIN_ID;

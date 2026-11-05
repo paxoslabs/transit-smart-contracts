@@ -6,8 +6,8 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import { HubWarehouseTerminal } from "./terminal/HubWarehouseTerminal.sol";
-import { SpokeWarehouseTerminal } from "./terminal/SpokeWarehouseTerminal.sol";
+import { HubWarehouseConductor } from "./conductor/HubWarehouseConductor.sol";
+import { SpokeWarehouseConductor } from "./conductor/SpokeWarehouseConductor.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
 
@@ -16,17 +16,17 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     bytes32 public constant GENERIC_MESSAGE_TYPEHASH =
         keccak256("GenericMessage(address sender,address target,bytes data,uint256 deadline,bytes32 salt)");
 
-    address public immutable SPOKE_WAREHOUSE_TERMINAL;
+    address public immutable SPOKE_WAREHOUSE_CONDUCTOR;
 
     address public messagingAdapter;
-    address public hubWarehouseTerminal;
+    address public hubWarehouseConductor;
     uint256 public outboundNonce;
 
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
 
-    constructor(address _authority, address _spokeWarehouseTerminal) AccessManaged(_authority) {
-        SPOKE_WAREHOUSE_TERMINAL = _spokeWarehouseTerminal;
+    constructor(address _authority, address _spokeWarehouseConductor) AccessManaged(_authority) {
+        SPOKE_WAREHOUSE_CONDUCTOR = _spokeWarehouseConductor;
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -40,9 +40,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         emit MessagingAdapterUpdated(adapter);
     }
 
-    function setHubWarehouseTerminal(address _hubWarehouseTerminal) external restricted {
-        hubWarehouseTerminal = _hubWarehouseTerminal;
-        emit HubWarehouseTerminalUpdated(_hubWarehouseTerminal);
+    function setHubWarehouseConductor(address _hubWarehouseConductor) external restricted {
+        hubWarehouseConductor = _hubWarehouseConductor;
+        emit HubWarehouseConductorUpdated(_hubWarehouseConductor);
     }
 
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
@@ -322,21 +322,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes memory result;
         uint256 gasBefore;
         if (messageType == MessageType.Deposit) {
-            if (hubWarehouseTerminal == address(0)) revert NoHandler();
+            if (hubWarehouseConductor == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
-            (ok, result) = hubWarehouseTerminal.call(
+            (ok, result) = hubWarehouseConductor.call(
                 abi.encodeCall(
-                    HubWarehouseTerminal.receiveDeposit,
+                    HubWarehouseConductor.receiveDeposit,
                     (sourceChainId, message.asset, message.amount, message.toAccountId)
                 )
             );
         } else if (messageType == MessageType.Withdrawal) {
-            if (SPOKE_WAREHOUSE_TERMINAL == address(0)) revert NoHandler();
+            if (SPOKE_WAREHOUSE_CONDUCTOR == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
-            (ok, result) = SPOKE_WAREHOUSE_TERMINAL.call(
-                abi.encodeCall(SpokeWarehouseTerminal.receiveWithdrawal, (message.asset, message.amount, message.to))
+            (ok, result) = SPOKE_WAREHOUSE_CONDUCTOR.call(
+                abi.encodeCall(SpokeWarehouseConductor.receiveWithdrawal, (message.asset, message.amount, message.to))
             );
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));

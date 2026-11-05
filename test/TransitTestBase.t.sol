@@ -4,13 +4,13 @@ pragma solidity ^0.8.37;
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SpotSwapTerminal } from "../src/terminal/SpotSwapTerminal.sol";
-import { SwapTerminal } from "../src/terminal/SwapTerminal.sol";
+import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
+import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
-import { HubWarehouseTerminal } from "../src/terminal/HubWarehouseTerminal.sol";
-import { SpokeWarehouseTerminal } from "../src/terminal/SpokeWarehouseTerminal.sol";
+import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
+import { SpokeWarehouseConductor } from "../src/conductor/SpokeWarehouseConductor.sol";
 import { Depot } from "../src/depot/Depot.sol";
-import { UserTerminal } from "../src/terminal/UserTerminal.sol";
+import { UserConductor } from "../src/conductor/UserConductor.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/ITurnstile.sol";
@@ -22,7 +22,7 @@ import {
     PAUSER_ROLE,
     MESSAGING_ADAPTER_ROLE,
     SOLVER_ROLE,
-    TERMINAL_ROLE,
+    CONDUCTOR_ROLE,
     EPOCH_ROLE,
     TURNSTILE_ROLE
 } from "../src/helpers/Constants.sol";
@@ -58,13 +58,13 @@ contract TransitTestBase is Test {
     uint64 hubChainId;
     uint256 withdrawSalt;
 
-    SpotSwapTerminal spotSwapTerminal;
+    SpotSwapConductor spotSwapConductor;
     Depot depot;
-    UserTerminal userTerminal;
-    HubWarehouseTerminal hubWarehouseTerminal;
+    UserConductor userConductor;
+    HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => SpokeWarehouseTerminal) warehouses;
+    mapping(uint64 => SpokeWarehouseConductor) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -94,13 +94,13 @@ contract TransitTestBase is Test {
         }
 
         _selectChain(hubChainId);
-        spotSwapTerminal = new SpotSwapTerminal(
+        spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
             TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
-        _grantSpotSwapTerminalRole();
+        _grantSpotSwapConductorRole();
 
         _wireChains();
         _approveVault();
@@ -119,13 +119,13 @@ contract TransitTestBase is Test {
         } else {
             chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        SpokeWarehouseTerminal warehouse =
-            new SpokeWarehouseTerminal(address(authority), vault, address(chainTurnstile), hubChainId);
+        SpokeWarehouseConductor warehouse =
+            new SpokeWarehouseConductor(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
-            userTerminal = new UserTerminal(address(depot), address(chainTurnstile));
-            hubWarehouseTerminal = new HubWarehouseTerminal(
-                address(authority), address(depot), address(userTerminal), address(chainTurnstile)
+            userConductor = new UserConductor(address(depot), address(chainTurnstile));
+            hubWarehouseConductor = new HubWarehouseConductor(
+                address(authority), address(depot), address(userConductor), address(chainTurnstile)
             );
         }
 
@@ -156,17 +156,17 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        SpokeWarehouseTerminal warehouse = warehouses[chain];
+        SpokeWarehouseConductor warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouseTerminal.setAssetWhitelisted.selector;
+        adminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
 
         bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseTerminal.receiveWithdrawal.selector;
+        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -214,7 +214,7 @@ contract TransitTestBase is Test {
         bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
-        turnstileAdminSels[2] = Turnstile.setHubWarehouseTerminal.selector;
+        turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
         bytes4[] memory turnstileSendSels = new bytes4[](2);
@@ -227,32 +227,32 @@ contract TransitTestBase is Test {
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseTerminal));
-        bytes4[] memory userTerminalSels = new bytes4[](5);
-        userTerminalSels[0] = Depot.reserve.selector;
-        userTerminalSels[1] = Depot.release.selector;
-        userTerminalSels[2] = Depot.transferFrom.selector;
-        userTerminalSels[3] = Depot.burn.selector;
-        userTerminalSels[4] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userTerminalSels, TERMINAL_ROLE);
-        authority.grantRole(TERMINAL_ROLE, address(userTerminal));
-        authority.grantRole(TERMINAL_ROLE, address(hubWarehouseTerminal));
+        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseConductor));
+        bytes4[] memory userConductorSels = new bytes4[](5);
+        userConductorSels[0] = Depot.reserve.selector;
+        userConductorSels[1] = Depot.release.selector;
+        userConductorSels[2] = Depot.transferFrom.selector;
+        userConductorSels[3] = Depot.burn.selector;
+        userConductorSels[4] = Depot.mint.selector;
+        authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
+        authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
+        authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
         bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = HubWarehouseTerminal.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseTerminal), receiveDepositSels, TURNSTILE_ROLE);
-        turnstile.setHubWarehouseTerminal(address(hubWarehouseTerminal));
+        receiveDepositSels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), receiveDepositSels, TURNSTILE_ROLE);
+        turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
 
         bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = UserTerminal.reserve.selector;
-        routedSels[1] = UserTerminal.reserveAndRequest.selector;
-        turnstile.setRoutable(address(userTerminal), routedSels, true);
+        routedSels[0] = UserConductor.reserve.selector;
+        routedSels[1] = UserConductor.reserveAndRequest.selector;
+        turnstile.setRoutable(address(userConductor), routedSels, true);
 
         bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = HubWarehouseTerminal.executeWithdrawal.selector;
-        turnstile.setRoutable(address(hubWarehouseTerminal), executeSels, true);
+        executeSels[0] = HubWarehouseConductor.executeWithdrawal.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), executeSels, true);
     }
 
-    function _grantSpotSwapTerminalRole() internal {
+    function _grantSpotSwapConductorRole() internal {
         bytes4[] memory moveSels = new bytes4[](2);
         moveSels[0] = Depot.transferFrom.selector;
         moveSels[1] = Depot.transferAmong.selector;
@@ -261,19 +261,19 @@ contract TransitTestBase is Test {
         epochSels[0] = Depot.advanceEpoch.selector;
 
         vm.startPrank(admin);
-        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, TERMINAL_ROLE);
-        authorities[hubChainId].grantRole(TERMINAL_ROLE, address(spotSwapTerminal));
+        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, CONDUCTOR_ROLE);
+        authorities[hubChainId].grantRole(CONDUCTOR_ROLE, address(spotSwapConductor));
         authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
-        authorities[hubChainId].grantRole(EPOCH_ROLE, address(spotSwapTerminal));
+        authorities[hubChainId].grantRole(EPOCH_ROLE, address(spotSwapConductor));
 
         bytes4[] memory settleSels = new bytes4[](1);
-        settleSels[0] = SpotSwapTerminal.settle.selector;
-        authorities[hubChainId].setTargetFunctionRole(address(spotSwapTerminal), settleSels, SOLVER_ROLE);
+        settleSels[0] = SpotSwapConductor.settle.selector;
+        authorities[hubChainId].setTargetFunctionRole(address(spotSwapConductor), settleSels, SOLVER_ROLE);
 
         bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = SpotSwapTerminal.preApprove.selector;
-        routedSels[1] = SwapTerminal.requestOrderCancellation.selector;
-        turnstile.setRoutable(address(spotSwapTerminal), routedSels, true);
+        routedSels[0] = SpotSwapConductor.preApprove.selector;
+        routedSels[1] = SwapConductor.requestOrderCancellation.selector;
+        turnstile.setRoutable(address(spotSwapConductor), routedSels, true);
         vm.stopPrank();
     }
 
@@ -385,7 +385,7 @@ contract TransitTestBase is Test {
         require(chain == hubChainId, "can only atomically withdraw on Depot");
 
         _selectChain(hubChainId);
-        HubWarehouseTerminal.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
+        HubWarehouseConductor.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
         ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
@@ -396,7 +396,7 @@ contract TransitTestBase is Test {
 
         vm.prank(solver);
         turnstile.facilitate(calls, signatures, values);
-        withdrawId = hubWarehouseTerminal.hashWithdrawalRequest(request);
+        withdrawId = hubWarehouseConductor.hashWithdrawalRequest(request);
     }
 
     function _withdrawalRequestFor(
@@ -406,9 +406,9 @@ contract TransitTestBase is Test {
         uint64 chain
     )
         internal
-        returns (HubWarehouseTerminal.WithdrawalRequest memory)
+        returns (HubWarehouseConductor.WithdrawalRequest memory)
     {
-        return HubWarehouseTerminal.WithdrawalRequest({
+        return HubWarehouseConductor.WithdrawalRequest({
             ownerChainId: hubChainId,
             owner: user,
             to: user,
@@ -420,22 +420,22 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _facilitatedWithdrawal(HubWarehouseTerminal.WithdrawalRequest memory request)
+    function _facilitatedWithdrawal(HubWarehouseConductor.WithdrawalRequest memory request)
         internal
         view
         returns (ITurnstile.GenericMessage memory)
     {
         return ITurnstile.GenericMessage({
             sender: request.owner,
-            target: address(hubWarehouseTerminal),
-            data: abi.encodeCall(HubWarehouseTerminal.executeWithdrawal, (request, _messageGas(hubChainId))),
+            target: address(hubWarehouseConductor),
+            data: abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (request, _messageGas(hubChainId))),
             deadline: request.deadline,
             salt: request.salt
         });
     }
 
     function _signWithdraw(
-        HubWarehouseTerminal.WithdrawalRequest memory request,
+        HubWarehouseConductor.WithdrawalRequest memory request,
         uint256 pk
     )
         internal
@@ -447,8 +447,8 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(SpotSwapTerminal.Order memory order, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapTerminal.hashOrder(order));
+    function _signOrder(SpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapConductor.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }
 

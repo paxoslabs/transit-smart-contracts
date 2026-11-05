@@ -5,9 +5,9 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { SwapTerminal } from "./SwapTerminal.sol";
+import { SwapConductor } from "./SwapConductor.sol";
 
-contract SpotSwapTerminal is SwapTerminal {
+contract SpotSwapConductor is SwapConductor {
 
     struct Order {
         uint64 ownerChainId;
@@ -43,11 +43,11 @@ contract SpotSwapTerminal is SwapTerminal {
         bytes32 _surplusRecipientAccountId,
         address _turnstile
     )
-        SwapTerminal(_authority, _depot, _surplusRecipientAccountId, _turnstile)
+        SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     { }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Transit SpotSwapTerminal", "1");
+        return ("Transit SpotSwapConductor", "1");
     }
 
     // ========================================= USER =========================================

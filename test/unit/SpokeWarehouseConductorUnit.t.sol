@@ -3,16 +3,16 @@ pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SpokeWarehouseTerminal } from "../../src/terminal/SpokeWarehouseTerminal.sol";
+import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
 import { ITurnstile } from "../../src/ITurnstile.sol";
 import { Turnstile } from "../../src/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE } from "../../src/helpers/Constants.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
-import { WarehouseTerminalUnitBase } from "./WarehouseTerminalUnitBase.t.sol";
+import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
-contract SpokeWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
+contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     // ---------------------------------------------------------------- deposit
 
@@ -57,8 +57,8 @@ contract SpokeWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         vm.chainId(SPOKE_CHAIN_ID);
         Turnstile spokeTurnstile =
             new Turnstile(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
-        SpokeWarehouseTerminal spokeWarehouse =
-            new SpokeWarehouseTerminal(address(authority), vault, address(spokeTurnstile), HUB_CHAIN_ID);
+        SpokeWarehouseConductor spokeWarehouse =
+            new SpokeWarehouseConductor(address(authority), vault, address(spokeTurnstile), HUB_CHAIN_ID);
         MockMessagingAdapter spokeAdapter =
             new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
@@ -67,7 +67,7 @@ contract SpokeWarehouseTerminalUnitTest is WarehouseTerminalUnitBase {
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
 
         bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = SpokeWarehouseTerminal.setAssetWhitelisted.selector;
+        warehouseSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
 
         bytes4[] memory turnstileAdminSels = new bytes4[](1);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;

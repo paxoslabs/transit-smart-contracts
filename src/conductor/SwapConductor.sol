@@ -6,7 +6,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TurnstileGated } from "../TurnstileGated.sol";
 
-abstract contract SwapTerminal is AccessManaged, EIP712, TurnstileGated {
+abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
 
     address public immutable DEPOT;
     bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
