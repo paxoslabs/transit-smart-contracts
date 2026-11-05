@@ -9,7 +9,6 @@ import { SwapConductor } from "./SwapConductor.sol";
 
 contract DelayedSettlementSwapConductor is SwapConductor {
 
-    /// TODO: Decide the name of `collateralized` (true: posts sellAmount / FILL_RATIO now, delivers sellAmount later).
     struct DelayedSettlementOrder {
         uint64 ownerChainId;
         address owner;
@@ -21,7 +20,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         address receiver;
         uint256 expiresAt;
         bool partiallyFillable;
-        bool collateralized;
+        bool delayedSettlement;
         bytes32 salt;
     }
 
@@ -40,7 +39,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     }
 
     bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool collateralized,bytes32 salt)"
+        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,bytes32 salt)"
     );
 
     uint256 public constant FILL_RATIO = 100;
@@ -88,12 +87,13 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         emit PreApproved(accountId, orderHash);
     }
 
-    /// TODO: Decide who may call repay. Currently anyone; it pulls from the leg's account.
     function repay(uint256 escrowId, uint256 side, uint256 amount) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
         if (amount > leg.owed) revert ExceedsOwed();
-        leg.owed -= amount;
+        unchecked{
+            leg.owed -= amount;
+        }
 
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
@@ -200,7 +200,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         DelayedSettlementOrder calldata first = orders[fill.indexes[0]];
         DelayedSettlementOrder calldata second = orders[fill.indexes[1]];
         if (
-            fill.indexes[0] == fill.indexes[1] || (!first.collateralized && !second.collateralized)
+            fill.indexes[0] == fill.indexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
                 || first.sellTokenId != second.buyTokenId || first.buyTokenId != second.sellTokenId
         ) {
             revert BadPair(index);
@@ -217,20 +217,20 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                 revert LimitPrice(orderHashes[orderIndex]);
             }
 
-            uint256 collateral = order.collateralized ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
+            uint256 collateral = order.delayedSettlement ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
             escrowLegs[escrowId][s] = Leg({
                 accountId: ownerAccountIds[orderIndex],
                 receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
                 assetId: order.sellTokenId,
                 amount: amount,
-                owed: order.collateralized ? amount : 0,
+                owed: order.delayedSettlement ? amount : 0,
                 collateral: collateral
             });
             deltas[index * 2 + s] = IDepot.TransferDelta(
                 ownerAccountIds[orderIndex],
                 conductorAccountId,
                 order.sellTokenId,
-                order.collateralized ? collateral : amount
+                order.delayedSettlement ? collateral : amount
             );
         }
 
@@ -299,7 +299,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                     order.receiver,
                     order.expiresAt,
                     order.partiallyFillable,
-                    order.collateralized,
+                    order.delayedSettlement,
                     order.salt
                 )
             )
