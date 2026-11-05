@@ -27,6 +27,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     struct PairedFill {
         uint256[2] indexes;
         uint256[2] amounts;
+        uint256[2] fees;
     }
 
     struct Leg {
@@ -36,6 +37,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 amount;
         uint256 owed;
         uint256 collateral;
+        uint256 fee;
     }
 
     bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
@@ -91,7 +93,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
         if (amount > leg.owed) revert ExceedsOwed();
-        unchecked{
+        unchecked {
             leg.owed -= amount;
         }
 
@@ -213,7 +215,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             uint256 orderIndex = fill.indexes[s];
             DelayedSettlementOrder calldata order = orders[orderIndex];
             uint256 amount = fill.amounts[s];
-            if (fill.amounts[1 - s] < FixedPointMathLib.fullMulDivUp(amount, order.buyAmount, order.sellAmount)) {
+            if (
+                fill.amounts[1 - s] - fill.fees[1 - s]
+                    < FixedPointMathLib.fullMulDivUp(amount, order.buyAmount, order.sellAmount)
+            ) {
                 revert LimitPrice(orderHashes[orderIndex]);
             }
 
@@ -224,7 +229,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                 assetId: order.sellTokenId,
                 amount: amount,
                 owed: order.delayedSettlement ? amount : 0,
-                collateral: collateral
+                collateral: collateral,
+                fee: fill.fees[s]
             });
             deltas[index * 2 + s] = IDepot.TransferDelta(
                 ownerAccountIds[orderIndex],
@@ -245,7 +251,13 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             IDepot(DEPOT)
-                .transferFrom(conductorAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount);
+                .transferFrom(
+                    conductorAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount - legs[s].fee
+                );
+            if (legs[s].fee != 0) {
+                IDepot(DEPOT)
+                    .transferFrom(conductorAccountId, SURPLUS_RECIPIENT_ACCOUNT_ID, legs[s].assetId, legs[s].fee);
+            }
             if (legs[s].collateral != 0) {
                 IDepot(DEPOT).transferFrom(conductorAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
             }
