@@ -46,7 +46,9 @@ contract SpokeWarehouseConductor is AccessManaged, TurnstileGated {
     // ========================================= USER =========================================
 
     function deposit(address asset, uint256 amount, uint64 toChainId, address to, uint64 messageGas) external payable {
-        _deposit(msg.sender, asset, amount, toChainId, to, messageGas);
+        (uint64 chainId, address from) = TransitTokenLib.parseAccountId(_senderAccountId());
+        if (chainId != block.chainid) revert ForeignAccount();
+        _deposit(from, asset, amount, toChainId, to, messageGas);
     }
 
     /// TODO: Decide permit front-run grief handling: try native permit + allowance check, or skip permit when allowance
