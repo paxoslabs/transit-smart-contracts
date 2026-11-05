@@ -4,12 +4,12 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "../ITurnstile.sol";
+import { TurnstileGated } from "../TurnstileGated.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 
-contract SpokeWarehouseTerminal is AccessManaged {
+contract SpokeWarehouseTerminal is AccessManaged, TurnstileGated {
 
     address public immutable VAULT;
-    address public immutable TURNSTILE;
     uint64 public immutable HUB_CHAIN_ID;
 
     mapping(address asset => bool) public assetWhitelisted;
@@ -19,11 +19,19 @@ contract SpokeWarehouseTerminal is AccessManaged {
     error VaultUnset();
     error ZeroAssets();
     error AssetNotWhitelisted();
+    error ForeignAccount();
 
-    constructor(address _authority, address _vault, address _turnstile, uint64 _hubChainId) AccessManaged(_authority) {
+    constructor(
+        address _authority,
+        address _vault,
+        address _turnstile,
+        uint64 _hubChainId
+    )
+        AccessManaged(_authority)
+        TurnstileGated(_turnstile)
+    {
         if (_vault == address(0)) revert VaultUnset();
         VAULT = _vault;
-        TURNSTILE = _turnstile;
         HUB_CHAIN_ID = _hubChainId;
     }
 
@@ -38,17 +46,52 @@ contract SpokeWarehouseTerminal is AccessManaged {
     // ========================================= USER =========================================
 
     function deposit(address asset, uint256 amount, uint64 toChainId, address to, uint64 messageGas) external payable {
+        _deposit(msg.sender, asset, amount, toChainId, to, messageGas);
+    }
+
+    /// TODO: Decide permit front-run grief handling: try native permit + allowance check, or skip permit when allowance
+    /// covers amount.
+    function depositWithPermit(
+        address asset,
+        uint256 amount,
+        uint64 toChainId,
+        address to,
+        uint64 messageGas,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    )
+        external
+        payable
+    {
+        (uint64 chainId, address from) = TransitTokenLib.parseAccountId(_senderAccountId());
+        if (chainId != block.chainid) revert ForeignAccount();
+        SafeTransferLib.permit2(asset, from, address(this), amount, deadline, v, r, s);
+        _deposit(from, asset, amount, toChainId, to, messageGas);
+    }
+
+    function _deposit(
+        address from,
+        address asset,
+        uint256 amount,
+        uint64 toChainId,
+        address to,
+        uint64 messageGas
+    )
+        internal
+    {
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
 
-        SafeTransferLib.safeTransferFrom(asset, msg.sender, VAULT, amount);
+        SafeTransferLib.safeTransferFrom2(asset, from, VAULT, amount);
 
         bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
         ITurnstile(TURNSTILE).sendDepositMessage{ value: msg.value }(
             HUB_CHAIN_ID, messageGas, asset, amount, toAccountId
         );
 
-        emit Deposit(asset, msg.sender, toAccountId, amount);
+        emit Deposit(asset, from, toAccountId, amount);
     }
 
     // ========================================= TURNSTILE ========================================
