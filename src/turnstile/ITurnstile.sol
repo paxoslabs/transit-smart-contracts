@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { IMessagingReceiver } from "./messaging/IMessagingReceiver.sol";
+import { IMessagingReceiver } from "../messaging/IMessagingReceiver.sol";
 
 interface ITurnstile is IMessagingReceiver {
 

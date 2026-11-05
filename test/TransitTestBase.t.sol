@@ -13,8 +13,8 @@ import { Depot } from "../src/depot/Depot.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
-import { ITurnstile } from "../src/ITurnstile.sol";
-import { Turnstile } from "../src/Turnstile.sol";
+import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
+import { Turnstile } from "../src/turnstile/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {

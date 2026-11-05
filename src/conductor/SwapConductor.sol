@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { TurnstileGated } from "../TurnstileGated.sol";
+import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 
 abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
 

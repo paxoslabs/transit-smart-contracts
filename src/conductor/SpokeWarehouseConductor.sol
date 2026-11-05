@@ -3,8 +3,8 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { ITurnstile } from "../ITurnstile.sol";
-import { TurnstileGated } from "../TurnstileGated.sol";
+import { ITurnstile } from "../turnstile/ITurnstile.sol";
+import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 
 contract SpokeWarehouseConductor is AccessManaged, TurnstileGated {

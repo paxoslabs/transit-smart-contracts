@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 
 abstract contract TurnstileGated {
 

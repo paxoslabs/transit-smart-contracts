@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { TurnstileGated } from "../TurnstileGated.sol";
+import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 
 contract UserConductor is TurnstileGated {
 

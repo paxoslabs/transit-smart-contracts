@@ -9,7 +9,7 @@ import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor
 import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { Turnstile } from "../../src/Turnstile.sol";
+import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import {

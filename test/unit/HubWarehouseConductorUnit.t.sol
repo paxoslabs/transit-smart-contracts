@@ -2,7 +2,7 @@
 pragma solidity ^0.8.37;
 
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { ITurnstile } from "../../src/ITurnstile.sol";
+import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 

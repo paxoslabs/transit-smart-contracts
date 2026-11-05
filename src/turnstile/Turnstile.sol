@@ -6,10 +6,10 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import { HubWarehouseConductor } from "./conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "./conductor/SpokeWarehouseConductor.sol";
-import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
-import { IMessagingAdapter } from "./messaging/IMessagingAdapter.sol";
+import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
+import { SpokeWarehouseConductor } from "../conductor/SpokeWarehouseConductor.sol";
+import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
+import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 

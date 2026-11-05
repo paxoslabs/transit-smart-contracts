@@ -12,8 +12,8 @@ import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
-import { Turnstile } from "../../src/Turnstile.sol";
-import { ITurnstile } from "../../src/ITurnstile.sol";
+import { Turnstile } from "../../src/turnstile/Turnstile.sol";
+import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import {

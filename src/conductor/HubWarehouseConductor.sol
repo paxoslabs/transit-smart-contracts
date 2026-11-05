@@ -4,9 +4,9 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { ITurnstile } from "../ITurnstile.sol";
+import { ITurnstile } from "../turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { TurnstileGated } from "../TurnstileGated.sol";
+import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 import { UserConductor } from "./UserConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, TurnstileGated {
