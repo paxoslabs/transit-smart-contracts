@@ -13,8 +13,14 @@ import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
-    bytes32 public constant GENERIC_MESSAGE_TYPEHASH =
-        keccak256("GenericMessage(address sender,address target,bytes data,uint256 deadline,bytes32 salt)");
+    bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
+        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt)"
+    );
+    bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
+        "WithdrawAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
+    );
+    bytes32 public constant GENERIC_ACTION_TYPEHASH =
+        keccak256("GenericAction(address target,bytes data,uint256 deadline,bytes32 salt)");
 
     address public immutable SPOKE_WAREHOUSE;
 
@@ -59,26 +65,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _unpause();
     }
 
-    function deposit(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
-        uint64 messageGas
-    )
-        external
-        payable
-        returns (bytes32 messageHash)
-    {
-        SpokeWarehouse(SPOKE_WAREHOUSE).custody(msg.sender, asset, amount);
-        messageHash = _sendDepositMessage(asset, amount, toChainId, to, messageGas);
+    function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash) {
+        _requireNotPaused();
+        SpokeWarehouse(SPOKE_WAREHOUSE).custody(msg.sender, action.asset, action.amount);
+        messageHash = _sendDepositMessage(msg.sender, action, msg.value, messageGas);
     }
 
     function depositWithPermit(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
+        DepositAction calldata action,
         uint64 messageGas,
         uint256 deadline,
         uint8 v,
@@ -89,98 +83,107 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         payable
         returns (bytes32 messageHash)
     {
-        SpokeWarehouse(SPOKE_WAREHOUSE).custodyWithPermit(msg.sender, asset, amount, deadline, v, r, s);
-        messageHash = _sendDepositMessage(asset, amount, toChainId, to, messageGas);
+        _requireNotPaused();
+        SpokeWarehouse(SPOKE_WAREHOUSE).custodyWithPermit(msg.sender, action.asset, action.amount, deadline, v, r, s);
+        messageHash = _sendDepositMessage(msg.sender, action, msg.value, messageGas);
     }
 
     function sendWithdrawalMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        address to
+        WithdrawAction calldata action,
+        uint64 messageGas
     )
         external
         payable
-        restricted
         returns (bytes32 messageHash)
     {
         _requireNotPaused();
-        messageHash = _sendMessage(
-            chainId,
-            messageGas,
-            MessageType.Withdrawal,
-            abi.encode(WithdrawalMessage({ asset: asset, amount: amount, to: to, salt: bytes32(++outboundNonce) }))
+        messageHash = _sendWithdrawalMessage(
+            TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender), action, msg.value, messageGas
         );
     }
 
     function sendGenericMessage(
-        address target,
-        bytes calldata data,
-        uint256 deadline,
-        uint64 messageGas,
-        bytes32 salt
+        GenericAction calldata action,
+        uint64 messageGas
     )
         external
         payable
         returns (bytes32 messageHash)
     {
         _requireNotPaused();
-        address adapter = messagingAdapter;
-        if (adapter == address(0)) revert UnknownAdapter();
-        messageHash = _sendMessage(
-            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
-            messageGas,
-            MessageType.Generic,
-            abi.encode(
-                GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt })
-            )
-        );
+        messageHash = _sendGenericMessage(msg.sender, action, msg.value, messageGas);
     }
 
     /// TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
+    /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
+    /// facilitator.
     function facilitate(
-        GenericMessage[] calldata calls,
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
         bytes[] calldata signatures,
-        uint256[] calldata values
+        uint256[] calldata values,
+        uint64[] calldata messageGas
     )
         external
         payable
         restricted
     {
         _requireNotPaused();
-        if (calls.length != signatures.length || calls.length != values.length) revert LengthMismatch();
-        for (uint256 i; i < calls.length; i++) {
-            GenericMessage calldata message = calls[i];
-            if (block.timestamp > message.deadline) revert Expired();
-            bytes32 digest = hashGenericMessage(message);
-            if (ECDSA.recoverCalldata(digest, signatures[i]) != message.sender) revert BadSignature();
-            bytes32 messageHash = digestMessage(uint64(block.chainid), MessageType.Generic, abi.encode(message));
-            if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
-            messageStatus[messageHash] = MessageStatus.Executed;
-            bytes32 senderAccountId = TransitTokenLib.formatFacilitatedAccountId(
-                TransitTokenLib.formatAccountId(uint64(block.chainid), message.sender)
-            );
-            (bool ok, bytes memory result) = _executeCall(message.target, message.data, values[i], senderAccountId);
-            if (!ok) {
-                assembly {
-                    revert(add(result, 0x20), mload(result))
-                }
+        if (
+            actionTypes.length != actionData.length || actionData.length != signatures.length
+                || actionData.length != values.length || actionData.length != messageGas.length
+        ) revert LengthMismatch();
+        for (uint256 i; i < actionData.length; i++) {
+            if (actionTypes[i] == ActionType.Deposit) {
+                _facilitateDeposit(abi.decode(actionData[i], (DepositAction)), signatures[i], values[i], messageGas[i]);
+            } else if (actionTypes[i] == ActionType.Withdraw) {
+                _facilitateWithdraw(
+                    abi.decode(actionData[i], (WithdrawAction)), signatures[i], values[i], messageGas[i]
+                );
+            } else {
+                _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i], values[i]);
             }
         }
     }
 
-    function hashGenericMessage(GenericMessage calldata message) public view returns (bytes32) {
+    function hashDepositAction(DepositAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    GENERIC_MESSAGE_TYPEHASH,
-                    message.sender,
-                    message.target,
-                    keccak256(message.data),
-                    message.deadline,
-                    message.salt
+                    DEPOSIT_ACTION_TYPEHASH,
+                    action.asset,
+                    action.amount,
+                    action.toChainId,
+                    action.to,
+                    action.deadline,
+                    action.salt
                 )
+            )
+        );
+    }
+
+    function hashWithdrawAction(WithdrawAction memory action) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(
+                    WITHDRAW_ACTION_TYPEHASH,
+                    action.ownerChainId,
+                    action.owner,
+                    action.to,
+                    action.assetId,
+                    action.amount,
+                    action.deadline,
+                    action.partiallyFillable,
+                    action.salt
+                )
+            )
+        );
+    }
+
+    function hashGenericAction(GenericAction memory action) public view returns (bytes32) {
+        return _hashTypedData(
+            keccak256(
+                abi.encode(GENERIC_ACTION_TYPEHASH, action.target, keccak256(action.data), action.deadline, action.salt)
             )
         );
     }
@@ -189,68 +192,53 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return keccak256(abi.encode(chainId, messageType, body));
     }
 
-    function quoteDepositMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        bytes32 toAccountId
-    )
-        external
-        view
-        returns (uint256 fee)
-    {
+    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fee) {
+        address adapter = messagingAdapter;
+        if (adapter == address(0)) revert UnknownAdapter();
         return _quote(
-            chainId,
+            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Deposit,
             abi.encode(
                 DepositMessage({
-                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(outboundNonce + 1)
+                    asset: action.asset,
+                    amount: action.amount,
+                    toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to),
+                    salt: bytes32(outboundNonce + 1)
                 })
             )
         );
     }
 
     function quoteWithdrawalMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        address to
+        WithdrawAction calldata action,
+        uint64 messageGas
     )
         external
         view
         returns (uint256 fee)
     {
+        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
         return _quote(
-            chainId,
+            assetChainId,
             messageGas,
             MessageType.Withdrawal,
-            abi.encode(WithdrawalMessage({ asset: asset, amount: amount, to: to, salt: bytes32(outboundNonce + 1) }))
+            abi.encode(
+                WithdrawalMessage({
+                    asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
+                })
+            )
         );
     }
 
-    function quoteGenericMessage(
-        address target,
-        bytes calldata data,
-        uint256 deadline,
-        uint64 messageGas,
-        bytes32 salt
-    )
-        external
-        view
-        returns (uint256 fee)
-    {
+    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fee) {
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
         return _quote(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(
-                GenericMessage({ sender: msg.sender, target: target, data: data, deadline: deadline, salt: salt })
-            )
+            abi.encode(_genericMessage(msg.sender, action))
         );
     }
 
@@ -270,50 +258,173 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _handleMessage(chainId, messageType, body);
     }
 
+    function _facilitateDeposit(
+        DepositAction memory action,
+        bytes calldata signature,
+        uint256 value,
+        uint64 messageGas
+    )
+        internal
+    {
+        address from = ECDSA.recoverCalldata(hashDepositAction(action), signature);
+        _consumeAction(MessageType.Deposit, abi.encode(from, action));
+        SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
+        _sendDepositMessage(from, action, value, messageGas);
+    }
+
+    function _facilitateWithdraw(
+        WithdrawAction memory action,
+        bytes calldata signature,
+        uint256 value,
+        uint64 messageGas
+    )
+        internal
+    {
+        address signer = ECDSA.recoverCalldata(hashWithdrawAction(action), signature);
+        _consumeAction(MessageType.Withdrawal, abi.encode(signer, action));
+        _sendWithdrawalMessage(
+            TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), signer)),
+            action,
+            value,
+            messageGas
+        );
+    }
+
+    function _facilitateGeneric(GenericAction memory action, bytes calldata signature, uint256 value) internal {
+        address sender = ECDSA.recoverCalldata(hashGenericAction(action), signature);
+        if (block.timestamp > action.deadline) revert Expired();
+        _consumeAction(MessageType.Generic, abi.encode(_genericMessage(sender, action)));
+        (bool ok, bytes memory result) = _executeCall(
+            action.target,
+            action.data,
+            value,
+            TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), sender))
+        );
+        if (!ok) {
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+    }
+
+    /// TODO: Decide the deposit/withdraw action replay key. Currently digestMessage over (signer, action) under the
+    /// matching MessageType, as generic actions are keyed by their GenericMessage.
+    function _consumeAction(MessageType messageType, bytes memory body) internal {
+        bytes32 actionHash = digestMessage(uint64(block.chainid), messageType, body);
+        if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
+        messageStatus[actionHash] = MessageStatus.Executed;
+    }
+
+    function _genericMessage(address sender, GenericAction memory action)
+        internal
+        pure
+        returns (GenericMessage memory)
+    {
+        return GenericMessage({
+            sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
+        });
+    }
+
     function _sendDepositMessage(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
+        address from,
+        DepositAction memory action,
+        uint256 value,
         uint64 messageGas
     )
         internal
         returns (bytes32 messageHash)
     {
-        _requireNotPaused();
+        if (block.timestamp > action.deadline) revert Expired();
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to);
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Deposit,
             abi.encode(
                 DepositMessage({
-                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
+                    asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
                 })
-            )
+            ),
+            value
         );
-        emit Deposit(asset, msg.sender, toAccountId, amount);
+        emit Deposit(action.asset, from, toAccountId, action.amount);
+    }
+
+    /// TODO: Decide what happens to value when an expired or empty withdrawal sends no message. Currently it stays in
+    /// Turnstile.
+    function _sendWithdrawalMessage(
+        bytes32 actorAccountId,
+        WithdrawAction memory action,
+        uint256 value,
+        uint64 messageGas
+    )
+        internal
+        returns (bytes32 messageHash)
+    {
+        address handler = hubWarehouseConductor;
+        if (handler == address(0)) revert NoHandler();
+        (bool ok, bytes memory result) = handler.call(
+            abi.encodePacked(abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), actorAccountId)
+        );
+        if (!ok) {
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+        uint256 amount = abi.decode(result, (uint256));
+        if (amount == 0) return bytes32(0);
+        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
+        messageHash = _sendMessage(
+            assetChainId,
+            messageGas,
+            MessageType.Withdrawal,
+            abi.encode(
+                WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
+            ),
+            value
+        );
+    }
+
+    function _sendGenericMessage(
+        address sender,
+        GenericAction memory action,
+        uint256 value,
+        uint64 messageGas
+    )
+        internal
+        returns (bytes32 messageHash)
+    {
+        address adapter = messagingAdapter;
+        if (adapter == address(0)) revert UnknownAdapter();
+        messageHash = _sendMessage(
+            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+            messageGas,
+            MessageType.Generic,
+            abi.encode(_genericMessage(sender, action)),
+            value
+        );
     }
 
     function _sendMessage(
         uint64 chainId,
         uint64 messageGas,
         MessageType messageType,
-        bytes memory body
+        bytes memory body,
+        uint256 value
     )
         internal
         returns (bytes32 messageHash)
     {
         messageHash = digestMessage(uint64(block.chainid), messageType, body);
         if (chainId == block.chainid) {
-            if (msg.value != 0) revert NoFee();
+            if (value != 0) revert NoFee();
             _handleMessage(chainId, messageType, body);
         } else {
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert UnknownAdapter();
-            IMessagingAdapter(adapter).send{ value: msg.value }(chainId, messageGas, abi.encode(messageType, body));
+            IMessagingAdapter(adapter).send{ value: value }(chainId, messageGas, abi.encode(messageType, body));
         }
     }
 

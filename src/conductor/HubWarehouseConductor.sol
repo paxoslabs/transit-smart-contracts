@@ -11,19 +11,8 @@ import { UserConductor } from "./UserConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, TurnstileGated {
 
-    struct WithdrawalRequest {
-        uint64 ownerChainId;
-        address owner;
-        address to;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 deadline;
-        bool partiallyFillable;
-        bytes32 salt;
-    }
-
-    bytes32 public constant WITHDRAWAL_REQUEST_TYPEHASH = keccak256(
-        "WithdrawalRequest(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
+    bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
+        "WithdrawAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -64,40 +53,35 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    function executeWithdrawal(WithdrawalRequest calldata request, uint64 messageGas) external payable {
-        bytes32 requestId = hashWithdrawalRequest(request);
-        bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
+    function executeWithdrawal(ITurnstile.WithdrawAction calldata action) external restricted returns (uint256 amount) {
+        bytes32 requestId = hashWithdrawAction(action);
+        bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving
+        /// TODO: Decide expired-action handling. Currently consumes it and releases the reservation without moving
         /// funds.
-        if (block.timestamp > request.deadline) {
+        if (block.timestamp > action.deadline) {
             emit WithdrawalExecuted(requestId, 0);
-            return;
+            return 0;
         }
 
-        uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
-        IDepot(DEPOT).burn(accountId, request.assetId, amount);
-
-        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(request.assetId);
-        ITurnstile(TURNSTILE).sendWithdrawalMessage{ value: msg.value }(
-            assetChainId, messageGas, asset, amount, request.to
-        );
+        amount = _fillAmount(accountId, action.assetId, action.amount, action.partiallyFillable);
+        IDepot(DEPOT).burn(accountId, action.assetId, amount);
 
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function hashWithdrawalRequest(WithdrawalRequest memory request) public pure returns (bytes32) {
+    function hashWithdrawAction(ITurnstile.WithdrawAction memory action) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                WITHDRAWAL_REQUEST_TYPEHASH,
-                request.ownerChainId,
-                request.owner,
-                request.to,
-                request.assetId,
-                request.amount,
-                request.deadline,
-                request.partiallyFillable,
-                request.salt
+                WITHDRAW_ACTION_TYPEHASH,
+                action.ownerChainId,
+                action.owner,
+                action.to,
+                action.assetId,
+                action.amount,
+                action.deadline,
+                action.partiallyFillable,
+                action.salt
             )
         );
     }

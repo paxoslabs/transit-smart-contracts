@@ -8,8 +8,8 @@ import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
 contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
-    function _request(address owner, uint256 amount) internal returns (HubWarehouseConductor.WithdrawalRequest memory) {
-        return HubWarehouseConductor.WithdrawalRequest({
+    function _withdrawAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawAction memory) {
+        return ITurnstile.WithdrawAction({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -21,35 +21,20 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         });
     }
 
-    function _genericMessage(HubWarehouseConductor.WithdrawalRequest memory req)
-        internal
-        view
-        returns (ITurnstile.GenericMessage memory)
-    {
-        return ITurnstile.GenericMessage({
-            sender: req.owner,
-            target: address(hubWarehouseConductor),
-            data: abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (req, 0)),
-            deadline: req.deadline,
-            salt: req.salt
-        });
-    }
-
-    function _withdraw(HubWarehouseConductor.WithdrawalRequest memory req, bytes memory sig) internal {
-        ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
-        calls[0] = _genericMessage(req);
+    function _withdraw(ITurnstile.WithdrawAction memory req, bytes memory sig) internal {
+        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
+        actionTypes[0] = ITurnstile.ActionType.Withdraw;
+        bytes[] memory actionData = new bytes[](1);
+        actionData[0] = abi.encode(req);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
         uint256[] memory values = new uint256[](1);
-        turnstile.facilitate(calls, sigs, values);
+        uint64[] memory messageGas = new uint64[](1);
+        turnstile.facilitate(actionTypes, actionData, sigs, values, messageGas);
     }
 
-    function _sign(HubWarehouseConductor.WithdrawalRequest memory req, uint256 pk)
-        internal
-        view
-        returns (bytes memory)
-    {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericMessage(_genericMessage(req)));
+    function _sign(ITurnstile.WithdrawAction memory req, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashWithdrawAction(req));
         return abi.encodePacked(r, s, v);
     }
 
@@ -76,7 +61,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
+        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 
@@ -97,18 +82,18 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
+        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(backend);
-        vm.expectRevert(ITurnstile.BadSignature.selector);
+        vm.expectRevert(HubWarehouseConductor.NotEffective.selector);
         _withdraw(req, sig);
     }
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
+        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
@@ -121,7 +106,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        HubWarehouseConductor.WithdrawalRequest memory req = _request(alice, 100e6);
+        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 

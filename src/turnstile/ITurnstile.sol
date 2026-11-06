@@ -11,6 +11,12 @@ interface ITurnstile is IMessagingReceiver {
         Generic
     }
 
+    enum ActionType {
+        Deposit,
+        Withdraw,
+        Generic
+    }
+
     enum MessageStatus {
         None,
         Failed,
@@ -40,6 +46,33 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 salt;
     }
 
+    struct DepositAction {
+        address asset;
+        uint256 amount;
+        uint64 toChainId;
+        address to;
+        uint256 deadline;
+        bytes32 salt;
+    }
+
+    struct WithdrawAction {
+        uint64 ownerChainId;
+        address owner;
+        address to;
+        bytes32 assetId;
+        uint256 amount;
+        uint256 deadline;
+        bool partiallyFillable;
+        bytes32 salt;
+    }
+
+    struct GenericAction {
+        address target;
+        bytes data;
+        uint256 deadline;
+        bytes32 salt;
+    }
+
     event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
     event MessagingAdapterUpdated(address indexed adapter);
     event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
@@ -56,9 +89,12 @@ interface ITurnstile is IMessagingReceiver {
     error NoFee();
     error LengthMismatch();
     error Expired();
-    error BadSignature();
 
-    function GENERIC_MESSAGE_TYPEHASH() external view returns (bytes32);
+    function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
+
+    function WITHDRAW_ACTION_TYPEHASH() external view returns (bytes32);
+
+    function GENERIC_ACTION_TYPEHASH() external view returns (bytes32);
 
     function SPOKE_WAREHOUSE() external view returns (address);
 
@@ -82,22 +118,10 @@ interface ITurnstile is IMessagingReceiver {
 
     function unpause() external;
 
-    function deposit(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
-        uint64 messageGas
-    )
-        external
-        payable
-        returns (bytes32 messageHash);
+    function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash);
 
     function depositWithPermit(
-        address asset,
-        uint256 amount,
-        uint64 toChainId,
-        address to,
+        DepositAction calldata action,
         uint64 messageGas,
         uint256 deadline,
         uint8 v,
@@ -109,71 +133,50 @@ interface ITurnstile is IMessagingReceiver {
         returns (bytes32 messageHash);
 
     function sendWithdrawalMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        address to
+        WithdrawAction calldata action,
+        uint64 messageGas
     )
         external
         payable
         returns (bytes32 messageHash);
 
     function sendGenericMessage(
-        address target,
-        bytes calldata data,
-        uint256 deadline,
-        uint64 messageGas,
-        bytes32 salt
+        GenericAction calldata action,
+        uint64 messageGas
     )
         external
         payable
         returns (bytes32 messageHash);
 
     function facilitate(
-        GenericMessage[] calldata calls,
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
         bytes[] calldata signatures,
-        uint256[] calldata values
+        uint256[] calldata values,
+        uint64[] calldata messageGas
     )
         external
         payable;
 
-    function hashGenericMessage(GenericMessage calldata message) external view returns (bytes32);
+    function hashDepositAction(DepositAction memory action) external view returns (bytes32);
+
+    function hashWithdrawAction(WithdrawAction memory action) external view returns (bytes32);
+
+    function hashGenericAction(GenericAction memory action) external view returns (bytes32);
 
     function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) external pure returns (bytes32);
 
-    function quoteDepositMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        bytes32 toAccountId
-    )
-        external
-        view
-        returns (uint256 fee);
+    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fee);
 
     function quoteWithdrawalMessage(
-        uint64 chainId,
-        uint64 messageGas,
-        address asset,
-        uint256 amount,
-        address to
+        WithdrawAction calldata action,
+        uint64 messageGas
     )
         external
         view
         returns (uint256 fee);
 
-    function quoteGenericMessage(
-        address target,
-        bytes calldata data,
-        uint256 deadline,
-        uint64 messageGas,
-        bytes32 salt
-    )
-        external
-        view
-        returns (uint256 fee);
+    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fee);
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external;
 

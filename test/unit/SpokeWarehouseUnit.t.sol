@@ -39,7 +39,17 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        turnstile.deposit(address(other), 1e18, HUB_CHAIN_ID, alice, 0);
+        turnstile.deposit(
+            ITurnstile.DepositAction({
+                asset: address(other),
+                amount: 1e18,
+                toChainId: HUB_CHAIN_ID,
+                to: alice,
+                deadline: type(uint256).max,
+                salt: bytes32(0)
+            }),
+            0
+        );
         vm.stopPrank();
 
         assertEq(
@@ -105,7 +115,17 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         deal(address(usdg), alice, 100e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
-        spokeTurnstile.deposit(address(usdg), 100e6, SPOKE_CHAIN_ID, alice, 200_000);
+        spokeTurnstile.deposit(
+            ITurnstile.DepositAction({
+                asset: address(usdg),
+                amount: 100e6,
+                toChainId: SPOKE_CHAIN_ID,
+                to: alice,
+                deadline: type(uint256).max,
+                salt: bytes32(0)
+            }),
+            200_000
+        );
         vm.stopPrank();
 
         assertEq(usdg.balanceOf(vault), 100e6, "spoke deposit: vault did not receive usdg");
