@@ -110,16 +110,12 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             Leg memory leg = legs[s];
-            uint256 delivered = leg.amount - leg.owed;
-            if (delivered != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, delivered);
-            if (leg.collateral != 0) {
-                IDepot(DEPOT)
-                    .transferFrom(
-                        conductorAccountId,
-                        leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
-                        leg.assetId,
-                        leg.collateral
-                    );
+            uint256 penalty =
+                leg.collateral == 0 ? 0 : FixedPointMathLib.fullMulDivUp(leg.collateral, leg.owed, leg.amount);
+            uint256 refund = leg.amount - leg.owed + leg.collateral - penalty;
+            if (refund != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, refund);
+            if (penalty != 0) {
+                IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, penalty);
             }
         }
 
