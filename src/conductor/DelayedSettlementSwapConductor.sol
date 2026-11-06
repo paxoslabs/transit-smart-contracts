@@ -37,6 +37,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 amount;
         uint256 owed;
         uint256 collateral;
+        bool partiallyFillable;
     }
 
     bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
@@ -107,12 +108,24 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
+        uint256[2] memory paid = [legs[0].amount - legs[0].owed, legs[1].amount - legs[1].owed];
+        uint256 l = paid[0] * legs[1].amount <= paid[1] * legs[0].amount ? 0 : 1;
+        uint256[2] memory swapped;
+        if (legs[0].partiallyFillable && legs[1].partiallyFillable) {
+            swapped[l] = paid[l];
+            swapped[1 - l] =
+                legs[l].amount == 0 ? 0 : FixedPointMathLib.fullMulDivUp(legs[1 - l].amount, paid[l], legs[l].amount);
+        }
+
         bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             Leg memory leg = legs[s];
+            if (swapped[s] != 0) {
+                IDepot(DEPOT).transferFrom(conductorAccountId, legs[1 - s].receiverAccountId, leg.assetId, swapped[s]);
+            }
             uint256 penalty =
                 leg.collateral == 0 ? 0 : FixedPointMathLib.fullMulDivUp(leg.collateral, leg.owed, leg.amount);
-            uint256 refund = leg.amount - leg.owed + leg.collateral - penalty;
+            uint256 refund = paid[s] - swapped[s] + leg.collateral - penalty;
             if (refund != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, refund);
             if (penalty != 0) {
                 IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, penalty);
@@ -220,7 +233,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                 assetId: order.sellTokenId,
                 amount: amount,
                 owed: order.collateralized ? amount : 0,
-                collateral: collateral
+                collateral: collateral,
+                partiallyFillable: order.partiallyFillable
             });
             deltas[index * 2 + s] = IDepot.TransferDelta(
                 ownerAccountIds[orderIndex],
