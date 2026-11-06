@@ -104,7 +104,13 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
     }
 
-    function reclaim(uint256 escrowId) external {
+    function reclaim(uint256[] calldata escrowIds) external {
+        for (uint256 i; i < escrowIds.length; i++) {
+            _reclaim(escrowIds[i]);
+        }
+    }
+
+    function _reclaim(uint256 escrowId) internal {
         if (block.timestamp <= escrowDeadline[escrowId]) revert SettlementPeriodActive();
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];
