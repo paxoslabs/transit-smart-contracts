@@ -21,6 +21,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 expiresAt;
         bool partiallyFillable;
         bool delayedSettlement;
+        uint256 settlementPeriod;
         bytes32 salt;
     }
 
@@ -41,11 +42,11 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     }
 
     bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,bytes32 salt)"
+        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,uint256 settlementPeriod,bytes32 salt)"
     );
 
     uint256 public constant FILL_RATIO = 100;
-    uint256 public constant SETTLEMENT_PERIOD = 30 minutes;
+    uint256 public constant MAX_SETTLEMENT_PERIOD = 1 days;
 
     bytes32 public immutable PENALTY_RECIPIENT_ACCOUNT_ID;
 
@@ -209,7 +210,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         }
 
         uint256 escrowId = ++escrowCount;
-        escrowDeadline[escrowId] = block.timestamp + SETTLEMENT_PERIOD;
+        escrowDeadline[escrowId] = block.timestamp + _settlementPeriod(first, second, index);
         bytes32 conductorAccountId = _conductorAccountId();
         for (uint256 s; s < 2; s++) {
             uint256 orderIndex = fill.indexes[s];
@@ -241,6 +242,25 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         }
 
         emit Escrowed(escrowId, orderHashes[fill.indexes[0]], orderHashes[fill.indexes[1]]);
+    }
+
+    function _settlementPeriod(
+        DelayedSettlementOrder calldata first,
+        DelayedSettlementOrder calldata second,
+        uint256 index
+    )
+        internal
+        pure
+        returns (uint256 settlementPeriod)
+    {
+        settlementPeriod = first.delayedSettlement ? first.settlementPeriod : second.settlementPeriod;
+        if (
+            settlementPeriod > MAX_SETTLEMENT_PERIOD
+                || (first.delayedSettlement && first.settlementPeriod > second.settlementPeriod)
+                || (second.delayedSettlement && second.settlementPeriod > first.settlementPeriod)
+        ) {
+            revert BadPair(index);
+        }
     }
 
     function _release(uint256 escrowId) internal {
@@ -312,6 +332,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                     order.expiresAt,
                     order.partiallyFillable,
                     order.delayedSettlement,
+                    order.settlementPeriod,
                     order.salt
                 )
             )
