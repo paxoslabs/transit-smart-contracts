@@ -8,7 +8,7 @@ import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../src/conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
@@ -64,7 +64,7 @@ contract TransitTestBase is Test {
     HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => SpokeWarehouseConductor) warehouses;
+    mapping(uint64 => SpokeWarehouse) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -110,17 +110,12 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        uint256 nonce = vm.getNonce(address(this));
-        Turnstile chainTurnstile;
+        SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
+        Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
         if (chain == hubChainId) {
-            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
             depot = new Depot(address(authority));
             turnstile = chainTurnstile;
-        } else {
-            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        SpokeWarehouseConductor warehouse =
-            new SpokeWarehouseConductor(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
             userConductor = new UserConductor(address(depot), address(chainTurnstile));
@@ -156,17 +151,19 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        SpokeWarehouseConductor warehouse = warehouses[chain];
+        SpokeWarehouse warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
 
-        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.custodyWithPermit.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -178,11 +175,10 @@ contract TransitTestBase is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, ADMIN_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(adapters[chain]));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
         authority.grantRole(PAUSER_ROLE, admin);
         authority.grantRole(SOLVER_ROLE, solver);
 
@@ -217,9 +213,8 @@ contract TransitTestBase is Test {
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
+        bytes4[] memory turnstileSendSels = new bytes4[](1);
+        turnstileSendSels[0] = Turnstile.sendWithdrawalMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
 
         authority.grantRole(TURNSTILE_ROLE, address(chainTurnstile));
@@ -362,7 +357,7 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(address(asset), amount, hubChainId, user, _messageGas(chain));
+        turnstiles[chain].deposit(address(asset), amount, hubChainId, user, _messageGas(chain));
         vm.stopPrank();
     }
 

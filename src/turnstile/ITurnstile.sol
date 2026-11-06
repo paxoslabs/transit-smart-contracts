@@ -40,6 +40,7 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 salt;
     }
 
+    event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
     event MessagingAdapterUpdated(address indexed adapter);
     event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
     event MessageFailed(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash, bytes body);
@@ -59,7 +60,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function GENERIC_MESSAGE_TYPEHASH() external view returns (bytes32);
 
-    function SPOKE_WAREHOUSE_CONDUCTOR() external view returns (address);
+    function SPOKE_WAREHOUSE() external view returns (address);
 
     function messagingAdapter() external view returns (address);
 
@@ -81,12 +82,27 @@ interface ITurnstile is IMessagingReceiver {
 
     function unpause() external;
 
-    function sendDepositMessage(
-        uint64 chainId,
-        uint64 messageGas,
+    function deposit(
         address asset,
         uint256 amount,
-        bytes32 toAccountId
+        uint64 toChainId,
+        address to,
+        uint64 messageGas
+    )
+        external
+        payable
+        returns (bytes32 messageHash);
+
+    function depositWithPermit(
+        address asset,
+        uint256 amount,
+        uint64 toChainId,
+        address to,
+        uint64 messageGas,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
     )
         external
         payable

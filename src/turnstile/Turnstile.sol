@@ -7,7 +7,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
 import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../SpokeWarehouse.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 
@@ -16,7 +16,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     bytes32 public constant GENERIC_MESSAGE_TYPEHASH =
         keccak256("GenericMessage(address sender,address target,bytes data,uint256 deadline,bytes32 salt)");
 
-    address public immutable SPOKE_WAREHOUSE_CONDUCTOR;
+    address public immutable SPOKE_WAREHOUSE;
 
     address public messagingAdapter;
     address public hubWarehouseConductor;
@@ -25,8 +25,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
 
-    constructor(address _authority, address _spokeWarehouseConductor) AccessManaged(_authority) {
-        SPOKE_WAREHOUSE_CONDUCTOR = _spokeWarehouseConductor;
+    constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
+        SPOKE_WAREHOUSE = _spokeWarehouse;
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -59,29 +59,38 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _unpause();
     }
 
-    function sendDepositMessage(
-        uint64 chainId,
-        uint64 messageGas,
+    function deposit(
         address asset,
         uint256 amount,
-        bytes32 toAccountId
+        uint64 toChainId,
+        address to,
+        uint64 messageGas
     )
         external
         payable
-        restricted
         returns (bytes32 messageHash)
     {
-        _requireNotPaused();
-        messageHash = _sendMessage(
-            chainId,
-            messageGas,
-            MessageType.Deposit,
-            abi.encode(
-                DepositMessage({
-                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
-                })
-            )
-        );
+        SpokeWarehouse(SPOKE_WAREHOUSE).custody(msg.sender, asset, amount);
+        messageHash = _sendDepositMessage(asset, amount, toChainId, to, messageGas);
+    }
+
+    function depositWithPermit(
+        address asset,
+        uint256 amount,
+        uint64 toChainId,
+        address to,
+        uint64 messageGas,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    )
+        external
+        payable
+        returns (bytes32 messageHash)
+    {
+        SpokeWarehouse(SPOKE_WAREHOUSE).custodyWithPermit(msg.sender, asset, amount, deadline, v, r, s);
+        messageHash = _sendDepositMessage(asset, amount, toChainId, to, messageGas);
     }
 
     function sendWithdrawalMessage(
@@ -261,6 +270,33 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _handleMessage(chainId, messageType, body);
     }
 
+    function _sendDepositMessage(
+        address asset,
+        uint256 amount,
+        uint64 toChainId,
+        address to,
+        uint64 messageGas
+    )
+        internal
+        returns (bytes32 messageHash)
+    {
+        _requireNotPaused();
+        address adapter = messagingAdapter;
+        if (adapter == address(0)) revert UnknownAdapter();
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(toChainId, to);
+        messageHash = _sendMessage(
+            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+            messageGas,
+            MessageType.Deposit,
+            abi.encode(
+                DepositMessage({
+                    asset: asset, amount: amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
+                })
+            )
+        );
+        emit Deposit(asset, msg.sender, toAccountId, amount);
+    }
+
     function _sendMessage(
         uint64 chainId,
         uint64 messageGas,
@@ -332,11 +368,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 )
             );
         } else if (messageType == MessageType.Withdrawal) {
-            if (SPOKE_WAREHOUSE_CONDUCTOR == address(0)) revert NoHandler();
+            if (SPOKE_WAREHOUSE == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
-            (ok, result) = SPOKE_WAREHOUSE_CONDUCTOR.call(
-                abi.encodeCall(SpokeWarehouseConductor.receiveWithdrawal, (message.asset, message.amount, message.to))
+            (ok, result) = SPOKE_WAREHOUSE.call(
+                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to))
             );
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));

@@ -6,7 +6,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
@@ -31,7 +31,7 @@ contract DepotUnitTest is Test {
     uint64 constant HUB_CHAIN_ID = 1;
 
     TransitAuthority authority;
-    SpokeWarehouseConductor warehouse;
+    SpokeWarehouse warehouse;
     Depot depot;
     UserConductor userConductor;
     HubWarehouseConductor hubWarehouseConductor;
@@ -54,10 +54,9 @@ contract DepotUnitTest is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        uint256 nonce = vm.getNonce(address(this));
-        turnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
+        warehouse = new SpokeWarehouse(address(authority), vault);
+        turnstile = new Turnstile(address(authority), address(warehouse));
         depot = new Depot(address(authority));
-        warehouse = new SpokeWarehouseConductor(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
         hubWarehouseConductor =
@@ -68,10 +67,12 @@ contract DepotUnitTest is Test {
         usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
 
         bytes4[] memory warehouseAdminSels = new bytes4[](1);
-        warehouseAdminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        warehouseAdminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
-        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.custodyWithPermit.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Turnstile.receiveMessage.selector;
@@ -90,9 +91,8 @@ contract DepotUnitTest is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
+        bytes4[] memory turnstileSendSels = new bytes4[](1);
+        turnstileSendSels[0] = Turnstile.sendWithdrawalMessage.selector;
 
         bytes4[] memory routedSels = new bytes4[](3);
         routedSels[0] = UserConductor.reserve.selector;
@@ -106,8 +106,7 @@ contract DepotUnitTest is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
         authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, SOLVER_ROLE);
         authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
         authority.setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
@@ -152,7 +151,7 @@ contract DepotUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(address(usdc), amount, HUB_CHAIN_ID, user, 0);
+        turnstile.deposit(address(usdc), amount, HUB_CHAIN_ID, user, 0);
         vm.stopPrank();
     }
 
