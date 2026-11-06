@@ -242,13 +242,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
+    /// TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
+    /// redelivery.
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted {
-        _requireNotPaused();
         bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
-        messageStatus[messageHash] = MessageStatus.Executed;
         emit MessageRetried(sourceChainId, messageType, messageHash);
-        _execute(sourceChainId, messageType, body);
+        _handleMessage(sourceChainId, messageType, body);
     }
 
     // ========================================= ADAPTER ========================================
@@ -446,9 +446,50 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _requireNotPaused();
         bytes32 messageHash = digestMessage(chainId, messageType, body);
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
+        MessageStatus status = messageStatus[messageHash];
+        if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
         messageStatus[messageHash] = MessageStatus.Executed;
-        _execute(chainId, messageType, body);
+        bool ok;
+        bytes memory result;
+        uint256 gasBefore;
+        if (messageType == MessageType.Deposit) {
+            if (hubWarehouseConductor == address(0)) revert NoHandler();
+            DepositMessage memory message = abi.decode(body, (DepositMessage));
+            gasBefore = gasleft();
+            (ok, result) = hubWarehouseConductor.call(
+                abi.encodeCall(
+                    HubWarehouseConductor.receiveDeposit, (chainId, message.asset, message.amount, message.toAccountId)
+                )
+            );
+        } else if (messageType == MessageType.Withdrawal) {
+            if (SPOKE_WAREHOUSE == address(0)) revert NoHandler();
+            WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
+            gasBefore = gasleft();
+            (ok, result) = SPOKE_WAREHOUSE.call(
+                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to))
+            );
+        } else {
+            GenericMessage memory message = abi.decode(body, (GenericMessage));
+            if (block.timestamp > message.deadline) {
+                if (chainId == block.chainid) revert Expired();
+                messageStatus[messageHash] = MessageStatus.Expired;
+                emit MessageExpired(chainId, messageType, messageHash);
+                return;
+            }
+            gasBefore = gasleft();
+            (ok, result) = _executeCall(
+                message.target, message.data, 0, TransitTokenLib.formatAccountId(chainId, message.sender)
+            );
+        }
+        if (ok) return;
+        if (chainId == block.chainid) {
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+        if (gasleft() <= gasBefore / 63) revert OutOfGas();
+        messageStatus[messageHash] = MessageStatus.Failed;
+        emit MessageFailed(chainId, messageType, messageHash, body);
     }
 
     function _executeCall(
@@ -462,53 +503,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         if (!routable[target][bytes4(data)]) return (false, abi.encodeWithSelector(NotRoutable.selector));
         (ok, result) = target.call{ value: value }(abi.encodePacked(data, accountId));
-    }
-
-    function _execute(uint64 sourceChainId, MessageType messageType, bytes memory body) internal {
-        bool ok;
-        bytes memory result;
-        uint256 gasBefore;
-        if (messageType == MessageType.Deposit) {
-            if (hubWarehouseConductor == address(0)) revert NoHandler();
-            DepositMessage memory message = abi.decode(body, (DepositMessage));
-            gasBefore = gasleft();
-            (ok, result) = hubWarehouseConductor.call(
-                abi.encodeCall(
-                    HubWarehouseConductor.receiveDeposit,
-                    (sourceChainId, message.asset, message.amount, message.toAccountId)
-                )
-            );
-        } else if (messageType == MessageType.Withdrawal) {
-            if (SPOKE_WAREHOUSE == address(0)) revert NoHandler();
-            WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
-            gasBefore = gasleft();
-            (ok, result) = SPOKE_WAREHOUSE.call(
-                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to))
-            );
-        } else {
-            GenericMessage memory message = abi.decode(body, (GenericMessage));
-            if (block.timestamp > message.deadline) {
-                if (sourceChainId == block.chainid) revert Expired();
-                bytes32 expiredHash = digestMessage(sourceChainId, messageType, body);
-                messageStatus[expiredHash] = MessageStatus.Expired;
-                emit MessageExpired(sourceChainId, messageType, expiredHash);
-                return;
-            }
-            gasBefore = gasleft();
-            (ok, result) = _executeCall(
-                message.target, message.data, 0, TransitTokenLib.formatAccountId(sourceChainId, message.sender)
-            );
-        }
-        if (ok) return;
-        if (sourceChainId == block.chainid) {
-            assembly {
-                revert(add(result, 0x20), mload(result))
-            }
-        }
-        if (gasleft() <= gasBefore / 63) revert OutOfGas();
-        bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
-        messageStatus[messageHash] = MessageStatus.Failed;
-        emit MessageFailed(sourceChainId, messageType, messageHash, body);
     }
 
 }
