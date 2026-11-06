@@ -93,6 +93,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     function repay(uint256 escrowId, uint256 side, uint256 amount) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
+        if (_senderAccountId() != leg.accountId) revert NotOwner();
         if (amount > leg.owed) revert ExceedsOwed();
         unchecked {
             leg.owed -= amount;
