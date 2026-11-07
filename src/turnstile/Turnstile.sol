@@ -76,33 +76,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         payable
         returns (bytes32[] memory messageHashes)
     {
-        _requireNotPaused();
-        if (
-            actionTypes.length != actionData.length || actionData.length != fares.length
-                || actionData.length != messageGas.length
-        ) revert LengthMismatch();
-        messageHashes = new bytes32[](actionData.length);
-        uint256 totalFare;
-        for (uint256 i; i < actionData.length; i++) {
-            totalFare += fares[i];
-            if (actionTypes[i] == ActionType.Deposit) {
-                messageHashes[i] = _sendDepositMessage(
-                    msg.sender, abi.decode(actionData[i], (DepositAction)), fares[i], messageGas[i]
-                );
-            } else if (actionTypes[i] == ActionType.Withdraw) {
-                messageHashes[i] = _sendWithdrawalMessage(
-                    TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
-                    abi.decode(actionData[i], (WithdrawAction)),
-                    fares[i],
-                    messageGas[i]
-                );
-            } else {
-                messageHashes[i] = _sendGenericMessage(
-                    msg.sender, abi.decode(actionData[i], (GenericAction)), fares[i], messageGas[i]
-                );
-            }
-        }
-        if (totalFare != msg.value) revert FareMismatch();
+        messageHashes = _dispatch(actionTypes, actionData, new bytes[](0), fares, messageGas, false);
     }
 
     /// TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
@@ -119,24 +93,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         payable
         restricted
     {
-        _requireNotPaused();
-        if (
-            actionTypes.length != actionData.length || actionData.length != signatures.length
-                || actionData.length != fares.length || actionData.length != messageGas.length
-        ) revert LengthMismatch();
-        uint256 totalFare;
-        for (uint256 i; i < actionData.length; i++) {
-            totalFare += fares[i];
-            if (actionTypes[i] == ActionType.Deposit) {
-                _facilitateDeposit(abi.decode(actionData[i], (DepositAction)), signatures[i], fares[i], messageGas[i]);
-            } else if (actionTypes[i] == ActionType.Withdraw) {
-                _facilitateWithdraw(abi.decode(actionData[i], (WithdrawAction)), signatures[i], fares[i], messageGas[i]);
-            } else {
-                if (fares[i] != 0) revert NoFare();
-                _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i]);
-            }
-        }
-        if (totalFare != msg.value) revert FareMismatch();
+        _dispatch(actionTypes, actionData, signatures, fares, messageGas, true);
     }
 
     function hashDepositAction(DepositAction memory action) public view returns (bytes32) {
@@ -254,90 +211,69 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         emit MessageRetried(sourceChainId, messageType, messageHash);
-        _handleMessage(sourceChainId, messageType, body);
+        _handleMessage(sourceChainId, messageType, body, false);
     }
 
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (MessageType messageType, bytes memory body) = abi.decode(payload, (MessageType, bytes));
-        _handleMessage(chainId, messageType, body);
+        _handleMessage(chainId, messageType, body, false);
     }
 
-    function _facilitateDeposit(
-        DepositAction memory action,
-        bytes calldata signature,
-        uint256 fare,
-        uint64 messageGas
+    function _dispatch(
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
+        bytes[] memory signatures,
+        uint256[] calldata fares,
+        uint64[] calldata messageGas,
+        bool facilitated
     )
         internal
+        returns (bytes32[] memory messageHashes)
     {
-        address from = ECDSA.recoverCalldata(hashDepositAction(action), signature);
-        _consumeAction(MessageType.Deposit, abi.encode(from, action));
-        _sendDepositMessage(from, action, fare, messageGas);
-    }
-
-    function _facilitateWithdraw(
-        WithdrawAction memory action,
-        bytes calldata signature,
-        uint256 fare,
-        uint64 messageGas
-    )
-        internal
-    {
-        address signer = ECDSA.recoverCalldata(hashWithdrawAction(action), signature);
-        _consumeAction(MessageType.Withdrawal, abi.encode(signer, action));
-        _sendWithdrawalMessage(
-            TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), signer)),
-            action,
-            fare,
-            messageGas
-        );
-    }
-
-    function _facilitateGeneric(GenericAction memory action, bytes calldata signature) internal {
-        address sender = ECDSA.recoverCalldata(hashGenericAction(action), signature);
-        if (block.timestamp > action.deadline) revert Expired();
-        _consumeAction(MessageType.Generic, abi.encode(_genericMessage(sender, action)));
-        (bool ok, bytes memory result) = _executeCall(
-            action.target,
-            action.data,
-            TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), sender))
-        );
-        if (!ok) {
-            assembly {
-                revert(add(result, 0x20), mload(result))
+        _requireNotPaused();
+        if (
+            actionTypes.length != actionData.length || actionData.length != fares.length
+                || actionData.length != messageGas.length || (facilitated && actionData.length != signatures.length)
+        ) revert LengthMismatch();
+        messageHashes = new bytes32[](actionData.length);
+        uint256 totalFare;
+        for (uint256 i; i < actionData.length; i++) {
+            totalFare += fares[i];
+            bytes memory signature = facilitated ? signatures[i] : bytes("");
+            if (actionTypes[i] == ActionType.Deposit) {
+                messageHashes[i] = _dispatchDeposit(
+                    abi.decode(actionData[i], (DepositAction)), signature, fares[i], messageGas[i], facilitated
+                );
+            } else if (actionTypes[i] == ActionType.Withdraw) {
+                messageHashes[i] = _dispatchWithdraw(
+                    abi.decode(actionData[i], (WithdrawAction)), signature, fares[i], messageGas[i], facilitated
+                );
+            } else {
+                messageHashes[i] = _dispatchGeneric(
+                    abi.decode(actionData[i], (GenericAction)), signature, fares[i], messageGas[i], facilitated
+                );
             }
         }
+        if (totalFare != msg.value) revert FareMismatch();
     }
 
-    /// TODO: Decide the deposit/withdraw action replay key. Currently digestMessage over (signer, action) under the
-    /// matching MessageType, as generic actions are keyed by their GenericMessage.
-    function _consumeAction(MessageType messageType, bytes memory body) internal {
-        bytes32 actionHash = digestMessage(uint64(block.chainid), messageType, body);
-        if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
-        messageStatus[actionHash] = MessageStatus.Executed;
-    }
-
-    function _genericMessage(address sender, GenericAction memory action)
-        internal
-        pure
-        returns (GenericMessage memory)
-    {
-        return GenericMessage({
-            sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
-        });
-    }
-
-    function _sendDepositMessage(
-        address from,
+    function _dispatchDeposit(
         DepositAction memory action,
+        bytes memory signature,
         uint256 fare,
-        uint64 messageGas
+        uint64 messageGas,
+        bool facilitated
     )
         internal
         returns (bytes32 messageHash)
     {
+        address from = msg.sender;
+        if (facilitated) {
+            from = ECDSA.recover(hashDepositAction(action), signature);
+            _consumeAction(MessageType.Deposit, abi.encode(from, action));
+        }
         if (block.timestamp > action.deadline) revert Expired();
         if (action.permit.deadline != 0) {
             try SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit) { }
@@ -359,33 +295,48 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
                 })
             ),
-            fare
+            fare,
+            false
         );
         emit Deposit(action.asset, from, toAccountId, action.amount);
     }
 
     /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays in
     /// Turnstile.
-    function _sendWithdrawalMessage(
-        bytes32 actorAccountId,
+    function _dispatchWithdraw(
         WithdrawAction memory action,
+        bytes memory signature,
         uint256 fare,
-        uint64 messageGas
+        uint64 messageGas,
+        bool facilitated
     )
         internal
         returns (bytes32 messageHash)
     {
-        address handler = hubWarehouseConductor;
-        if (handler == address(0)) revert NoHandler();
-        (bool ok, bytes memory result) = handler.call(
-            abi.encodePacked(abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), actorAccountId)
-        );
-        if (!ok) {
-            assembly {
-                revert(add(result, 0x20), mload(result))
+        bytes32 accountId;
+        {
+            address owner = msg.sender;
+            if (facilitated) {
+                owner = ECDSA.recover(hashWithdrawAction(action), signature);
+                _consumeAction(MessageType.Withdrawal, abi.encode(owner, action));
             }
+            accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner);
+            if (facilitated) accountId = TransitTokenLib.formatFacilitatedAccountId(accountId);
         }
-        uint256 amount = abi.decode(result, (uint256));
+        uint256 amount;
+        {
+            address handler = hubWarehouseConductor;
+            if (handler == address(0)) revert NoHandler();
+            (bool ok, bytes memory result) = handler.call(
+                abi.encodePacked(abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), accountId)
+            );
+            if (!ok) {
+                assembly {
+                    revert(add(result, 0x20), mload(result))
+                }
+            }
+            amount = abi.decode(result, (uint256));
+        }
         if (amount == 0) return bytes32(0);
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
         messageHash = _sendMessage(
@@ -395,19 +346,23 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             abi.encode(
                 WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
             ),
-            fare
+            fare,
+            false
         );
     }
 
-    function _sendGenericMessage(
-        address sender,
+    function _dispatchGeneric(
         GenericAction memory action,
+        bytes memory signature,
         uint256 fare,
-        uint64 messageGas
+        uint64 messageGas,
+        bool facilitated
     )
         internal
         returns (bytes32 messageHash)
     {
+        address sender = msg.sender;
+        if (facilitated) sender = ECDSA.recover(hashGenericAction(action), signature);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
         messageHash = _sendMessage(
@@ -415,8 +370,27 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             messageGas,
             MessageType.Generic,
             abi.encode(_genericMessage(sender, action)),
-            fare
+            fare,
+            facilitated
         );
+    }
+
+    /// TODO: Decide the deposit/withdraw action replay key. Currently digestMessage over (signer, action) under the
+    /// matching MessageType, as generic actions are keyed by their GenericMessage.
+    function _consumeAction(MessageType messageType, bytes memory body) internal {
+        bytes32 actionHash = digestMessage(uint64(block.chainid), messageType, body);
+        if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
+        messageStatus[actionHash] = MessageStatus.Executed;
+    }
+
+    function _genericMessage(address sender, GenericAction memory action)
+        internal
+        pure
+        returns (GenericMessage memory)
+    {
+        return GenericMessage({
+            sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
+        });
     }
 
     function _sendMessage(
@@ -424,7 +398,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint64 messageGas,
         MessageType messageType,
         bytes memory body,
-        uint256 fare
+        uint256 fare,
+        bool facilitated
     )
         internal
         returns (bytes32 messageHash)
@@ -432,7 +407,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHash = digestMessage(uint64(block.chainid), messageType, body);
         if (chainId == block.chainid) {
             if (fare != 0) revert NoFare();
-            _handleMessage(chainId, messageType, body);
+            _handleMessage(chainId, messageType, body, facilitated);
         } else {
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert UnknownAdapter();
@@ -454,7 +429,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return IMessagingAdapter(messagingAdapter).quote(chainId, messageGas, abi.encode(messageType, body));
     }
 
-    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body) internal {
+    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body, bool facilitated) internal {
         _requireNotPaused();
         bytes32 messageHash = digestMessage(chainId, messageType, body);
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
@@ -489,8 +464,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 return;
             }
             gasBefore = gasleft();
-            (ok, result) =
-                _executeCall(message.target, message.data, TransitTokenLib.formatAccountId(chainId, message.sender));
+            bytes32 accountId = TransitTokenLib.formatAccountId(chainId, message.sender);
+            if (facilitated) accountId = TransitTokenLib.formatFacilitatedAccountId(accountId);
+            if (routable[message.target][bytes4(message.data)]) {
+                (ok, result) = message.target.call(abi.encodePacked(message.data, accountId));
+            } else {
+                result = abi.encodeWithSelector(NotRoutable.selector);
+            }
         }
         if (ok) return;
         if (chainId == block.chainid) {
@@ -501,18 +481,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
         messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(chainId, messageType, messageHash, body);
-    }
-
-    function _executeCall(
-        address target,
-        bytes memory data,
-        bytes32 accountId
-    )
-        internal
-        returns (bool ok, bytes memory result)
-    {
-        if (!routable[target][bytes4(data)]) return (false, abi.encodeWithSelector(NotRoutable.selector));
-        (ok, result) = target.call(abi.encodePacked(data, accountId));
     }
 
 }
