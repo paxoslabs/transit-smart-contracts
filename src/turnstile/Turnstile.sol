@@ -69,7 +69,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function dispatch(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
-        uint256[] calldata values,
+        uint256[] calldata fares,
         uint64[] calldata messageGas
     )
         external
@@ -78,31 +78,31 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         _requireNotPaused();
         if (
-            actionTypes.length != actionData.length || actionData.length != values.length
+            actionTypes.length != actionData.length || actionData.length != fares.length
                 || actionData.length != messageGas.length
         ) revert LengthMismatch();
         messageHashes = new bytes32[](actionData.length);
-        uint256 totalValue;
+        uint256 totalFare;
         for (uint256 i; i < actionData.length; i++) {
-            totalValue += values[i];
+            totalFare += fares[i];
             if (actionTypes[i] == ActionType.Deposit) {
                 messageHashes[i] = _sendDepositMessage(
-                    msg.sender, abi.decode(actionData[i], (DepositAction)), values[i], messageGas[i]
+                    msg.sender, abi.decode(actionData[i], (DepositAction)), fares[i], messageGas[i]
                 );
             } else if (actionTypes[i] == ActionType.Withdraw) {
                 messageHashes[i] = _sendWithdrawalMessage(
                     TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
                     abi.decode(actionData[i], (WithdrawAction)),
-                    values[i],
+                    fares[i],
                     messageGas[i]
                 );
             } else {
                 messageHashes[i] = _sendGenericMessage(
-                    msg.sender, abi.decode(actionData[i], (GenericAction)), values[i], messageGas[i]
+                    msg.sender, abi.decode(actionData[i], (GenericAction)), fares[i], messageGas[i]
                 );
             }
         }
-        if (totalValue != msg.value) revert ValueMismatch();
+        if (totalFare != msg.value) revert FareMismatch();
     }
 
     /// TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
@@ -112,7 +112,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
         bytes[] calldata signatures,
-        uint256[] calldata values,
+        uint256[] calldata fares,
         uint64[] calldata messageGas
     )
         external
@@ -122,23 +122,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _requireNotPaused();
         if (
             actionTypes.length != actionData.length || actionData.length != signatures.length
-                || actionData.length != values.length || actionData.length != messageGas.length
+                || actionData.length != fares.length || actionData.length != messageGas.length
         ) revert LengthMismatch();
-        uint256 totalValue;
+        uint256 totalFare;
         for (uint256 i; i < actionData.length; i++) {
-            totalValue += values[i];
+            totalFare += fares[i];
             if (actionTypes[i] == ActionType.Deposit) {
-                _facilitateDeposit(abi.decode(actionData[i], (DepositAction)), signatures[i], values[i], messageGas[i]);
+                _facilitateDeposit(abi.decode(actionData[i], (DepositAction)), signatures[i], fares[i], messageGas[i]);
             } else if (actionTypes[i] == ActionType.Withdraw) {
-                _facilitateWithdraw(
-                    abi.decode(actionData[i], (WithdrawAction)), signatures[i], values[i], messageGas[i]
-                );
+                _facilitateWithdraw(abi.decode(actionData[i], (WithdrawAction)), signatures[i], fares[i], messageGas[i]);
             } else {
-                if (values[i] != 0) revert NoFee();
+                if (fares[i] != 0) revert NoFare();
                 _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i]);
             }
         }
-        if (totalValue != msg.value) revert ValueMismatch();
+        if (totalFare != msg.value) revert FareMismatch();
     }
 
     function hashDepositAction(DepositAction memory action) public view returns (bytes32) {
@@ -192,7 +190,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return keccak256(abi.encode(chainId, messageType, body));
     }
 
-    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fee) {
+    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas)
+        external
+        view
+        returns (uint256 fare)
+    {
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
         return _quote(
@@ -216,7 +218,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     )
         external
         view
-        returns (uint256 fee)
+        returns (uint256 fare)
     {
         (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
         return _quote(
@@ -231,7 +233,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fee) {
+    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas)
+        external
+        view
+        returns (uint256 fare)
+    {
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
         return _quote(
@@ -261,20 +267,20 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function _facilitateDeposit(
         DepositAction memory action,
         bytes calldata signature,
-        uint256 value,
+        uint256 fare,
         uint64 messageGas
     )
         internal
     {
         address from = ECDSA.recoverCalldata(hashDepositAction(action), signature);
         _consumeAction(MessageType.Deposit, abi.encode(from, action));
-        _sendDepositMessage(from, action, value, messageGas);
+        _sendDepositMessage(from, action, fare, messageGas);
     }
 
     function _facilitateWithdraw(
         WithdrawAction memory action,
         bytes calldata signature,
-        uint256 value,
+        uint256 fare,
         uint64 messageGas
     )
         internal
@@ -284,7 +290,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _sendWithdrawalMessage(
             TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), signer)),
             action,
-            value,
+            fare,
             messageGas
         );
     }
@@ -326,7 +332,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function _sendDepositMessage(
         address from,
         DepositAction memory action,
-        uint256 value,
+        uint256 fare,
         uint64 messageGas
     )
         internal
@@ -353,17 +359,17 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
                 })
             ),
-            value
+            fare
         );
         emit Deposit(action.asset, from, toAccountId, action.amount);
     }
 
-    /// TODO: Decide what happens to value when an expired or empty withdrawal sends no message. Currently it stays in
+    /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays in
     /// Turnstile.
     function _sendWithdrawalMessage(
         bytes32 actorAccountId,
         WithdrawAction memory action,
-        uint256 value,
+        uint256 fare,
         uint64 messageGas
     )
         internal
@@ -389,14 +395,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             abi.encode(
                 WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
             ),
-            value
+            fare
         );
     }
 
     function _sendGenericMessage(
         address sender,
         GenericAction memory action,
-        uint256 value,
+        uint256 fare,
         uint64 messageGas
     )
         internal
@@ -409,7 +415,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             messageGas,
             MessageType.Generic,
             abi.encode(_genericMessage(sender, action)),
-            value
+            fare
         );
     }
 
@@ -418,19 +424,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint64 messageGas,
         MessageType messageType,
         bytes memory body,
-        uint256 value
+        uint256 fare
     )
         internal
         returns (bytes32 messageHash)
     {
         messageHash = digestMessage(uint64(block.chainid), messageType, body);
         if (chainId == block.chainid) {
-            if (value != 0) revert NoFee();
+            if (fare != 0) revert NoFare();
             _handleMessage(chainId, messageType, body);
         } else {
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert UnknownAdapter();
-            IMessagingAdapter(adapter).send{ value: value }(chainId, messageGas, abi.encode(messageType, body));
+            IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(messageType, body));
         }
     }
 

@@ -251,10 +251,10 @@ contract DepotUnitTest is Test {
         actionTypes[0] = ITurnstile.ActionType.Generic;
         bytes[] memory actionData = new bytes[](1);
         actionData[0] = abi.encode(message);
-        uint256[] memory values = new uint256[](1);
+        uint256[] memory fares = new uint256[](1);
         uint64[] memory messageGas = new uint64[](1);
         vm.prank(backend);
-        turnstile.facilitate(actionTypes, actionData, _toArray(signature), values, messageGas);
+        turnstile.facilitate(actionTypes, actionData, _toArray(signature), fares, messageGas);
     }
 
     function _toArray(bytes memory signature) internal pure returns (bytes[] memory signatures) {

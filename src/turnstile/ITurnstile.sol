@@ -94,9 +94,9 @@ interface ITurnstile is IMessagingReceiver {
     error NotRoutable();
     error NotFailed();
     error NoHandler();
-    error NoFee();
+    error NoFare();
     error LengthMismatch();
-    error ValueMismatch();
+    error FareMismatch();
     error Expired();
 
     function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
@@ -132,7 +132,7 @@ interface ITurnstile is IMessagingReceiver {
     function dispatch(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
-        uint256[] calldata values,
+        uint256[] calldata fares,
         uint64[] calldata messageGas
     )
         external
@@ -143,7 +143,7 @@ interface ITurnstile is IMessagingReceiver {
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
         bytes[] calldata signatures,
-        uint256[] calldata values,
+        uint256[] calldata fares,
         uint64[] calldata messageGas
     )
         external
@@ -157,7 +157,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) external pure returns (bytes32);
 
-    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fee);
+    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fare);
 
     function quoteWithdrawalMessage(
         WithdrawAction calldata action,
@@ -165,9 +165,9 @@ interface ITurnstile is IMessagingReceiver {
     )
         external
         view
-        returns (uint256 fee);
+        returns (uint256 fare);
 
-    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fee);
+    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fare);
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external;
 

@@ -397,12 +397,12 @@ contract TransitTestBase is Test {
         actionData[0] = abi.encode(request);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
-        uint256[] memory values = new uint256[](1);
+        uint256[] memory fares = new uint256[](1);
         uint64[] memory messageGas = new uint64[](1);
         messageGas[0] = _messageGas(hubChainId);
 
         vm.prank(solver);
-        turnstile.facilitate(actionTypes, actionData, signatures, values, messageGas);
+        turnstile.facilitate(actionTypes, actionData, signatures, fares, messageGas);
         withdrawId = hubWarehouseConductor.hashWithdrawAction(request);
     }
 
