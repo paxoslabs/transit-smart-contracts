@@ -134,7 +134,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     abi.decode(actionData[i], (WithdrawAction)), signatures[i], values[i], messageGas[i]
                 );
             } else {
-                _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i], values[i]);
+                if (values[i] != 0) revert NoFee();
+                _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i]);
             }
         }
         if (totalValue != msg.value) revert ValueMismatch();
@@ -288,14 +289,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function _facilitateGeneric(GenericAction memory action, bytes calldata signature, uint256 value) internal {
+    function _facilitateGeneric(GenericAction memory action, bytes calldata signature) internal {
         address sender = ECDSA.recoverCalldata(hashGenericAction(action), signature);
         if (block.timestamp > action.deadline) revert Expired();
         _consumeAction(MessageType.Generic, abi.encode(_genericMessage(sender, action)));
         (bool ok, bytes memory result) = _executeCall(
             action.target,
             action.data,
-            value,
             TransitTokenLib.formatFacilitatedAccountId(TransitTokenLib.formatAccountId(uint64(block.chainid), sender))
         );
         if (!ok) {
@@ -483,9 +483,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 return;
             }
             gasBefore = gasleft();
-            (ok, result) = _executeCall(
-                message.target, message.data, 0, TransitTokenLib.formatAccountId(chainId, message.sender)
-            );
+            (ok, result) =
+                _executeCall(message.target, message.data, TransitTokenLib.formatAccountId(chainId, message.sender));
         }
         if (ok) return;
         if (chainId == block.chainid) {
@@ -501,14 +500,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function _executeCall(
         address target,
         bytes memory data,
-        uint256 value,
         bytes32 accountId
     )
         internal
         returns (bool ok, bytes memory result)
     {
         if (!routable[target][bytes4(data)]) return (false, abi.encodeWithSelector(NotRoutable.selector));
-        (ok, result) = target.call{ value: value }(abi.encodePacked(data, accountId));
+        (ok, result) = target.call(abi.encodePacked(data, accountId));
     }
 
 }
