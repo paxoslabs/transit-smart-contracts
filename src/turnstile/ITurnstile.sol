@@ -157,17 +157,14 @@ interface ITurnstile is IMessagingReceiver {
 
     function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) external pure returns (bytes32);
 
-    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas) external view returns (uint256 fare);
-
-    function quoteWithdrawalMessage(
-        WithdrawAction calldata action,
-        uint64 messageGas
+    function quote(
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
+        uint64[] calldata messageGas
     )
         external
         view
-        returns (uint256 fare);
-
-    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas) external view returns (uint256 fare);
+        returns (uint256[] memory fares);
 
     function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external;
 

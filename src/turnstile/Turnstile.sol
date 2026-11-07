@@ -147,62 +147,61 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return keccak256(abi.encode(chainId, messageType, body));
     }
 
-    function quoteDepositMessage(DepositAction calldata action, uint64 messageGas)
-        external
-        view
-        returns (uint256 fare)
-    {
-        address adapter = messagingAdapter;
-        if (adapter == address(0)) revert UnknownAdapter();
-        return _quote(
-            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
-            messageGas,
-            MessageType.Deposit,
-            abi.encode(
-                DepositMessage({
-                    asset: action.asset,
-                    amount: action.amount,
-                    toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to),
-                    salt: bytes32(outboundNonce + 1)
-                })
-            )
-        );
-    }
-
-    function quoteWithdrawalMessage(
-        WithdrawAction calldata action,
-        uint64 messageGas
+    function quote(
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
+        uint64[] calldata messageGas
     )
         external
         view
-        returns (uint256 fare)
+        returns (uint256[] memory fares)
     {
-        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
-        return _quote(
-            assetChainId,
-            messageGas,
-            MessageType.Withdrawal,
-            abi.encode(
-                WithdrawalMessage({
-                    asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
-                })
-            )
-        );
-    }
-
-    function quoteGenericMessage(GenericAction calldata action, uint64 messageGas)
-        external
-        view
-        returns (uint256 fare)
-    {
-        address adapter = messagingAdapter;
-        if (adapter == address(0)) revert UnknownAdapter();
-        return _quote(
-            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
-            messageGas,
-            MessageType.Generic,
-            abi.encode(_genericMessage(msg.sender, action))
-        );
+        if (actionTypes.length != actionData.length || actionData.length != messageGas.length) {
+            revert LengthMismatch();
+        }
+        fares = new uint256[](actionData.length);
+        for (uint256 i; i < actionData.length; i++) {
+            if (actionTypes[i] == ActionType.Deposit) {
+                DepositAction memory action = abi.decode(actionData[i], (DepositAction));
+                address adapter = messagingAdapter;
+                if (adapter == address(0)) revert UnknownAdapter();
+                fares[i] = _quote(
+                    IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+                    messageGas[i],
+                    MessageType.Deposit,
+                    abi.encode(
+                        DepositMessage({
+                            asset: action.asset,
+                            amount: action.amount,
+                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to),
+                            salt: bytes32(outboundNonce + 1)
+                        })
+                    )
+                );
+            } else if (actionTypes[i] == ActionType.Withdraw) {
+                WithdrawAction memory action = abi.decode(actionData[i], (WithdrawAction));
+                (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
+                fares[i] = _quote(
+                    assetChainId,
+                    messageGas[i],
+                    MessageType.Withdrawal,
+                    abi.encode(
+                        WithdrawalMessage({
+                            asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
+                        })
+                    )
+                );
+            } else {
+                address adapter = messagingAdapter;
+                if (adapter == address(0)) revert UnknownAdapter();
+                fares[i] = _quote(
+                    IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+                    messageGas[i],
+                    MessageType.Generic,
+                    abi.encode(_genericMessage(msg.sender, abi.decode(actionData[i], (GenericAction))))
+                );
+            }
+        }
     }
 
     /// TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
