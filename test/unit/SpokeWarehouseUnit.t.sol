@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
@@ -39,16 +40,20 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        turnstile.deposit(
-            ITurnstile.DepositAction({
-                asset: address(other),
-                amount: 1e18,
-                toChainId: HUB_CHAIN_ID,
-                to: alice,
-                deadline: type(uint256).max,
-                salt: bytes32(0),
-                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-            }),
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(other),
+                    amount: 1e18,
+                    toChainId: HUB_CHAIN_ID,
+                    to: alice,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
             0
         );
         vm.stopPrank();
@@ -117,16 +122,20 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         deal(address(usdg), alice, 100e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
-        spokeTurnstile.deposit(
-            ITurnstile.DepositAction({
-                asset: address(usdg),
-                amount: 100e6,
-                toChainId: SPOKE_CHAIN_ID,
-                to: alice,
-                deadline: type(uint256).max,
-                salt: bytes32(0),
-                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-            }),
+        dispatchOne(
+            spokeTurnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdg),
+                    amount: 100e6,
+                    toChainId: SPOKE_CHAIN_ID,
+                    to: alice,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
             200_000
         );
         vm.stopPrank();

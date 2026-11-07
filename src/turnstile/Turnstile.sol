@@ -66,35 +66,43 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _unpause();
     }
 
-    function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash) {
-        _requireNotPaused();
-        messageHash = _sendDepositMessage(msg.sender, action, msg.value, messageGas);
-    }
-
-    function sendWithdrawalMessage(
-        WithdrawAction calldata action,
-        uint64 messageGas
+    function dispatch(
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
+        uint256[] calldata values,
+        uint64[] calldata messageGas
     )
         external
         payable
-        returns (bytes32 messageHash)
+        returns (bytes32[] memory messageHashes)
     {
         _requireNotPaused();
-        messageHash = _sendWithdrawalMessage(
-            TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender), action, msg.value, messageGas
-        );
-    }
-
-    function sendGenericMessage(
-        GenericAction calldata action,
-        uint64 messageGas
-    )
-        external
-        payable
-        returns (bytes32 messageHash)
-    {
-        _requireNotPaused();
-        messageHash = _sendGenericMessage(msg.sender, action, msg.value, messageGas);
+        if (
+            actionTypes.length != actionData.length || actionData.length != values.length
+                || actionData.length != messageGas.length
+        ) revert LengthMismatch();
+        messageHashes = new bytes32[](actionData.length);
+        uint256 totalValue;
+        for (uint256 i; i < actionData.length; i++) {
+            totalValue += values[i];
+            if (actionTypes[i] == ActionType.Deposit) {
+                messageHashes[i] = _sendDepositMessage(
+                    msg.sender, abi.decode(actionData[i], (DepositAction)), values[i], messageGas[i]
+                );
+            } else if (actionTypes[i] == ActionType.Withdraw) {
+                messageHashes[i] = _sendWithdrawalMessage(
+                    TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender),
+                    abi.decode(actionData[i], (WithdrawAction)),
+                    values[i],
+                    messageGas[i]
+                );
+            } else {
+                messageHashes[i] = _sendGenericMessage(
+                    msg.sender, abi.decode(actionData[i], (GenericAction)), values[i], messageGas[i]
+                );
+            }
+        }
+        if (totalValue != msg.value) revert ValueMismatch();
     }
 
     /// TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
@@ -116,7 +124,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             actionTypes.length != actionData.length || actionData.length != signatures.length
                 || actionData.length != values.length || actionData.length != messageGas.length
         ) revert LengthMismatch();
+        uint256 totalValue;
         for (uint256 i; i < actionData.length; i++) {
+            totalValue += values[i];
             if (actionTypes[i] == ActionType.Deposit) {
                 _facilitateDeposit(abi.decode(actionData[i], (DepositAction)), signatures[i], values[i], messageGas[i]);
             } else if (actionTypes[i] == ActionType.Withdraw) {
@@ -127,6 +137,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 _facilitateGeneric(abi.decode(actionData[i], (GenericAction)), signatures[i], values[i]);
             }
         }
+        if (totalValue != msg.value) revert ValueMismatch();
     }
 
     function hashDepositAction(DepositAction memory action) public view returns (bytes32) {

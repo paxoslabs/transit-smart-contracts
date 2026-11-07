@@ -96,6 +96,7 @@ interface ITurnstile is IMessagingReceiver {
     error NoHandler();
     error NoFee();
     error LengthMismatch();
+    error ValueMismatch();
     error Expired();
 
     function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
@@ -128,23 +129,15 @@ interface ITurnstile is IMessagingReceiver {
 
     function unpause() external;
 
-    function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash);
-
-    function sendWithdrawalMessage(
-        WithdrawAction calldata action,
-        uint64 messageGas
+    function dispatch(
+        ActionType[] calldata actionTypes,
+        bytes[] calldata actionData,
+        uint256[] calldata values,
+        uint64[] calldata messageGas
     )
         external
         payable
-        returns (bytes32 messageHash);
-
-    function sendGenericMessage(
-        GenericAction calldata action,
-        uint64 messageGas
-    )
-        external
-        payable
-        returns (bytes32 messageHash);
+        returns (bytes32[] memory messageHashes);
 
     function facilitate(
         ActionType[] calldata actionTypes,

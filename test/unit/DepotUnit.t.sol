@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
@@ -147,16 +148,20 @@ contract DepotUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        turnstile.deposit(
-            ITurnstile.DepositAction({
-                asset: address(usdc),
-                amount: amount,
-                toChainId: HUB_CHAIN_ID,
-                to: user,
-                deadline: type(uint256).max,
-                salt: bytes32(0),
-                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-            }),
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdc),
+                    amount: amount,
+                    toChainId: HUB_CHAIN_ID,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
             0
         );
         vm.stopPrank();
@@ -283,10 +288,14 @@ contract DepotUnitTest is Test {
 
         bytes32 requestId = userConductor.hashTransferRequest(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(
-                address(userConductor),
-                abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(userConductor),
+                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                )
             ),
             0
         );
@@ -331,11 +340,11 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(_generic(address(userConductor), data), 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
         vm.expectRevert(UserConductor.RequestReplay.selector);
-        turnstile.sendGenericMessage(_generic(address(userConductor), data), 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
     // ---------------------------------------------------------------- withdrawal
@@ -346,10 +355,14 @@ contract DepotUnitTest is Test {
 
         bytes32 requestId = hubWarehouseConductor.hashWithdrawAction(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(
-                address(userConductor),
-                abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(userConductor),
+                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                )
             ),
             0
         );
@@ -364,7 +377,7 @@ contract DepotUnitTest is Test {
         _advanceEpoch();
 
         vm.prank(bob);
-        turnstile.sendWithdrawalMessage(request, 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Withdraw, abi.encode(request), 0);
 
         assertEq(
             hubWarehouseConductor.requestStatus(_account(alice), requestId),
@@ -385,11 +398,11 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(_generic(address(userConductor), data), 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
         vm.expectRevert(UserConductor.RequestReplay.selector);
-        turnstile.sendGenericMessage(_generic(address(userConductor), data), 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
     // ---------------------------------------------------------------- orders
@@ -400,8 +413,11 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
 
         assertTrue(spotSwapConductor.preApproved(orderHash), "preApprove: hash not marked");
@@ -425,13 +441,23 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -455,8 +481,11 @@ contract DepotUnitTest is Test {
         orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
     }
 
@@ -491,8 +520,15 @@ contract DepotUnitTest is Test {
         (, bytes32 orderHash) = _preApprovedOrder();
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -532,8 +568,11 @@ contract DepotUnitTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(SwapConductor.NotOwner.selector);
-        turnstile.sendGenericMessage(
-            _generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order))), 0
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
     }
 

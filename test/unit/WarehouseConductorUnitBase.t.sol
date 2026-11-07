@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
@@ -132,16 +133,20 @@ abstract contract WarehouseConductorUnitBase is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        turnstile.deposit(
-            ITurnstile.DepositAction({
-                asset: address(usdc),
-                amount: amount,
-                toChainId: HUB_CHAIN_ID,
-                to: user,
-                deadline: type(uint256).max,
-                salt: bytes32(0),
-                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-            }),
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdc),
+                    amount: amount,
+                    toChainId: HUB_CHAIN_ID,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
             0
         );
         vm.stopPrank();
