@@ -192,13 +192,22 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     )
                 );
             } else {
+                GenericAction memory action = abi.decode(actionData[i], (GenericAction));
                 address adapter = messagingAdapter;
                 if (adapter == address(0)) revert UnknownAdapter();
                 fares[i] = _quote(
                     IMessagingAdapter(adapter).HUB_CHAIN_ID(),
                     messageGas[i],
                     MessageType.Generic,
-                    abi.encode(_genericMessage(msg.sender, abi.decode(actionData[i], (GenericAction))))
+                    abi.encode(
+                        GenericMessage({
+                            sender: msg.sender,
+                            target: action.target,
+                            data: action.data,
+                            deadline: action.deadline,
+                            salt: action.salt
+                        })
+                    )
                 );
             }
         }
@@ -368,7 +377,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
             MessageType.Generic,
-            abi.encode(_genericMessage(sender, action)),
+            abi.encode(
+                GenericMessage({
+                    sender: sender,
+                    target: action.target,
+                    data: action.data,
+                    deadline: action.deadline,
+                    salt: action.salt
+                })
+            ),
             fare,
             facilitated
         );
@@ -380,16 +397,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 actionHash = digestMessage(uint64(block.chainid), messageType, body);
         if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
         messageStatus[actionHash] = MessageStatus.Executed;
-    }
-
-    function _genericMessage(address sender, GenericAction memory action)
-        internal
-        pure
-        returns (GenericMessage memory)
-    {
-        return GenericMessage({
-            sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
-        });
     }
 
     function _sendMessage(
