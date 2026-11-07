@@ -163,7 +163,7 @@ contract TransitTestBase is Test {
         bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
         warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
         warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.custodyWithPermit.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -356,7 +356,8 @@ contract TransitTestBase is Test {
                 toChainId: hubChainId,
                 to: user,
                 deadline: type(uint256).max,
-                salt: bytes32(0)
+                salt: bytes32(0),
+                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
             }),
             _messageGas(chain)
         );

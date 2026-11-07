@@ -72,7 +72,7 @@ contract DepotUnitTest is Test {
         bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
         warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
         warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.custodyWithPermit.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Turnstile.receiveMessage.selector;
@@ -154,7 +154,8 @@ contract DepotUnitTest is Test {
                 toChainId: HUB_CHAIN_ID,
                 to: user,
                 deadline: type(uint256).max,
-                salt: bytes32(0)
+                salt: bytes32(0),
+                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
             }),
             0
         );

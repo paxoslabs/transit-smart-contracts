@@ -98,7 +98,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
         warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
         warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.custodyWithPermit.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.reserve.selector;
@@ -139,7 +139,8 @@ abstract contract WarehouseConductorUnitBase is Test {
                 toChainId: HUB_CHAIN_ID,
                 to: user,
                 deadline: type(uint256).max,
-                salt: bytes32(0)
+                salt: bytes32(0),
+                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
             }),
             0
         );

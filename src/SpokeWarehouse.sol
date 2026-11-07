@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { ITurnstile } from "./turnstile/ITurnstile.sol";
 
 contract SpokeWarehouse is AccessManaged {
 
@@ -29,36 +30,26 @@ contract SpokeWarehouse is AccessManaged {
 
     // ========================================= TURNSTILE ========================================
 
-    function custody(address from, address asset, uint256 amount) external restricted {
-        _custody(from, asset, amount);
-    }
-
-    /// TODO: Decide permit front-run grief handling: try native permit + allowance check, or skip permit when allowance
-    /// covers amount.
-    function custodyWithPermit(
+    function permit(
         address from,
         address asset,
         uint256 amount,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
+        ITurnstile.Permit calldata permit_
     )
         external
         restricted
     {
-        SafeTransferLib.permit2(asset, from, address(this), amount, deadline, v, r, s);
-        _custody(from, asset, amount);
+        SafeTransferLib.permit2(asset, from, address(this), amount, permit_.deadline, permit_.v, permit_.r, permit_.s);
+    }
+
+    function custody(address from, address asset, uint256 amount) external restricted {
+        if (amount == 0) revert ZeroAssets();
+        if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
+        SafeTransferLib.safeTransferFrom2(asset, from, VAULT, amount);
     }
 
     function receiveWithdrawal(address asset, uint256 amount, address to) external restricted {
         SafeTransferLib.safeTransferFrom(asset, VAULT, to, amount);
-    }
-
-    function _custody(address from, address asset, uint256 amount) internal {
-        if (amount == 0) revert ZeroAssets();
-        if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
-        SafeTransferLib.safeTransferFrom2(asset, from, VAULT, amount);
     }
 
 }

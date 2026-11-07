@@ -46,7 +46,8 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
                 toChainId: HUB_CHAIN_ID,
                 to: alice,
                 deadline: type(uint256).max,
-                salt: bytes32(0)
+                salt: bytes32(0),
+                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
             }),
             0
         );
@@ -80,8 +81,9 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         bytes4[] memory turnstileAdminSels = new bytes4[](1);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
 
-        bytes4[] memory custodySels = new bytes4[](1);
+        bytes4[] memory custodySels = new bytes4[](2);
         custodySels[0] = SpokeWarehouse.custody.selector;
+        custodySels[1] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -122,7 +124,8 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
                 toChainId: SPOKE_CHAIN_ID,
                 to: alice,
                 deadline: type(uint256).max,
-                salt: bytes32(0)
+                salt: bytes32(0),
+                permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
             }),
             200_000
         );

@@ -14,8 +14,9 @@ import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
-        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt)"
+        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
     );
+    bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
     bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
         "WithdrawAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
@@ -67,24 +68,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash) {
         _requireNotPaused();
-        SpokeWarehouse(SPOKE_WAREHOUSE).custody(msg.sender, action.asset, action.amount);
-        messageHash = _sendDepositMessage(msg.sender, action, msg.value, messageGas);
-    }
-
-    function depositWithPermit(
-        DepositAction calldata action,
-        uint64 messageGas,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    )
-        external
-        payable
-        returns (bytes32 messageHash)
-    {
-        _requireNotPaused();
-        SpokeWarehouse(SPOKE_WAREHOUSE).custodyWithPermit(msg.sender, action.asset, action.amount, deadline, v, r, s);
         messageHash = _sendDepositMessage(msg.sender, action, msg.value, messageGas);
     }
 
@@ -156,7 +139,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.toChainId,
                     action.to,
                     action.deadline,
-                    action.salt
+                    action.salt,
+                    keccak256(
+                        abi.encode(
+                            PERMIT_TYPEHASH, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
+                        )
+                    )
                 )
             )
         );
@@ -268,7 +256,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         address from = ECDSA.recoverCalldata(hashDepositAction(action), signature);
         _consumeAction(MessageType.Deposit, abi.encode(from, action));
-        SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         _sendDepositMessage(from, action, value, messageGas);
     }
 
@@ -335,6 +322,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (bytes32 messageHash)
     {
         if (block.timestamp > action.deadline) revert Expired();
+        if (action.permit.deadline != 0) {
+            try SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit) { }
+                catch {
+                // Ignored: a front-run permit fails here but still grants the allowance. No allowance check,
+                // since custody may pull via token allowance or Permit2; it reverts if neither covers amount.
+            }
+        }
+        SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
         bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to);

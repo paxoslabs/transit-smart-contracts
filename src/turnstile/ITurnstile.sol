@@ -53,6 +53,14 @@ interface ITurnstile is IMessagingReceiver {
         address to;
         uint256 deadline;
         bytes32 salt;
+        Permit permit;
+    }
+
+    struct Permit {
+        uint256 deadline;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
     }
 
     struct WithdrawAction {
@@ -92,6 +100,8 @@ interface ITurnstile is IMessagingReceiver {
 
     function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
 
+    function PERMIT_TYPEHASH() external view returns (bytes32);
+
     function WITHDRAW_ACTION_TYPEHASH() external view returns (bytes32);
 
     function GENERIC_ACTION_TYPEHASH() external view returns (bytes32);
@@ -119,18 +129,6 @@ interface ITurnstile is IMessagingReceiver {
     function unpause() external;
 
     function deposit(DepositAction calldata action, uint64 messageGas) external payable returns (bytes32 messageHash);
-
-    function depositWithPermit(
-        DepositAction calldata action,
-        uint64 messageGas,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    )
-        external
-        payable
-        returns (bytes32 messageHash);
 
     function sendWithdrawalMessage(
         WithdrawAction calldata action,
