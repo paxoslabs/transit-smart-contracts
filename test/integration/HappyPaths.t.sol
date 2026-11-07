@@ -2,9 +2,10 @@
 pragma solidity ^0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
-import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { Terminal } from "../../src/Terminal.sol";
+import { Depot } from "../../src/depot/Depot.sol";
+import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
+import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract HappyPaths is TransitTestBase {
 
@@ -12,68 +13,86 @@ contract HappyPaths is TransitTestBase {
         // user deposits on a spoke chain and can withdraw on that spoke chain
     }
 
-    function testDepositHubAndWithdraw() public {
-        // default hub is ETH
+    function testDepositDepotAndWithdraw() public {
+        // default depot is ETH
         uint256 amount = 100e6;
-        ERC20 usdc = chainConfig[hubID].usdc;
+        ERC20 usdc = chainConfig[hubChainId].usdc;
 
-        _depositOnChain(alice, amount, usdc, hubID);
+        _depositOnChain(alice, amount, usdc, hubChainId);
 
-        _selectChain(hubID);
+        _selectChain(hubChainId);
 
-        ERC20 transit_eth_USDC = _hubToken(hubID, usdc);
-        assertEq(transit_eth_USDC.balanceOf(alice), amount, "deposit: alice not credited transit token");
-        assertEq(usdc.balanceOf(_vaultOf(hubID)), amount, "deposit: vault did not receive usdc");
+        assertEq(_depotBalance(alice, hubChainId, usdc), amount, "deposit: alice not credited depot balance");
+        assertEq(usdc.balanceOf(_vaultOf(hubChainId)), amount, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
 
-        _withdrawOnChain(alice, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdc, hubChainId, true);
 
-        assertEq(transit_eth_USDC.balanceOf(alice), 0, "withdraw: alice transit token not burned");
-        assertEq(usdc.balanceOf(_vaultOf(hubID)), 0, "withdraw: vault did not release usdc");
+        assertEq(_depotBalance(alice, hubChainId, usdc), 0, "withdraw: alice depot balance not burned");
+        assertEq(usdc.balanceOf(_vaultOf(hubChainId)), 0, "withdraw: vault did not release usdc");
         assertEq(usdc.balanceOf(alice), amount, "withdraw: alice did not receive usdc back");
     }
 
     // Alice and Bob deposit and trade eth_USDC <> eth_UDSG 1:1 and withdraw.
     function testAliceBobHappyPathOneToOneSameChain() public {
-        // default hub is ETH
+        // default depot is ETH
         uint256 amount = 100e6;
-        ERC20 usdc = chainConfig[hubID].usdc;
-        ERC20 usdg = chainConfig[hubID].usdg;
-        _depositOnChain(alice, amount, usdc, hubID);
-        _depositOnChain(bob, amount, usdg, hubID);
-        _selectChain(hubID);
+        ERC20 usdc = chainConfig[hubChainId].usdc;
+        ERC20 usdg = chainConfig[hubChainId].usdg;
+        _depositOnChain(alice, amount, usdc, hubChainId);
+        _depositOnChain(bob, amount, usdg, hubChainId);
+        _selectChain(hubChainId);
 
-        ERC20 transit_eth_USDC = _hubToken(hubID, usdc);
-        ERC20 transit_eth_USDG = _hubToken(hubID, usdg);
+        SpotSwapConductor.Order[] memory orders = new SpotSwapConductor.Order[](2);
+        orders[0] = SpotSwapConductor.Order(
+            hubChainId,
+            alice,
+            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
+            amount,
+            amount,
+            hubChainId,
+            alice,
+            block.timestamp,
+            false,
+            bytes32(uint256(1))
+        );
+        orders[1] = SpotSwapConductor.Order(
+            hubChainId,
+            bob,
+            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
+            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
+            amount,
+            amount,
+            hubChainId,
+            bob,
+            block.timestamp,
+            false,
+            bytes32(uint256(2))
+        );
 
-        Terminal.SignedOrder memory aliceOrder =
-            _signOrder(Terminal.Order(transit_eth_USDC, transit_eth_USDG, amount, amount, alice), alicePk);
-        Terminal.SignedOrder memory bobOrder =
-            _signOrder(Terminal.Order(transit_eth_USDG, transit_eth_USDC, amount, amount, bob), bobPk);
+        bytes[] memory signatures = new bytes[](2);
+        signatures[0] = _signOrder(orders[0], alicePk);
+        signatures[1] = _signOrder(orders[1], bobPk);
 
-        Terminal.SignedOrder[] memory orders = new Terminal.SignedOrder[](2);
-        orders[0] = aliceOrder;
-        orders[1] = bobOrder;
-
-        vm.prank(alice);
-        SafeTransferLib.safeApprove(address(transit_eth_USDC), address(terminal), amount);
-        vm.prank(bob);
-        SafeTransferLib.safeApprove(address(transit_eth_USDG), address(terminal), amount);
+        SpotSwapConductor.Fill[] memory fills = new SpotSwapConductor.Fill[](2);
+        fills[0] = SpotSwapConductor.Fill(amount, amount);
+        fills[1] = SpotSwapConductor.Fill(amount, amount);
 
         vm.startPrank(solver);
-        terminal.settle(orders);
+        spotSwapConductor.settle(depot.settlementEpoch(), orders, signatures, fills, new SpotSwapConductor.Fee[](0));
         vm.stopPrank();
 
-        assertEq(transit_eth_USDG.balanceOf(alice), amount, "settle: alice did not receive usdg");
-        assertEq(transit_eth_USDC.balanceOf(bob), amount, "settle: bob did not receive usdc");
-        assertEq(transit_eth_USDC.balanceOf(alice), 0, "settle: alice usdc not taken");
-        assertEq(transit_eth_USDG.balanceOf(bob), 0, "settle: bob usdg not taken");
+        assertEq(_depotBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");
+        assertEq(_depotBalance(bob, hubChainId, usdc), amount, "settle: bob did not receive usdc");
+        assertEq(_depotBalance(alice, hubChainId, usdc), 0, "settle: alice usdc not taken");
+        assertEq(_depotBalance(bob, hubChainId, usdg), 0, "settle: bob usdg not taken");
 
-        _withdrawOnChain(alice, amount, usdg, hubID, true);
-        _withdrawOnChain(bob, amount, usdc, hubID, true);
+        _withdrawOnChain(alice, alicePk, amount, usdg, hubChainId, true);
+        _withdrawOnChain(bob, bobPk, amount, usdc, hubChainId, true);
 
-        assertEq(transit_eth_USDG.balanceOf(alice), 0, "withdraw: alice transit usdg not burned");
-        assertEq(transit_eth_USDC.balanceOf(bob), 0, "withdraw: bob transit usdc not burned");
+        assertEq(_depotBalance(alice, hubChainId, usdg), 0, "withdraw: alice depot usdg not burned");
+        assertEq(_depotBalance(bob, hubChainId, usdc), 0, "withdraw: bob depot usdc not burned");
         assertEq(usdg.balanceOf(alice), amount, "withdraw: alice did not receive usdg");
         assertEq(usdc.balanceOf(bob), amount, "withdraw: bob did not receive usdc");
     }
