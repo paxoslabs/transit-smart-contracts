@@ -103,9 +103,11 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         emit PreApproved(accountId, orderHash);
     }
 
-    /// @notice repay a leg of an escrow
+    /// @notice repay a leg of an escrow. Must repay in full. If both sides have fully repaid upon this call _release()
+    /// is called to distribute funds
     function repay(uint256 escrowId, uint256 side) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
+        // side will revert with out of bounds if > 1
         Leg storage leg = escrowLegs[escrowId][side];
         if (_senderAccountId() != leg.accountId) revert NotOwner();
         uint256 amount = leg.owed;
@@ -115,34 +117,44 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
 
+        // since side must be 0 or 1: 1 - side results in whichever number side is not
         Leg storage counterparty = escrowLegs[escrowId][1 - side];
         if (counterparty.owed == 0) _release(escrowId);
     }
 
+    /// @notice reclaim an array of escrowIds that have expired without recieving repayment
     function reclaim(uint256[] calldata escrowIds) external {
         for (uint256 i; i < escrowIds.length; i++) {
             _reclaim(escrowIds[i]);
         }
     }
 
+    /// @dev internal function used in reclaim loop
     function _reclaim(uint256 escrowId) internal {
+        // Cannot reclaim until escrowDeadline has passed
         if (block.timestamp <= escrowDeadline[escrowId]) revert SettlementPeriodActive();
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
+        // reclaim each leg
         _reclaimLeg(legs[0]);
         _reclaimLeg(legs[1]);
 
         emit Reclaimed(escrowId);
     }
 
+    /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
     function _reclaimLeg(Leg memory leg) internal {
         bytes32 conductorAccountId = _conductorAccountId();
+        // If leg.owed == 0 then this leg was paid or was never a Delayed Settlement order to begin with. The funds must
+        // be returned to the legs accountId.
         if (leg.owed == 0) {
             if (leg.amount != 0) {
                 IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
             }
+            // If leg.owed != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
+            // locked up. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
         } else if (leg.collateral != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
         }
@@ -224,6 +236,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (
             fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
                 || first.sellTokenId != second.buyTokenId || first.buyTokenId != second.sellTokenId
+                || fill.amounts[0] == 0 || fill.amounts[1] == 0
         ) {
             revert BadPair(index);
         }
