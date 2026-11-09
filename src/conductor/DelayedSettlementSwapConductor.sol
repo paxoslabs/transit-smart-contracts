@@ -7,8 +7,16 @@ import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
+/**
+ * @title DelayedSettlementSwapConductor
+ * @notice A conductor to support delayed settlement swaps. Orders may be matched as normal in the transit orderbook.
+ * However, orders marked delayedSettlement may have some settlementPeriod amount of time to come up with the money. A
+ * penalty of amount/FILL_RATIO is applied if the payment is not made within this time
+ * @custom:security-contact security@paxoslabs.com
+ */
 contract DelayedSettlementSwapConductor is SwapConductor {
 
+    /// @dev Order object signed by user
     struct DelayedSettlementOrder {
         uint64 ownerChainId;
         address owner;
@@ -25,12 +33,16 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         bytes32 salt;
     }
 
+    /// @dev Settlement bot provided fill data. Fills are per pair of orders matched. A single order that is filling
+    /// several others may have several PairedFills mentioning that order by orderIndex
     struct PairedFill {
-        uint256[2] indexes;
+        uint256[2] orderIndexes;
         uint256[2] amounts;
         uint256[2] fees;
     }
 
+    /// @dev An escrow leg, they are saved in a mapping in pairs tied to an escrowId. This is the onchain log of a
+    /// delayed settlements status
     struct Leg {
         bytes32 accountId;
         bytes32 receiverAccountId;
@@ -60,9 +72,9 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     event Reclaimed(uint256 indexed escrowId);
 
     error BadPair(uint256 index);
-    error ExceedsOwed();
     error SettlementPeriodOver();
     error SettlementPeriodActive();
+    error NothingOwed();
 
     constructor(
         address _authority,
@@ -82,6 +94,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     // ========================================= USER =========================================
 
+    /// @notice preApprove an order hash as  _senderAccountId to bypass need for offchain signatures
     function preApprove(DelayedSettlementOrder calldata order) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
@@ -90,20 +103,20 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         emit PreApproved(accountId, orderHash);
     }
 
-    function repay(uint256 escrowId, uint256 side, uint256 amount) external {
+    /// @notice repay a leg of an escrow
+    function repay(uint256 escrowId, uint256 side) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
         if (_senderAccountId() != leg.accountId) revert NotOwner();
-        if (amount > leg.owed) revert ExceedsOwed();
-        unchecked {
-            leg.owed -= amount;
-        }
+        uint256 amount = leg.owed;
+        if (amount == 0) revert NothingOwed();
+        leg.owed = 0;
 
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
 
         Leg storage counterparty = escrowLegs[escrowId][1 - side];
-        if (leg.owed == 0 && counterparty.owed == 0) _release(escrowId);
+        if (counterparty.owed == 0) _release(escrowId);
     }
 
     function reclaim(uint256[] calldata escrowIds) external {
@@ -126,16 +139,12 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     function _reclaimLeg(Leg memory leg) internal {
         bytes32 conductorAccountId = _conductorAccountId();
-        uint256 delivered = leg.amount - leg.owed;
-        if (delivered != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, delivered);
-        if (leg.collateral != 0) {
-            IDepot(DEPOT)
-                .transferFrom(
-                    conductorAccountId,
-                    leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
-                    leg.assetId,
-                    leg.collateral
-                );
+        if (leg.owed == 0) {
+            if (leg.amount != 0) {
+                IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
+            }
+        } else if (leg.collateral != 0) {
+            IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
         }
     }
 
@@ -160,10 +169,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             PairedFill calldata fill = fills[i];
             _escrowFill(orders, fill, ownerAccountIds, orderHashes, i, deltas);
 
-            sellFilled[fill.indexes[0]] += fill.amounts[0];
-            buyFilled[fill.indexes[0]] += fill.amounts[1];
-            sellFilled[fill.indexes[1]] += fill.amounts[1];
-            buyFilled[fill.indexes[1]] += fill.amounts[0];
+            sellFilled[fill.orderIndexes[0]] += fill.amounts[0];
+            buyFilled[fill.orderIndexes[0]] += fill.amounts[1];
+            sellFilled[fill.orderIndexes[1]] += fill.amounts[1];
+            buyFilled[fill.orderIndexes[1]] += fill.amounts[0];
         }
 
         _fillOrders(orders, ownerAccountIds, orderHashes, sellFilled, buyFilled);
@@ -210,10 +219,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     )
         internal
     {
-        DelayedSettlementOrder calldata first = orders[fill.indexes[0]];
-        DelayedSettlementOrder calldata second = orders[fill.indexes[1]];
+        DelayedSettlementOrder calldata first = orders[fill.orderIndexes[0]];
+        DelayedSettlementOrder calldata second = orders[fill.orderIndexes[1]];
         if (
-            fill.indexes[0] == fill.indexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
+            fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
                 || first.sellTokenId != second.buyTokenId || first.buyTokenId != second.sellTokenId
         ) {
             revert BadPair(index);
@@ -224,7 +233,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         deltas[index * 2] = _escrowLeg(orders, fill, ownerAccountIds, orderHashes, escrowId, 0);
         deltas[index * 2 + 1] = _escrowLeg(orders, fill, ownerAccountIds, orderHashes, escrowId, 1);
 
-        emit Escrowed(escrowId, orderHashes[fill.indexes[0]], orderHashes[fill.indexes[1]]);
+        emit Escrowed(escrowId, orderHashes[fill.orderIndexes[0]], orderHashes[fill.orderIndexes[1]]);
     }
 
     function _escrowLeg(
@@ -238,7 +247,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         internal
         returns (IDepot.TransferDelta memory)
     {
-        uint256 orderIndex = fill.indexes[side];
+        uint256 orderIndex = fill.orderIndexes[side];
         DelayedSettlementOrder calldata order = orders[orderIndex];
         uint256 amount = fill.amounts[side];
         uint256 counterpartySide = 1 - side;
