@@ -307,13 +307,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = orderHashes[i];
             if (!order.partiallyFillable && sellFilled[i] != order.sellAmount) revert NotPartiallyFillable(orderHash);
-            uint256 filled = filledAmount[orderHash] + sellFilled[i];
-            if (filled > order.sellAmount) revert Overfill(orderHash);
-            filledAmount[orderHash] = filled;
-            uint256 cancelled = cancelledFrom[ownerAccountIds[i]][orderHash];
-            if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
-
-            emit Filled(orderHash, ownerAccountIds[i], sellFilled[i], buyFilled[i]);
+            _recordFill(orderHash, ownerAccountIds[i], order.sellAmount, sellFilled[i], buyFilled[i], settlementEpoch);
         }
     }
 
