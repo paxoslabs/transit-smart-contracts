@@ -102,7 +102,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side, amount);
 
-        if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
+        Leg storage counterparty = escrowLegs[escrowId][1 - side];
+        if (leg.owed == 0 && counterparty.owed == 0) _release(escrowId);
     }
 
     function reclaim(uint256[] calldata escrowIds) external {
@@ -117,23 +118,25 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
-        bytes32 conductorAccountId = _conductorAccountId();
-        for (uint256 s; s < 2; s++) {
-            Leg memory leg = legs[s];
-            uint256 delivered = leg.amount - leg.owed;
-            if (delivered != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, delivered);
-            if (leg.collateral != 0) {
-                IDepot(DEPOT)
-                    .transferFrom(
-                        conductorAccountId,
-                        leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
-                        leg.assetId,
-                        leg.collateral
-                    );
-            }
-        }
+        _reclaimLeg(legs[0]);
+        _reclaimLeg(legs[1]);
 
         emit Reclaimed(escrowId);
+    }
+
+    function _reclaimLeg(Leg memory leg) internal {
+        bytes32 conductorAccountId = _conductorAccountId();
+        uint256 delivered = leg.amount - leg.owed;
+        if (delivered != 0) IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, delivered);
+        if (leg.collateral != 0) {
+            IDepot(DEPOT)
+                .transferFrom(
+                    conductorAccountId,
+                    leg.owed == 0 ? leg.accountId : PENALTY_RECIPIENT_ACCOUNT_ID,
+                    leg.assetId,
+                    leg.collateral
+                );
+        }
     }
 
     // ========================================= SOLVER =========================================
@@ -218,37 +221,50 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
         uint256 escrowId = ++escrowCount;
         escrowDeadline[escrowId] = block.timestamp + _settlementPeriod(first, second, index);
-        bytes32 conductorAccountId = _conductorAccountId();
-        for (uint256 s; s < 2; s++) {
-            uint256 orderIndex = fill.indexes[s];
-            DelayedSettlementOrder calldata order = orders[orderIndex];
-            uint256 amount = fill.amounts[s];
-            if (
-                fill.amounts[1 - s] - fill.fees[1 - s]
-                    < FixedPointMathLib.fullMulDivUp(amount, order.buyAmount, order.sellAmount)
-            ) {
-                revert LimitPrice(orderHashes[orderIndex]);
-            }
-
-            uint256 collateral = order.delayedSettlement ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
-            escrowLegs[escrowId][s] = Leg({
-                accountId: ownerAccountIds[orderIndex],
-                receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
-                assetId: order.sellTokenId,
-                amount: amount,
-                owed: order.delayedSettlement ? amount : 0,
-                collateral: collateral,
-                fee: fill.fees[s]
-            });
-            deltas[index * 2 + s] = IDepot.TransferDelta(
-                ownerAccountIds[orderIndex],
-                conductorAccountId,
-                order.sellTokenId,
-                order.delayedSettlement ? collateral : amount
-            );
-        }
+        deltas[index * 2] = _escrowLeg(orders, fill, ownerAccountIds, orderHashes, escrowId, 0);
+        deltas[index * 2 + 1] = _escrowLeg(orders, fill, ownerAccountIds, orderHashes, escrowId, 1);
 
         emit Escrowed(escrowId, orderHashes[fill.indexes[0]], orderHashes[fill.indexes[1]]);
+    }
+
+    function _escrowLeg(
+        DelayedSettlementOrder[] calldata orders,
+        PairedFill calldata fill,
+        bytes32[] memory ownerAccountIds,
+        bytes32[] memory orderHashes,
+        uint256 escrowId,
+        uint256 side
+    )
+        internal
+        returns (IDepot.TransferDelta memory)
+    {
+        uint256 orderIndex = fill.indexes[side];
+        DelayedSettlementOrder calldata order = orders[orderIndex];
+        uint256 amount = fill.amounts[side];
+        uint256 counterpartySide = 1 - side;
+        if (
+            fill.amounts[counterpartySide] - fill.fees[counterpartySide]
+                < FixedPointMathLib.fullMulDivUp(amount, order.buyAmount, order.sellAmount)
+        ) {
+            revert LimitPrice(orderHashes[orderIndex]);
+        }
+
+        uint256 collateral = order.delayedSettlement ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
+        escrowLegs[escrowId][side] = Leg({
+            accountId: ownerAccountIds[orderIndex],
+            receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
+            assetId: order.sellTokenId,
+            amount: amount,
+            owed: order.delayedSettlement ? amount : 0,
+            collateral: collateral,
+            fee: fill.fees[side]
+        });
+        return IDepot.TransferDelta(
+            ownerAccountIds[orderIndex],
+            _conductorAccountId(),
+            order.sellTokenId,
+            order.delayedSettlement ? collateral : amount
+        );
     }
 
     function _settlementPeriod(
@@ -275,22 +291,24 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
-        bytes32 conductorAccountId = _conductorAccountId();
-        for (uint256 s; s < 2; s++) {
-            IDepot(DEPOT)
-                .transferFrom(
-                    conductorAccountId, legs[1 - s].receiverAccountId, legs[s].assetId, legs[s].amount - legs[s].fee
-                );
-            if (legs[s].fee != 0) {
-                IDepot(DEPOT)
-                    .transferFrom(conductorAccountId, SURPLUS_RECIPIENT_ACCOUNT_ID, legs[s].assetId, legs[s].fee);
-            }
-            if (legs[s].collateral != 0) {
-                IDepot(DEPOT).transferFrom(conductorAccountId, legs[s].accountId, legs[s].assetId, legs[s].collateral);
-            }
-        }
+        _releaseLeg(legs, 0);
+        _releaseLeg(legs, 1);
 
         emit Released(escrowId);
+    }
+
+    function _releaseLeg(Leg[2] memory legs, uint256 side) internal {
+        Leg memory leg = legs[side];
+        Leg memory counterparty = legs[1 - side];
+        bytes32 conductorAccountId = _conductorAccountId();
+        IDepot(DEPOT)
+            .transferFrom(conductorAccountId, counterparty.receiverAccountId, leg.assetId, leg.amount - leg.fee);
+        if (leg.fee != 0) {
+            IDepot(DEPOT).transferFrom(conductorAccountId, SURPLUS_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.fee);
+        }
+        if (leg.collateral != 0) {
+            IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.collateral);
+        }
     }
 
     function _fillOrders(
