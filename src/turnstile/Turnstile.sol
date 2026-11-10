@@ -13,23 +13,32 @@ import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
+    /// @inheritdoc ITurnstile
     bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
         "DepositAction(address asset,uint256 amount,uint64 toChainId,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
     );
+    /// @inheritdoc ITurnstile
     bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
+    /// @inheritdoc ITurnstile
     bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
         "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
+    /// @inheritdoc ITurnstile
     bytes32 public constant GENERIC_ACTION_TYPEHASH =
         keccak256("GenericAction(address target,bytes data,uint256 deadline,bytes32 salt)");
 
+    /// @inheritdoc ITurnstile
     address public immutable SPOKE_WAREHOUSE;
 
+    /// @inheritdoc ITurnstile
     address public messagingAdapter;
+    /// @inheritdoc ITurnstile
     address public hubWarehouseConductor;
     uint256 internal outboundNonce;
 
+    /// @inheritdoc ITurnstile
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
+    /// @inheritdoc ITurnstile
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
 
     constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
@@ -42,30 +51,36 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     // ========================================= ADMIN =========================================
 
+    /// @inheritdoc ITurnstile
     function setMessagingAdapter(address adapter) external restricted {
         messagingAdapter = adapter;
         emit MessagingAdapterUpdated(adapter);
     }
 
+    /// @inheritdoc ITurnstile
     function setHubWarehouseConductor(address _hubWarehouseConductor) external restricted {
         hubWarehouseConductor = _hubWarehouseConductor;
         emit HubWarehouseConductorUpdated(_hubWarehouseConductor);
     }
 
+    /// @inheritdoc ITurnstile
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
         for (uint256 i; i < selectors.length; i++) {
             routable[target][selectors[i]] = allowed;
         }
     }
 
+    /// @inheritdoc ITurnstile
     function pause() external restricted {
         _pause();
     }
 
+    /// @inheritdoc ITurnstile
     function unpause() external restricted {
         _unpause();
     }
 
+    /// @inheritdoc ITurnstile
     function dispatch(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
@@ -79,9 +94,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHashes = _dispatch(actionTypes, actionData, new bytes[](0), fares, messageGas, false);
     }
 
-    /// TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
+    /// @dev TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
     /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
     /// facilitator.
+    /// @inheritdoc ITurnstile
     function facilitate(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
@@ -96,6 +112,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _dispatch(actionTypes, actionData, signatures, fares, messageGas, true);
     }
 
+    /// @inheritdoc ITurnstile
     function hashDepositAction(DepositAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
@@ -116,6 +133,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
+    /// @inheritdoc ITurnstile
     function hashWithdrawalAction(WithdrawalAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
@@ -134,6 +152,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
+    /// @inheritdoc ITurnstile
     function hashGenericAction(GenericAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
@@ -142,10 +161,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
+    /// @inheritdoc ITurnstile
     function digestMessage(uint64 chainId, ActionType actionType, bytes memory body) public pure returns (bytes32) {
         return keccak256(abi.encode(chainId, actionType, body));
     }
 
+    /// @inheritdoc ITurnstile
     function quote(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
@@ -212,8 +233,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
     }
 
-    /// TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
+    /// @dev TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
     /// redelivery.
+    /// @inheritdoc ITurnstile
     function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external restricted {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
