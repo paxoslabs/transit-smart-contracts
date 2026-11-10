@@ -82,7 +82,7 @@ interface ITurnstile is IMessagingReceiver {
     event MessageExpired(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
 
     error MessageReplay();
-    error UnknownAdapter();
+    error NoAdapter();
     error OutOfGas();
     error NotRoutable();
     error NotFailed();

@@ -163,7 +163,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (actionTypes[i] == ActionType.Deposit) {
                 DepositAction memory action = abi.decode(actionData[i], (DepositAction));
                 address adapter = messagingAdapter;
-                if (adapter == address(0)) revert UnknownAdapter();
+                if (adapter == address(0)) revert NoAdapter();
                 fares[i] = _quote(
                     IMessagingAdapter(adapter).HUB_CHAIN_ID(),
                     messageGas[i],
@@ -193,7 +193,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             } else {
                 GenericAction memory action = abi.decode(actionData[i], (GenericAction));
                 address adapter = messagingAdapter;
-                if (adapter == address(0)) revert UnknownAdapter();
+                if (adapter == address(0)) revert NoAdapter();
                 fares[i] = _quote(
                     IMessagingAdapter(adapter).HUB_CHAIN_ID(),
                     messageGas[i],
@@ -291,7 +291,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         address adapter = messagingAdapter;
-        if (adapter == address(0)) revert UnknownAdapter();
+        if (adapter == address(0)) revert NoAdapter();
         bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from);
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
@@ -371,7 +371,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address sender = msg.sender;
         if (facilitated) sender = ECDSA.recover(hashGenericAction(action), signature);
         address adapter = messagingAdapter;
-        if (adapter == address(0)) revert UnknownAdapter();
+        if (adapter == address(0)) revert NoAdapter();
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
@@ -415,7 +415,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             _handleMessage(chainId, actionType, body, facilitated);
         } else {
             address adapter = messagingAdapter;
-            if (adapter == address(0)) revert UnknownAdapter();
+            if (adapter == address(0)) revert NoAdapter();
             IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(actionType, body));
         }
     }
