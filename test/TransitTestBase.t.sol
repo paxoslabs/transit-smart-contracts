@@ -387,11 +387,11 @@ contract TransitTestBase is Test {
         require(chain == hubChainId, "can only atomically withdraw on Depot");
 
         _selectChain(hubChainId);
-        ITurnstile.WithdrawAction memory request = _withdrawActionFor(user, amount, asset, chain);
+        ITurnstile.WithdrawalAction memory request = _withdrawalActionFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
         ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
-        actionTypes[0] = ITurnstile.ActionType.Withdraw;
+        actionTypes[0] = ITurnstile.ActionType.Withdrawal;
         bytes[] memory actionData = new bytes[](1);
         actionData[0] = abi.encode(request);
         bytes[] memory signatures = new bytes[](1);
@@ -402,19 +402,19 @@ contract TransitTestBase is Test {
 
         vm.prank(solver);
         turnstile.facilitate(actionTypes, actionData, signatures, fares, messageGas);
-        withdrawId = hubWarehouseConductor.hashWithdrawAction(request);
+        withdrawId = hubWarehouseConductor.hashWithdrawalAction(request);
     }
 
-    function _withdrawActionFor(
+    function _withdrawalActionFor(
         address user,
         uint256 amount,
         ERC20 asset,
         uint64 chain
     )
         internal
-        returns (ITurnstile.WithdrawAction memory)
+        returns (ITurnstile.WithdrawalAction memory)
     {
-        return ITurnstile.WithdrawAction({
+        return ITurnstile.WithdrawalAction({
             ownerChainId: hubChainId,
             owner: user,
             to: user,
@@ -426,8 +426,8 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(ITurnstile.WithdrawAction memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = turnstile.hashWithdrawAction(request);
+    function _signWithdraw(ITurnstile.WithdrawalAction memory request, uint256 pk) internal view returns (bytes memory) {
+        bytes32 digest = turnstile.hashWithdrawalAction(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }

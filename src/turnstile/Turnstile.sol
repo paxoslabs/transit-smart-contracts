@@ -17,8 +17,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         "DepositAction(address asset,uint256 amount,uint64 toChainId,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
     );
     bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
-    bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
-        "WithdrawAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
+    bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
+        "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
     bytes32 public constant GENERIC_ACTION_TYPEHASH =
         keccak256("GenericAction(address target,bytes data,uint256 deadline,bytes32 salt)");
@@ -116,11 +116,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function hashWithdrawAction(WithdrawAction memory action) public view returns (bytes32) {
+    function hashWithdrawalAction(WithdrawalAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    WITHDRAW_ACTION_TYPEHASH,
+                    WITHDRAWAL_ACTION_TYPEHASH,
                     action.ownerChainId,
                     action.owner,
                     action.to,
@@ -142,8 +142,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) public pure returns (bytes32) {
-        return keccak256(abi.encode(chainId, messageType, body));
+    function digestMessage(uint64 chainId, ActionType actionType, bytes memory body) public pure returns (bytes32) {
+        return keccak256(abi.encode(chainId, actionType, body));
     }
 
     function quote(
@@ -167,7 +167,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 fares[i] = _quote(
                     IMessagingAdapter(adapter).HUB_CHAIN_ID(),
                     messageGas[i],
-                    MessageType.Deposit,
+                    ActionType.Deposit,
                     abi.encode(
                         DepositMessage({
                             asset: action.asset,
@@ -177,13 +177,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         })
                     )
                 );
-            } else if (actionTypes[i] == ActionType.Withdraw) {
-                WithdrawAction memory action = abi.decode(actionData[i], (WithdrawAction));
+            } else if (actionTypes[i] == ActionType.Withdrawal) {
+                WithdrawalAction memory action = abi.decode(actionData[i], (WithdrawalAction));
                 (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
                 fares[i] = _quote(
                     assetChainId,
                     messageGas[i],
-                    MessageType.Withdrawal,
+                    ActionType.Withdrawal,
                     abi.encode(
                         WithdrawalMessage({
                             asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
@@ -197,7 +197,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 fares[i] = _quote(
                     IMessagingAdapter(adapter).HUB_CHAIN_ID(),
                     messageGas[i],
-                    MessageType.Generic,
+                    ActionType.Generic,
                     abi.encode(
                         GenericMessage({
                             sender: msg.sender,
@@ -214,18 +214,18 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
     /// redelivery.
-    function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external restricted {
-        bytes32 messageHash = digestMessage(sourceChainId, messageType, body);
+    function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external restricted {
+        bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
-        emit MessageRetried(sourceChainId, messageType, messageHash);
-        _handleMessage(sourceChainId, messageType, body, false);
+        emit MessageRetried(sourceChainId, actionType, messageHash);
+        _handleMessage(sourceChainId, actionType, body, false);
     }
 
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
-        (MessageType messageType, bytes memory body) = abi.decode(payload, (MessageType, bytes));
-        _handleMessage(chainId, messageType, body, false);
+        (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
+        _handleMessage(chainId, actionType, body, false);
     }
 
     function _dispatch(
@@ -253,9 +253,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 messageHashes[i] = _dispatchDeposit(
                     abi.decode(actionData[i], (DepositAction)), signature, fares[i], messageGas[i], facilitated
                 );
-            } else if (actionTypes[i] == ActionType.Withdraw) {
+            } else if (actionTypes[i] == ActionType.Withdrawal) {
                 messageHashes[i] = _dispatchWithdraw(
-                    abi.decode(actionData[i], (WithdrawAction)), signature, fares[i], messageGas[i], facilitated
+                    abi.decode(actionData[i], (WithdrawalAction)), signature, fares[i], messageGas[i], facilitated
                 );
             } else {
                 messageHashes[i] = _dispatchGeneric(
@@ -279,7 +279,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address from = msg.sender;
         if (facilitated) {
             from = ECDSA.recover(hashDepositAction(action), signature);
-            _consumeAction(MessageType.Deposit, abi.encode(from, action));
+            _consumeAction(ActionType.Deposit, abi.encode(from, action));
         }
         if (block.timestamp > action.deadline) revert Expired();
         if (action.permit.deadline != 0) {
@@ -296,7 +296,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
-            MessageType.Deposit,
+            ActionType.Deposit,
             abi.encode(
                 DepositMessage({
                     asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
@@ -311,7 +311,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays in
     /// Turnstile.
     function _dispatchWithdraw(
-        WithdrawAction memory action,
+        WithdrawalAction memory action,
         bytes memory signature,
         uint256 fare,
         uint64 messageGas,
@@ -324,8 +324,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         {
             address owner = msg.sender;
             if (facilitated) {
-                owner = ECDSA.recover(hashWithdrawAction(action), signature);
-                _consumeAction(MessageType.Withdrawal, abi.encode(owner, action));
+                owner = ECDSA.recover(hashWithdrawalAction(action), signature);
+                _consumeAction(ActionType.Withdrawal, abi.encode(owner, action));
             }
             accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner);
             if (facilitated) accountId = TransitTokenLib.formatFacilitatedAccountId(accountId);
@@ -349,7 +349,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHash = _sendMessage(
             assetChainId,
             messageGas,
-            MessageType.Withdrawal,
+            ActionType.Withdrawal,
             abi.encode(
                 WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
             ),
@@ -375,7 +375,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
-            MessageType.Generic,
+            ActionType.Generic,
             abi.encode(
                 GenericMessage({
                     sender: sender,
@@ -391,9 +391,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     /// TODO: Decide the deposit/withdraw action replay key. Currently digestMessage over (signer, action) under the
-    /// matching MessageType, as generic actions are keyed by their GenericMessage.
-    function _consumeAction(MessageType messageType, bytes memory body) internal {
-        bytes32 actionHash = digestMessage(uint64(block.chainid), messageType, body);
+    /// matching ActionType, as generic actions are keyed by their GenericMessage.
+    function _consumeAction(ActionType actionType, bytes memory body) internal {
+        bytes32 actionHash = digestMessage(uint64(block.chainid), actionType, body);
         if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
         messageStatus[actionHash] = MessageStatus.Executed;
     }
@@ -401,7 +401,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function _sendMessage(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
+        ActionType actionType,
         bytes memory body,
         uint256 fare,
         bool facilitated
@@ -409,21 +409,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         internal
         returns (bytes32 messageHash)
     {
-        messageHash = digestMessage(uint64(block.chainid), messageType, body);
+        messageHash = digestMessage(uint64(block.chainid), actionType, body);
         if (chainId == block.chainid) {
             if (fare != 0) revert NoFare();
-            _handleMessage(chainId, messageType, body, facilitated);
+            _handleMessage(chainId, actionType, body, facilitated);
         } else {
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert UnknownAdapter();
-            IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(messageType, body));
+            IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(actionType, body));
         }
     }
 
     function _quote(
         uint64 chainId,
         uint64 messageGas,
-        MessageType messageType,
+        ActionType actionType,
         bytes memory body
     )
         internal
@@ -431,12 +431,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint256)
     {
         if (chainId == block.chainid) return 0;
-        return IMessagingAdapter(messagingAdapter).quote(chainId, messageGas, abi.encode(messageType, body));
+        return IMessagingAdapter(messagingAdapter).quote(chainId, messageGas, abi.encode(actionType, body));
     }
 
-    function _handleMessage(uint64 chainId, MessageType messageType, bytes memory body, bool facilitated) internal {
+    function _handleMessage(uint64 chainId, ActionType actionType, bytes memory body, bool facilitated) internal {
         _requireNotPaused();
-        bytes32 messageHash = digestMessage(chainId, messageType, body);
+        bytes32 messageHash = digestMessage(chainId, actionType, body);
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
         MessageStatus status = messageStatus[messageHash];
         if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
@@ -444,7 +444,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bool ok;
         bytes memory result;
         uint256 gasBefore;
-        if (messageType == MessageType.Deposit) {
+        if (actionType == ActionType.Deposit) {
             if (hubWarehouseConductor == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             gasBefore = gasleft();
@@ -453,7 +453,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     HubWarehouseConductor.receiveDeposit, (chainId, message.asset, message.amount, message.toAccountId)
                 )
             );
-        } else if (messageType == MessageType.Withdrawal) {
+        } else if (actionType == ActionType.Withdrawal) {
             if (SPOKE_WAREHOUSE == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             gasBefore = gasleft();
@@ -465,7 +465,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (block.timestamp > message.deadline) {
                 if (chainId == block.chainid) revert Expired();
                 messageStatus[messageHash] = MessageStatus.Expired;
-                emit MessageExpired(chainId, messageType, messageHash);
+                emit MessageExpired(chainId, actionType, messageHash);
                 return;
             }
             gasBefore = gasleft();
@@ -485,7 +485,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
         messageStatus[messageHash] = MessageStatus.Failed;
-        emit MessageFailed(chainId, messageType, messageHash, body);
+        emit MessageFailed(chainId, actionType, messageHash, body);
     }
 
 }

@@ -5,15 +5,9 @@ import { IMessagingReceiver } from "../messaging/IMessagingReceiver.sol";
 
 interface ITurnstile is IMessagingReceiver {
 
-    enum MessageType {
-        Deposit,
-        Withdrawal,
-        Generic
-    }
-
     enum ActionType {
         Deposit,
-        Withdraw,
+        Withdrawal,
         Generic
     }
 
@@ -62,7 +56,7 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 s;
     }
 
-    struct WithdrawAction {
+    struct WithdrawalAction {
         uint64 ownerChainId;
         address owner;
         address to;
@@ -83,9 +77,9 @@ interface ITurnstile is IMessagingReceiver {
     event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
     event MessagingAdapterUpdated(address indexed adapter);
     event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
-    event MessageFailed(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash, bytes body);
-    event MessageRetried(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
-    event MessageExpired(uint64 indexed sourceChainId, MessageType indexed messageType, bytes32 messageHash);
+    event MessageFailed(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash, bytes body);
+    event MessageRetried(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
+    event MessageExpired(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
 
     error MessageReplay();
     error UnknownAdapter();
@@ -102,7 +96,7 @@ interface ITurnstile is IMessagingReceiver {
 
     function PERMIT_TYPEHASH() external view returns (bytes32);
 
-    function WITHDRAW_ACTION_TYPEHASH() external view returns (bytes32);
+    function WITHDRAWAL_ACTION_TYPEHASH() external view returns (bytes32);
 
     function GENERIC_ACTION_TYPEHASH() external view returns (bytes32);
 
@@ -150,11 +144,11 @@ interface ITurnstile is IMessagingReceiver {
 
     function hashDepositAction(DepositAction memory action) external view returns (bytes32);
 
-    function hashWithdrawAction(WithdrawAction memory action) external view returns (bytes32);
+    function hashWithdrawalAction(WithdrawalAction memory action) external view returns (bytes32);
 
     function hashGenericAction(GenericAction memory action) external view returns (bytes32);
 
-    function digestMessage(uint64 chainId, MessageType messageType, bytes memory body) external pure returns (bytes32);
+    function digestMessage(uint64 chainId, ActionType actionType, bytes memory body) external pure returns (bytes32);
 
     function quote(
         ActionType[] calldata actionTypes,
@@ -165,6 +159,6 @@ interface ITurnstile is IMessagingReceiver {
         view
         returns (uint256[] memory fares);
 
-    function retry(uint64 sourceChainId, MessageType messageType, bytes calldata body) external;
+    function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external;
 
 }

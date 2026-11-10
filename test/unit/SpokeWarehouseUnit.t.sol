@@ -161,7 +161,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         ITurnstile.WithdrawalMessage memory m = ITurnstile.WithdrawalMessage({
             asset: address(usdc), amount: 1e6, to: alice, salt: bytes32(++withdrawSalt)
         });
-        bytes memory payload = abi.encode(ITurnstile.MessageType.Withdrawal, abi.encode(m));
+        bytes memory payload = abi.encode(ITurnstile.ActionType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
         vm.expectRevert();

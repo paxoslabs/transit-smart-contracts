@@ -8,8 +8,8 @@ import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
 contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
-    function _withdrawAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawAction memory) {
-        return ITurnstile.WithdrawAction({
+    function _withdrawalAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawalAction memory) {
+        return ITurnstile.WithdrawalAction({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -21,9 +21,9 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         });
     }
 
-    function _withdraw(ITurnstile.WithdrawAction memory req, bytes memory sig) internal {
+    function _withdraw(ITurnstile.WithdrawalAction memory req, bytes memory sig) internal {
         ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
-        actionTypes[0] = ITurnstile.ActionType.Withdraw;
+        actionTypes[0] = ITurnstile.ActionType.Withdrawal;
         bytes[] memory actionData = new bytes[](1);
         actionData[0] = abi.encode(req);
         bytes[] memory sigs = new bytes[](1);
@@ -33,8 +33,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         turnstile.facilitate(actionTypes, actionData, sigs, values, messageGas);
     }
 
-    function _sign(ITurnstile.WithdrawAction memory req, uint256 pk) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashWithdrawAction(req));
+    function _sign(ITurnstile.WithdrawalAction memory req, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashWithdrawalAction(req));
         return abi.encodePacked(r, s, v);
     }
 
@@ -47,7 +47,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
             toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory),
             salt: bytes32(uint256(1))
         });
-        bytes memory payload = abi.encode(ITurnstile.MessageType.Deposit, abi.encode(message));
+        bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
         turnstile.receiveMessage(HUB_CHAIN_ID, payload);
@@ -61,7 +61,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawWithValidSignature() public {
         _deposit(alice, 100e6);
-        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
+        ITurnstile.WithdrawalAction memory req = _withdrawalAction(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 
@@ -82,7 +82,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawWithWrongSignerReverts() public {
         _deposit(alice, 100e6);
-        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
+        ITurnstile.WithdrawalAction memory req = _withdrawalAction(alice, 100e6);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _sign(req, wrongPk);
 
@@ -93,7 +93,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawReplayReverts() public {
         _deposit(alice, 200e6);
-        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
+        ITurnstile.WithdrawalAction memory req = _withdrawalAction(alice, 100e6);
         bytes memory sig = _sign(req, alicePk);
 
         vm.prank(backend);
@@ -106,7 +106,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testWithdrawBySomeoneElseReverts() public {
         _deposit(alice, 100e6);
-        ITurnstile.WithdrawAction memory req = _withdrawAction(alice, 100e6);
+        ITurnstile.WithdrawalAction memory req = _withdrawalAction(alice, 100e6);
 
         bytes memory sig = _sign(req, alicePk);
 

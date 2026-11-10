@@ -192,8 +192,8 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _withdrawAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawAction memory) {
-        return ITurnstile.WithdrawAction({
+    function _withdrawalAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawalAction memory) {
+        return ITurnstile.WithdrawalAction({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -350,9 +350,9 @@ contract DepotUnitTest is Test {
 
     function testRequestWithdrawalReservesThenExecutes() public {
         _deposit(alice, 100e6);
-        ITurnstile.WithdrawAction memory request = _withdrawAction(alice, 40e6);
+        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
-        bytes32 requestId = hubWarehouseConductor.hashWithdrawAction(request);
+        bytes32 requestId = hubWarehouseConductor.hashWithdrawalAction(request);
         vm.prank(alice);
         dispatchOne(
             turnstile,
@@ -376,7 +376,7 @@ contract DepotUnitTest is Test {
         _advanceEpoch();
 
         vm.prank(bob);
-        dispatchOne(turnstile, ITurnstile.ActionType.Withdraw, abi.encode(request), 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(request), 0);
 
         assertEq(
             hubWarehouseConductor.requestStatus(_account(alice), requestId),
@@ -389,11 +389,11 @@ contract DepotUnitTest is Test {
 
     function testRequestWithdrawalReplayReverts() public {
         _deposit(alice, 100e6);
-        ITurnstile.WithdrawAction memory request = _withdrawAction(alice, 40e6);
+        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
         bytes memory data = abi.encodeCall(
             UserConductor.reserveAndRequest,
-            (hubWarehouseConductor.hashWithdrawAction(request), request.assetId, request.amount)
+            (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
         );
 
         vm.prank(alice);

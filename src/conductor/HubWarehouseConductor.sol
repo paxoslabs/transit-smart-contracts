@@ -11,8 +11,8 @@ import { UserConductor } from "./UserConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, TurnstileGated {
 
-    bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
-        "WithdrawAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
+    bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
+        "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
     );
 
     uint256 public constant EXECUTED = type(uint256).max;
@@ -53,8 +53,8 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    function executeWithdrawal(ITurnstile.WithdrawAction calldata action) external restricted returns (uint256 amount) {
-        bytes32 requestId = hashWithdrawAction(action);
+    function executeWithdrawal(ITurnstile.WithdrawalAction calldata action) external restricted returns (uint256 amount) {
+        bytes32 requestId = hashWithdrawalAction(action);
         bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 
         /// TODO: Decide expired-action handling. Currently consumes it and releases the reservation without moving
@@ -70,10 +70,10 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         emit WithdrawalExecuted(requestId, amount);
     }
 
-    function hashWithdrawAction(ITurnstile.WithdrawAction memory action) public pure returns (bytes32) {
+    function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                WITHDRAW_ACTION_TYPEHASH,
+                WITHDRAWAL_ACTION_TYPEHASH,
                 action.ownerChainId,
                 action.owner,
                 action.to,
