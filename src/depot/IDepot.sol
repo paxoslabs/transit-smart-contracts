@@ -63,6 +63,8 @@ interface IDepot {
 
     function burn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external;
 
+    function forceTransferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+
     function advanceEpoch(uint256 epoch) external;
 
     function reserve(bytes32 accountId, bytes32 assetId, uint256 amount) external;
