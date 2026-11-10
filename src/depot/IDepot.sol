@@ -31,6 +31,7 @@ interface IDepot {
     error BadEpoch(uint256 epoch);
     error InsufficientBalance();
     error NotZeroSum();
+    error AccountFrozen(bytes32 accountId);
 
     function balanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256);
 
@@ -46,9 +47,13 @@ interface IDepot {
 
     function lastEpochAdvancedAt() external view returns (uint256);
 
+    function transitPolice() external view returns (address);
+
     function pause() external;
 
     function unpause() external;
+
+    function setTransitPolice(address _transitPolice) external;
 
     function transferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
 

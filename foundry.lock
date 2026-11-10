@@ -17,6 +17,12 @@
       "rev": "cab19933c33c2ad1d4c7a84864a3601dddfd16f3"
     }
   },
+  "lib/predicate-contracts": {
+    "tag": {
+      "name": "v2.2.4",
+      "rev": "461c3c09671d52a2d4936bd6298f583a796a1edb"
+    }
+  },
   "lib/solady": {
     "tag": {
       "name": "v0.1.26",
