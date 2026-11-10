@@ -53,12 +53,11 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     mapping(uint256 escrowId => uint256) public escrowDeadline;
 
     event Escrowed(uint256 indexed escrowId, bytes32 indexed firstOrderHash, bytes32 indexed secondOrderHash);
-    event Repaid(uint256 indexed escrowId, uint256 side, uint256 amount);
+    event Repaid(uint256 indexed escrowId, uint256 side);
     event Released(uint256 indexed escrowId);
     event Reclaimed(uint256 indexed escrowId);
 
     error BadPair(uint256 index);
-    error ExceedsOwed();
     error SettlementPeriodOver();
     error SettlementPeriodActive();
 
@@ -89,16 +88,16 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     }
 
     /// TODO: Decide who may call repay. Currently anyone; it pulls from the leg's account.
-    function repay(uint256 escrowId, uint256 side, uint256 amount) external {
+    function repay(uint256 escrowId, uint256 side) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         Leg storage leg = escrowLegs[escrowId][side];
-        if (amount > leg.owed) revert ExceedsOwed();
-        leg.owed -= amount;
+        uint256 owed = leg.owed;
+        leg.owed = 0;
 
-        IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
-        emit Repaid(escrowId, side, amount);
+        IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, owed);
+        emit Repaid(escrowId, side);
 
-        if (leg.owed == 0 && escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
+        if (escrowLegs[escrowId][1 - side].owed == 0) _release(escrowId);
     }
 
     function reclaim(uint256 escrowId) external {
