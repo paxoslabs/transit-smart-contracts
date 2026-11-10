@@ -113,6 +113,11 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
+    function forceBurn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
+        if (fromAccountId == bytes32(0)) revert ZeroAddress();
+        _transfer(fromAccountId, bytes32(0), assetId, amount);
+    }
+
     function advanceEpoch(uint256 epoch) external {
         if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
         if (epoch != settlementEpoch) revert BadEpoch(epoch);
