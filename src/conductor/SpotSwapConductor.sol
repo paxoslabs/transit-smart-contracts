@@ -102,13 +102,14 @@ contract SpotSwapConductor is SwapConductor {
     {
         ownerAccountIds = new bytes32[](orders.length);
         orderHashes = new bytes32[](orders.length);
+        uint256 lastEpochAdvancedAt = IDepot(DEPOT).lastEpochAdvancedAt();
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
             ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner);
 
-            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
+            if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fills[i].sellFilled != order.sellAmount) {
                 revert NotPartiallyFillable(orderHash);
             }
