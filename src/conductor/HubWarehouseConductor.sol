@@ -53,7 +53,11 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
     }
 
-    function executeWithdrawal(ITurnstile.WithdrawalAction calldata action) external restricted returns (uint256 amount) {
+    function executeWithdrawal(ITurnstile.WithdrawalAction calldata action)
+        external
+        restricted
+        returns (uint256 amount)
+    {
         bytes32 requestId = hashWithdrawalAction(action);
         bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 

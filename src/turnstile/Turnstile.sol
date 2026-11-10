@@ -233,8 +233,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
     }
 
-    /// @dev TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on bridge
-    /// redelivery.
+    /// @dev TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on
+    /// bridge redelivery.
     /// @inheritdoc ITurnstile
     function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external restricted {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);

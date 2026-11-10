@@ -4,10 +4,13 @@ pragma solidity ^0.8.37;
 import { IMessagingReceiver } from "../messaging/IMessagingReceiver.sol";
 
 /// @title Transit Terminal Turnstile
-/// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for Conductor contracts.
+/// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for
+/// Conductor contracts.
 interface ITurnstile is IMessagingReceiver {
 
-    /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and cross-chain payloads are encoded and decoded.  Deposit and Withdrawal require special handling due to the need to manage custody of funds; all other actions are Generic.
+    /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and
+    /// cross-chain payloads are encoded and decoded.  Deposit and Withdrawal require special handling due to the need
+    /// to manage custody of funds; all other actions are Generic.
     enum ActionType {
         Deposit,
         Withdrawal,
@@ -51,7 +54,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice Body of a Withdrawal message, sent from the hub chain to the asset's spoke chain.
     /// @param asset Address of the ERC20 asset being withdrawn.
     /// @param amount Amount of asset being withdrawn, denominated in native units.
-    /// @param to Recipient of withdrawn asset.  Bare address rather than composite accountId because chainId is implied by the message's destination chain.
+    /// @param to Recipient of withdrawn asset.  Bare address rather than composite accountId because chainId is implied
+    /// by the message's destination chain.
     /// @param salt Internally generated salt used to disambiguate hashes of otherwise identical messages.
     struct WithdrawalMessage {
         address asset;
@@ -63,9 +67,11 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice Deposit request encoded as an action.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
-    /// @param toChainId ChainId element of accountId of deposit recipient (address element cannot be specified and must match sender).
+    /// @param toChainId ChainId element of accountId of deposit recipient (address element cannot be specified and must
+    /// match sender).
     /// @param deadline Deposit request submission deadline.
-    /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions (ignored for non-facilitated actions).
+    /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions (ignored for
+    /// non-facilitated actions).
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
         address asset;
@@ -95,7 +101,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param assetId Composite id of asset to withdraw.
     /// @param amount Amount of asset being withdrawn, denominated in native units.
     /// @param deadline Withdrawal request submission deadline.
-    /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for full amount.
+    /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
+    /// full amount.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct WithdrawalAction {
         uint64 ownerChainId;

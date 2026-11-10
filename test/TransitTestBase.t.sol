@@ -426,7 +426,11 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _signWithdraw(ITurnstile.WithdrawalAction memory request, uint256 pk) internal view returns (bytes memory) {
+    function _signWithdraw(ITurnstile.WithdrawalAction memory request, uint256 pk)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 digest = turnstile.hashWithdrawalAction(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
