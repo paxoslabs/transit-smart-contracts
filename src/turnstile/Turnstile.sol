@@ -14,7 +14,7 @@ import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
-        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
+        "DepositAction(address asset,uint256 amount,uint64 toChainId,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
     );
     bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
     bytes32 public constant WITHDRAW_ACTION_TYPEHASH = keccak256(
@@ -104,7 +104,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.asset,
                     action.amount,
                     action.toChainId,
-                    action.to,
                     action.deadline,
                     action.salt,
                     keccak256(
@@ -173,7 +172,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to),
+                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, msg.sender),
                             salt: bytes32(outboundNonce + 1)
                         })
                     )
@@ -293,7 +292,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert UnknownAdapter();
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to);
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from);
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,

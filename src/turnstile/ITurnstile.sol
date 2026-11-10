@@ -50,7 +50,6 @@ interface ITurnstile is IMessagingReceiver {
         address asset;
         uint256 amount;
         uint64 toChainId;
-        address to;
         uint256 deadline;
         bytes32 salt;
         Permit permit;
