@@ -106,8 +106,6 @@ interface ITurnstile is IMessagingReceiver {
 
     function hubWarehouseConductor() external view returns (address);
 
-    function outboundNonce() external view returns (uint256);
-
     function messageStatus(bytes32 messageHash) external view returns (MessageStatus);
 
     function routable(address target, bytes4 selector) external view returns (bool);

@@ -27,7 +27,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     address public messagingAdapter;
     address public hubWarehouseConductor;
-    uint256 public outboundNonce;
+    uint256 internal outboundNonce;
 
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     mapping(address target => mapping(bytes4 selector => bool)) public routable;
