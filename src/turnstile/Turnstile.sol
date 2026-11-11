@@ -240,14 +240,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         emit MessageRetried(sourceChainId, actionType, messageHash);
-        _executeMessage(sourceChainId, actionType, body, false);
+        _sendMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0, false);
     }
 
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
-        _executeMessage(chainId, actionType, body, false);
+        _sendMessage(chainId, uint64(block.chainid), 0, actionType, body, 0, false);
     }
 
     function _dispatch(
@@ -304,7 +304,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
         /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
         /// in Turnstile.
-        if (body.length != 0) messageHash = _sendMessage(chainId, messageGas, actionType, body, fare, facilitated);
+        if (body.length != 0) {
+            messageHash = _sendMessage(uint64(block.chainid), chainId, messageGas, actionType, body, fare, facilitated);
+        }
     }
 
     function _dispatchDeposit(
@@ -406,7 +408,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     function _sendMessage(
-        uint64 chainId,
+        uint64 sourceChainId,
+        uint64 destinationChainId,
         uint64 messageGas,
         ActionType actionType,
         bytes memory body,
@@ -416,17 +419,22 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         internal
         returns (bytes32 messageHash)
     {
-        messageHash = digestMessage(uint64(block.chainid), actionType, body);
+        messageHash = digestMessage(sourceChainId, actionType, body);
 
-        if (chainId == block.chainid) {
+        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
+        MessageStatus status = messageStatus[messageHash];
+        if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
+        messageStatus[messageHash] = MessageStatus.Executed;
+
+        if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
             if (fare != 0) revert NoFare();
-            _executeMessage(chainId, actionType, body, facilitated);
+            _executeMessage(sourceChainId, actionType, body, facilitated);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert NoAdapter();
-            IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(actionType, body));
+            IMessagingAdapter(adapter).send{ value: fare }(destinationChainId, messageGas, abi.encode(actionType, body));
         }
     }
 
@@ -453,11 +461,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         _requireNotPaused();
 
         bytes32 messageHash = digestMessage(chainId, actionType, body);
-
-        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        MessageStatus status = messageStatus[messageHash];
-        if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
-        messageStatus[messageHash] = MessageStatus.Executed;
 
         address target;
         bytes memory data;
