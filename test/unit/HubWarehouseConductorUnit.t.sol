@@ -100,7 +100,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(ITurnstile.MessageReplay.selector);
+        vm.expectRevert(HubWarehouseConductor.RequestReplay.selector);
         _withdraw(req, sig);
     }
 

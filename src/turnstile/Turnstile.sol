@@ -301,7 +301,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address from = msg.sender;
         if (facilitated) {
             from = ECDSA.recover(hashDepositAction(action), signature);
-            _consumeAction(ActionType.Deposit, abi.encode(from, action));
+            // Deposits have no replay protection of their own: each dispatch gets a fresh outboundNonce salt, so a
+            // facilitator could otherwise resubmit the signature and pull funds into custody again.
+            /// TODO: Decide the deposit action replay key. Currently digestMessage over (signer, action).
+            bytes32 actionHash = digestMessage(uint64(block.chainid), ActionType.Deposit, abi.encode(from, action));
+            if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
+            messageStatus[actionHash] = MessageStatus.Executed;
         }
         if (block.timestamp > action.deadline) revert Expired();
         if (action.permit.deadline != 0) {
@@ -345,10 +350,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 accountId;
         {
             address owner = msg.sender;
-            if (facilitated) {
-                owner = ECDSA.recover(hashWithdrawalAction(action), signature);
-                _consumeAction(ActionType.Withdrawal, abi.encode(owner, action));
-            }
+            if (facilitated) owner = ECDSA.recover(hashWithdrawalAction(action), signature);
             accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner, facilitated);
         }
         uint256 amount;
@@ -409,14 +411,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             fare,
             facilitated
         );
-    }
-
-    /// TODO: Decide the deposit/withdraw action replay key. Currently digestMessage over (signer, action) under the
-    /// matching ActionType, as generic actions are keyed by their GenericMessage.
-    function _consumeAction(ActionType actionType, bytes memory body) internal {
-        bytes32 actionHash = digestMessage(uint64(block.chainid), actionType, body);
-        if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
-        messageStatus[actionHash] = MessageStatus.Executed;
     }
 
     function _sendMessage(
