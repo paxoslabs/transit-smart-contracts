@@ -21,7 +21,6 @@ interface ITurnstile is IMessagingReceiver {
     enum MessageStatus {
         None,
         Failed,
-        Expired,
         Executed
     }
 
@@ -154,12 +153,6 @@ interface ITurnstile is IMessagingReceiver {
     /// @param actionType Message's ActionType.
     /// @param messageHash Message's hash.
     event MessageRetried(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
-
-    /// @notice Message execution failed because its deadline has passed.
-    /// @param sourceChainId Message's source EVM chainId.
-    /// @param actionType Message's ActionType.
-    /// @param messageHash Message's hash.
-    event MessageExpired(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
 
     /// @notice A message with an identical hash has already been processed.
     error MessageReplay();
