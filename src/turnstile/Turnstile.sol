@@ -233,12 +233,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
     }
 
-    /// @dev TODO: Decide whether retry needs to be admin-only. receiveMessage also re-executes Failed messages on
-    /// bridge redelivery.
     /// @inheritdoc ITurnstile
     function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external restricted {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
+        delete messageStatus[messageHash];
         emit MessageRetried(sourceChainId, actionType, messageHash);
         _sendMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0, false);
     }
@@ -412,8 +411,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHash = digestMessage(sourceChainId, actionType, body);
 
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
-        MessageStatus status = messageStatus[messageHash];
-        if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
+        if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
         messageStatus[messageHash] = MessageStatus.Executed;
 
         if (destinationChainId == block.chainid) {
