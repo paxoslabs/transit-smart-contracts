@@ -341,7 +341,8 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitTokenLib.formatAccountId(hubChainId, user, false), TransitTokenLib.formatAssetId(assetChain, address(asset))
+            TransitTokenLib.formatAccountId(hubChainId, user, false),
+            TransitTokenLib.formatAssetId(assetChain, address(asset))
         );
     }
 

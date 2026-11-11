@@ -70,7 +70,10 @@ contract UserConductor is TurnstileGated {
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
             .transferFrom(
-                accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to, false), request.assetId, amount
+                accountId,
+                TransitTokenLib.formatAccountId(request.toChainId, request.to, false),
+                request.assetId,
+                amount
             );
 
         emit TransferExecuted(requestId, amount);
