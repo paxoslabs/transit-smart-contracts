@@ -27,11 +27,13 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice Body of a Deposit message, sent from a spoke chain to the hub chain.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
+    /// @param fromAccountId AccountId of depositor, credited before transfer to recipient.
     /// @param toAccountId AccountId of deposit recipient.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct DepositMessage {
         address asset;
         uint256 amount;
+        bytes32 fromAccountId;
         bytes32 toAccountId;
         bytes32 salt;
     }
@@ -66,8 +68,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice Deposit request encoded as an action.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
-    /// @param toChainId ChainId element of accountId of deposit recipient (address element cannot be specified and must
-    /// match sender).
+    /// @param toChainId ChainId element of accountId of deposit recipient.
+    /// @param to Address element of accountId of deposit recipient.
     /// @param deadline Deposit request submission deadline.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
@@ -75,6 +77,7 @@ interface ITurnstile is IMessagingReceiver {
         address asset;
         uint256 amount;
         uint64 toChainId;
+        address to;
         uint256 deadline;
         bytes32 salt;
         Permit permit;

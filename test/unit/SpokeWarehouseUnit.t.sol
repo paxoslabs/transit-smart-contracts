@@ -48,6 +48,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
                     asset: address(other),
                     amount: 1e18,
                     toChainId: HUB_CHAIN_ID,
+                    to: alice,
                     deadline: type(uint256).max,
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
@@ -129,6 +130,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
                     asset: address(usdg),
                     amount: 100e6,
                     toChainId: SPOKE_CHAIN_ID,
+                    to: alice,
                     deadline: type(uint256).max,
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })

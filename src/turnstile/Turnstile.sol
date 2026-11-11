@@ -15,7 +15,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
-        "DepositAction(address asset,uint256 amount,uint64 toChainId,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
+        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
     );
     /// @inheritdoc ITurnstile
     bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
@@ -121,6 +121,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.asset,
                     action.amount,
                     action.toChainId,
+                    action.to,
                     action.deadline,
                     action.salt,
                     keccak256(
@@ -193,7 +194,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, msg.sender, false),
+                            fromAccountId: TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender, false),
+                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to, false),
                             salt: action.salt
                         })
                     )
@@ -330,10 +332,17 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert NoAdapter();
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from, false);
+        bytes32 fromAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), from, false);
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to, false);
         chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
         body = abi.encode(
-            DepositMessage({ asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: action.salt })
+            DepositMessage({
+                asset: action.asset,
+                amount: action.amount,
+                fromAccountId: fromAccountId,
+                toAccountId: toAccountId,
+                salt: action.salt
+            })
         );
         emit Deposit(action.asset, from, toAccountId, action.amount);
     }
@@ -457,7 +466,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             target = hubWarehouseConductor;
             data = abi.encodeCall(
-                HubWarehouseConductor.receiveDeposit, (chainId, message.asset, message.amount, message.toAccountId)
+                HubWarehouseConductor.receiveDeposit,
+                (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
             );
         } else if (actionType == ActionType.Withdrawal) {
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));

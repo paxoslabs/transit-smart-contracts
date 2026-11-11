@@ -45,12 +45,18 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         uint64 sourceChainId,
         address asset,
         uint256 amount,
+        bytes32 fromAccountId,
         bytes32 toAccountId
     )
         external
         restricted
     {
-        IDepot(DEPOT).mint(toAccountId, TransitTokenLib.formatAssetId(sourceChainId, asset), amount);
+        bytes32 assetId = TransitTokenLib.formatAssetId(sourceChainId, asset);
+        IDepot(DEPOT).mint(fromAccountId, assetId, amount);
+        if (fromAccountId == toAccountId) return;
+        /// TODO: Decide reservation handling. transferFrom enforces depositor reservations, so an over-reserved
+        /// depositor's transfer also fails and funds stay with the depositor.
+        try IDepot(DEPOT).transferFrom(fromAccountId, toAccountId, assetId, amount) { } catch { }
     }
 
     function executeWithdrawal(ITurnstile.WithdrawalAction calldata action)

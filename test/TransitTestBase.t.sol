@@ -359,6 +359,7 @@ contract TransitTestBase is Test {
                     asset: address(asset),
                     amount: amount,
                     toChainId: hubChainId,
+                    to: user,
                     deadline: type(uint256).max,
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })

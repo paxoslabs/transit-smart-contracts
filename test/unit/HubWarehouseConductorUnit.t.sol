@@ -44,6 +44,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
             asset: address(usdc),
             amount: 1e6,
+            fromAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
             toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
             salt: bytes32(uint256(1))
         });
@@ -54,7 +55,9 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         vm.prank(mallory);
         vm.expectRevert();
-        hubWarehouseConductor.receiveDeposit(HUB_CHAIN_ID, message.asset, message.amount, message.toAccountId);
+        hubWarehouseConductor.receiveDeposit(
+            HUB_CHAIN_ID, message.asset, message.amount, message.fromAccountId, message.toAccountId
+        );
     }
 
     // ---------------------------------------------------------------- withdraw
