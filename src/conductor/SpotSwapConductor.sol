@@ -55,7 +55,7 @@ contract SpotSwapConductor is SwapConductor {
     /// TODO: Decide whether PreApproved should carry the full Order again.
     function preApprove(Order calldata order) external {
         bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash);
@@ -107,7 +107,7 @@ contract SpotSwapConductor is SwapConductor {
             Order calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner);
+            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fills[i].sellFilled != order.sellAmount) {
@@ -150,7 +150,7 @@ contract SpotSwapConductor is SwapConductor {
             deltas[i] = IDepot.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
             deltas[orders.length + i] = IDepot.TransferDelta(
                 bytes32(0),
-                TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
+                TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
                 order.buyTokenId,
                 fills[i].buyFilled
             );

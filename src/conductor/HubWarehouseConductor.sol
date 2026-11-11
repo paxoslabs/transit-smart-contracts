@@ -101,7 +101,7 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         returns (bytes32 accountId)
     {
         _requireEffective(ownerChainId, owner, requestId);
-        accountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
+        accountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
         if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
         requestStatus[accountId][requestId] = EXECUTED;
         if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
@@ -126,7 +126,7 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
     /// TODO: Decide request-state ownership. Currently effectiveness is read from UserConductor.requestStatus (set by
     /// reserveAndRequest) and execution is tracked here.
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
+        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
         if (_senderAccountId() == ownerAccountId) return;
         if (requestStatus[ownerAccountId][requestId] == EXECUTED) return;
         uint256 status = UserConductor(USER_CONDUCTOR).requestStatus(ownerAccountId, requestId);

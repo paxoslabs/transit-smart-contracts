@@ -44,7 +44,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
             asset: address(usdc),
             amount: 1e6,
-            toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory),
+            toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
             salt: bytes32(uint256(1))
         });
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
@@ -70,7 +70,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
             ),
             0,

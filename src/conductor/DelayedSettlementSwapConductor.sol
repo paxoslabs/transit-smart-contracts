@@ -81,7 +81,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     function preApprove(DelayedSettlementOrder calldata order) external {
         bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash);
@@ -174,7 +174,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner);
+            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
@@ -220,7 +220,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             uint256 collateral = order.collateralized ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
             escrowLegs[escrowId][s] = Leg({
                 accountId: ownerAccountIds[orderIndex],
-                receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
+                receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
                 assetId: order.sellTokenId,
                 amount: amount,
                 owed: order.collateralized ? amount : 0,
@@ -279,7 +279,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     }
 
     function _conductorAccountId() internal view returns (bytes32) {
-        return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this));
+        return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this), false);
     }
 
     // ========================================= VIEWS =========================================

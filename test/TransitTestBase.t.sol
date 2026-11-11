@@ -98,7 +98,7 @@ contract TransitTestBase is Test {
         spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
-            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
+            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient, false),
             address(turnstile)
         );
         _grantSpotSwapConductorRole();
@@ -341,7 +341,7 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset))
+            TransitTokenLib.formatAccountId(hubChainId, user, false), TransitTokenLib.formatAssetId(assetChain, address(asset))
         );
     }
 

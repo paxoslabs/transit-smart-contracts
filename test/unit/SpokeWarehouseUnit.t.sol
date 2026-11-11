@@ -22,7 +22,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
             ),
             100e6,
@@ -59,7 +59,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(other))
             ),
             1e18,
@@ -147,7 +147,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(SPOKE_CHAIN_ID, address(usdg))
             ),
             100e6,

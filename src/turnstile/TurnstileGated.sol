@@ -13,7 +13,7 @@ abstract contract TurnstileGated {
 
     function _senderAccountId() internal view returns (bytes32) {
         if (msg.sender == TURNSTILE) return TransitTokenLib.clearFlags(_appendedAccountId());
-        return TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender);
+        return TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender, false);
     }
 
     function _facilitated() internal view returns (bool) {

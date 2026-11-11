@@ -193,7 +193,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, msg.sender),
+                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, msg.sender, false),
                             salt: bytes32(outboundNonce + 1)
                         })
                     )
@@ -314,7 +314,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert NoAdapter();
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from);
+        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from, false);
         messageHash = _sendMessage(
             IMessagingAdapter(adapter).HUB_CHAIN_ID(),
             messageGas,
@@ -349,8 +349,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 owner = ECDSA.recover(hashWithdrawalAction(action), signature);
                 _consumeAction(ActionType.Withdrawal, abi.encode(owner, action));
             }
-            accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner);
-            if (facilitated) accountId = TransitTokenLib.formatFacilitatedAccountId(accountId);
+            accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner, facilitated);
         }
         uint256 amount;
         {
@@ -491,8 +490,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 return;
             }
             gasBefore = gasleft();
-            bytes32 accountId = TransitTokenLib.formatAccountId(chainId, message.sender);
-            if (facilitated) accountId = TransitTokenLib.formatFacilitatedAccountId(accountId);
+            bytes32 accountId = TransitTokenLib.formatAccountId(chainId, message.sender, facilitated);
             if (routable[message.target][bytes4(message.data)]) {
                 (ok, result) = message.target.call(abi.encodePacked(message.data, accountId));
             } else {

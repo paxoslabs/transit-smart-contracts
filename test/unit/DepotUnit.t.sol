@@ -580,7 +580,7 @@ contract DepotUnitTest is Test {
     }
 
     function _account(address user) internal pure returns (bytes32) {
-        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user);
+        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user, false);
     }
 
 }
