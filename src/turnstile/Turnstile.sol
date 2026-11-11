@@ -462,25 +462,20 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         MessageStatus status = messageStatus[messageHash];
         if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
         messageStatus[messageHash] = MessageStatus.Executed;
-        bool ok;
         bytes memory result;
         uint256 gasBefore;
+        address target;
+        bytes memory data;
         if (actionType == ActionType.Deposit) {
-            if (hubWarehouseConductor == address(0)) revert NoHandler();
             DepositMessage memory message = abi.decode(body, (DepositMessage));
-            gasBefore = gasleft();
-            (ok, result) = hubWarehouseConductor.call(
-                abi.encodeCall(
-                    HubWarehouseConductor.receiveDeposit, (chainId, message.asset, message.amount, message.toAccountId)
-                )
+            target = hubWarehouseConductor;
+            data = abi.encodeCall(
+                HubWarehouseConductor.receiveDeposit, (chainId, message.asset, message.amount, message.toAccountId)
             );
         } else if (actionType == ActionType.Withdrawal) {
-            if (SPOKE_WAREHOUSE == address(0)) revert NoHandler();
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
-            gasBefore = gasleft();
-            (ok, result) = SPOKE_WAREHOUSE.call(
-                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to))
-            );
+            target = SPOKE_WAREHOUSE;
+            data = abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
             if (block.timestamp > message.deadline) {
@@ -488,12 +483,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             } else if (!routable[message.target][bytes4(message.data)]) {
                 result = abi.encodeWithSelector(NotRoutable.selector);
             } else {
-                bytes32 accountId = TransitTokenLib.formatAccountId(chainId, message.sender, facilitated);
-                gasBefore = gasleft();
-                (ok, result) = message.target.call(abi.encodePacked(message.data, accountId));
+                target = message.target;
+                data = abi.encodePacked(
+                    message.data, TransitTokenLib.formatAccountId(chainId, message.sender, facilitated)
+                );
             }
         }
-        if (ok) return;
+        if (data.length != 0) {
+            if (target == address(0)) revert NoHandler();
+            gasBefore = gasleft();
+            bool ok;
+            (ok, result) = target.call(data);
+            if (ok) return;
+        }
         if (chainId == block.chainid) {
             assembly {
                 revert(add(result, 0x20), mload(result))
