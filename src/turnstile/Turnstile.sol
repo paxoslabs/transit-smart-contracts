@@ -489,9 +489,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 emit MessageExpired(chainId, actionType, messageHash);
                 return;
             }
-            gasBefore = gasleft();
             bytes32 accountId = TransitTokenLib.formatAccountId(chainId, message.sender, facilitated);
             if (routable[message.target][bytes4(message.data)]) {
+                gasBefore = gasleft();
                 (ok, result) = message.target.call(abi.encodePacked(message.data, accountId));
             } else {
                 result = abi.encodeWithSelector(NotRoutable.selector);
