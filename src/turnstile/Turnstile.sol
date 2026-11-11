@@ -410,7 +410,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         messageHash = digestMessage(sourceChainId, actionType, body);
 
-        // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
         if (messageStatus[messageHash] != MessageStatus.None) revert MessageReplay();
         messageStatus[messageHash] = MessageStatus.Executed;
 
