@@ -431,10 +431,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (bytes32 messageHash)
     {
         messageHash = digestMessage(uint64(block.chainid), actionType, body);
+
         if (chainId == block.chainid) {
+            // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
             if (fare != 0) revert NoFare();
             _handleMessage(chainId, actionType, body, facilitated);
         } else {
+            // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
             address adapter = messagingAdapter;
             if (adapter == address(0)) revert NoAdapter();
             IMessagingAdapter(adapter).send{ value: fare }(chainId, messageGas, abi.encode(actionType, body));
@@ -455,17 +458,25 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return IMessagingAdapter(messagingAdapter).quote(chainId, messageGas, abi.encode(actionType, body));
     }
 
+    /// @notice Atempt to execute a message on the local chain.
+    /// @param chainId Message's source chainId.
+    /// @param actionType Message's ActionType.
+    /// @param body Message's body.
+    /// @param facilitated Whether message is being facilitated by trusted executor.
     function _handleMessage(uint64 chainId, ActionType actionType, bytes memory body, bool facilitated) internal {
         _requireNotPaused();
+
         bytes32 messageHash = digestMessage(chainId, actionType, body);
+
         // A revert here leaves the delivery failed in the bridge's queue forever; it is never retried successfully.
         MessageStatus status = messageStatus[messageHash];
         if (status != MessageStatus.None && status != MessageStatus.Failed) revert MessageReplay();
         messageStatus[messageHash] = MessageStatus.Executed;
-        bytes memory result;
-        uint256 gasBefore;
+
         address target;
         bytes memory data;
+        bytes memory result;
+
         if (actionType == ActionType.Deposit) {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             target = hubWarehouseConductor;
@@ -478,30 +489,44 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             data = abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to));
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
+
             if (block.timestamp > message.deadline) {
                 result = abi.encodeWithSelector(Expired.selector);
             } else if (!routable[message.target][bytes4(message.data)]) {
                 result = abi.encodeWithSelector(NotRoutable.selector);
             } else {
                 target = message.target;
+                // Append accountId to calldata so that it may be used as meta-transaction sender.
                 data = abi.encodePacked(
                     message.data, TransitTokenLib.formatAccountId(chainId, message.sender, facilitated)
                 );
             }
         }
-        if (data.length != 0) {
+
+        uint256 gasBefore;
+
+        // If result is set, it's an encoded pre-call error, so skip the call.
+        if (result.length == 0) {
             if (target == address(0)) revert NoHandler();
             gasBefore = gasleft();
             bool ok;
             (ok, result) = target.call(data);
             if (ok) return;
         }
+
+        // Same-chain reverts are atomic and should revert the entire action.
         if (chainId == block.chainid) {
             assembly {
                 revert(add(result, 0x20), mload(result))
             }
         }
+
+        // Cross-chain out-of-gas errors must revert the entire transaction to allow bridge-level retries.
+        // The EIP-150 internal transaction gas limit of 63/64 is used a heuristic out-of-gas indicator, but
+        // is subject to false positives, such as on assertion failure in solidity pre-0.8.
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
+
+        // Cross-chain internal errors are tracked internally to allow contract-level retries.
         messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(chainId, actionType, messageHash, body);
     }
