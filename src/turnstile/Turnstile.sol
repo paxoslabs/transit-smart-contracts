@@ -194,7 +194,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                             asset: action.asset,
                             amount: action.amount,
                             toAccountId: TransitTokenLib.formatAccountId(action.toChainId, msg.sender, false),
-                            salt: bytes32(outboundNonce + 1)
+                            salt: action.salt
                         })
                     )
                 );
@@ -319,15 +319,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         DepositAction memory action = abi.decode(actionData, (DepositAction));
         address from = msg.sender;
-        if (facilitated) {
-            from = ECDSA.recover(hashDepositAction(action), signature);
-            // Deposits have no replay protection of their own: each dispatch gets a fresh outboundNonce salt, so a
-            // facilitator could otherwise resubmit the signature and pull funds into custody again.
-            /// TODO: Decide the deposit action replay key. Currently digestMessage over (signer, action).
-            bytes32 actionHash = digestMessage(uint64(block.chainid), ActionType.Deposit, abi.encode(from, action));
-            if (messageStatus[actionHash] != MessageStatus.None) revert MessageReplay();
-            messageStatus[actionHash] = MessageStatus.Executed;
-        }
+        if (facilitated) from = ECDSA.recover(hashDepositAction(action), signature);
         if (block.timestamp > action.deadline) revert Expired();
         if (action.permit.deadline != 0) {
             try SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit) { }
@@ -342,9 +334,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from, false);
         chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
         body = abi.encode(
-            DepositMessage({
-                asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
-            })
+            DepositMessage({ asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: action.salt })
         );
         emit Deposit(action.asset, from, toAccountId, action.amount);
     }

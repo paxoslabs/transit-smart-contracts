@@ -28,7 +28,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param toAccountId AccountId of deposit recipient.
-    /// @param salt Internally generated salt used to disambiguate hashes of otherwise identical messages.
+    /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct DepositMessage {
         address asset;
         uint256 amount;
@@ -69,8 +69,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @param toChainId ChainId element of accountId of deposit recipient (address element cannot be specified and must
     /// match sender).
     /// @param deadline Deposit request submission deadline.
-    /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions (ignored for
-    /// non-facilitated actions).
+    /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
         address asset;
