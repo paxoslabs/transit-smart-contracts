@@ -240,14 +240,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         emit MessageRetried(sourceChainId, actionType, messageHash);
-        _handleMessage(sourceChainId, actionType, body, false);
+        _executeMessage(sourceChainId, actionType, body, false);
     }
 
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
-        _handleMessage(chainId, actionType, body, false);
+        _executeMessage(chainId, actionType, body, false);
     }
 
     function _dispatch(
@@ -429,7 +429,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (chainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
             if (fare != 0) revert NoFare();
-            _handleMessage(chainId, actionType, body, facilitated);
+            _executeMessage(chainId, actionType, body, facilitated);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
             address adapter = messagingAdapter;
@@ -457,7 +457,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
     /// @param facilitated Whether message is being facilitated by trusted executor.
-    function _handleMessage(uint64 chainId, ActionType actionType, bytes memory body, bool facilitated) internal {
+    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body, bool facilitated) internal {
         _requireNotPaused();
 
         bytes32 messageHash = digestMessage(chainId, actionType, body);
