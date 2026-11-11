@@ -270,26 +270,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint256 totalFare;
         for (uint256 i; i < actionData.length; i++) {
             totalFare += fares[i];
-            bytes memory signature = facilitated ? signatures[i] : bytes("");
-            if (actionTypes[i] == ActionType.Deposit) {
-                messageHashes[i] = _dispatchDeposit(
-                    abi.decode(actionData[i], (DepositAction)), signature, fares[i], messageGas[i], facilitated
-                );
-            } else if (actionTypes[i] == ActionType.Withdrawal) {
-                messageHashes[i] = _dispatchWithdraw(
-                    abi.decode(actionData[i], (WithdrawalAction)), signature, fares[i], messageGas[i], facilitated
-                );
-            } else {
-                messageHashes[i] = _dispatchGeneric(
-                    abi.decode(actionData[i], (GenericAction)), signature, fares[i], messageGas[i], facilitated
-                );
-            }
+            messageHashes[i] = _dispatchAction(
+                actionTypes[i],
+                actionData[i],
+                facilitated ? signatures[i] : bytes(""),
+                fares[i],
+                messageGas[i],
+                facilitated
+            );
         }
         if (totalFare != msg.value) revert FareMismatch();
     }
 
-    function _dispatchDeposit(
-        DepositAction memory action,
+    function _dispatchAction(
+        ActionType actionType,
+        bytes calldata actionData,
         bytes memory signature,
         uint256 fare,
         uint64 messageGas,
@@ -298,6 +293,29 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         internal
         returns (bytes32 messageHash)
     {
+        uint64 chainId;
+        bytes memory body;
+        if (actionType == ActionType.Deposit) {
+            (chainId, body) = _dispatchDeposit(actionData, signature, facilitated);
+        } else if (actionType == ActionType.Withdrawal) {
+            (chainId, body) = _dispatchWithdraw(actionData, signature, facilitated);
+        } else {
+            (chainId, body) = _dispatchGeneric(actionData, signature, facilitated);
+        }
+        /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
+        /// in Turnstile.
+        if (body.length != 0) messageHash = _sendMessage(chainId, messageGas, actionType, body, fare, facilitated);
+    }
+
+    function _dispatchDeposit(
+        bytes calldata actionData,
+        bytes memory signature,
+        bool facilitated
+    )
+        private
+        returns (uint64 chainId, bytes memory body)
+    {
+        DepositAction memory action = abi.decode(actionData, (DepositAction));
         address from = msg.sender;
         if (facilitated) {
             from = ECDSA.recover(hashDepositAction(action), signature);
@@ -320,33 +338,24 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert NoAdapter();
         bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, from, false);
-        messageHash = _sendMessage(
-            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
-            messageGas,
-            ActionType.Deposit,
-            abi.encode(
-                DepositMessage({
-                    asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
-                })
-            ),
-            fare,
-            false
+        chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
+        body = abi.encode(
+            DepositMessage({
+                asset: action.asset, amount: action.amount, toAccountId: toAccountId, salt: bytes32(++outboundNonce)
+            })
         );
         emit Deposit(action.asset, from, toAccountId, action.amount);
     }
 
-    /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays in
-    /// Turnstile.
     function _dispatchWithdraw(
-        WithdrawalAction memory action,
+        bytes calldata actionData,
         bytes memory signature,
-        uint256 fare,
-        uint64 messageGas,
         bool facilitated
     )
-        internal
-        returns (bytes32 messageHash)
+        private
+        returns (uint64 chainId, bytes memory body)
     {
+        WithdrawalAction memory action = abi.decode(actionData, (WithdrawalAction));
         bytes32 accountId;
         {
             address owner = msg.sender;
@@ -367,49 +376,32 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
             amount = abi.decode(result, (uint256));
         }
-        if (amount == 0) return bytes32(0);
-        (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
-        messageHash = _sendMessage(
-            assetChainId,
-            messageGas,
-            ActionType.Withdrawal,
-            abi.encode(
-                WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
-            ),
-            fare,
-            false
+        if (amount == 0) return (0, "");
+        address asset;
+        (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
+        body = abi.encode(
+            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
         );
     }
 
     function _dispatchGeneric(
-        GenericAction memory action,
+        bytes calldata actionData,
         bytes memory signature,
-        uint256 fare,
-        uint64 messageGas,
         bool facilitated
     )
-        internal
-        returns (bytes32 messageHash)
+        private
+        returns (uint64 chainId, bytes memory body)
     {
+        GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = msg.sender;
         if (facilitated) sender = ECDSA.recover(hashGenericAction(action), signature);
         address adapter = messagingAdapter;
         if (adapter == address(0)) revert NoAdapter();
-        messageHash = _sendMessage(
-            IMessagingAdapter(adapter).HUB_CHAIN_ID(),
-            messageGas,
-            ActionType.Generic,
-            abi.encode(
-                GenericMessage({
-                    sender: sender,
-                    target: action.target,
-                    data: action.data,
-                    deadline: action.deadline,
-                    salt: action.salt
-                })
-            ),
-            fare,
-            facilitated
+        chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
+        body = abi.encode(
+            GenericMessage({
+                sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
+            })
         );
     }
 
