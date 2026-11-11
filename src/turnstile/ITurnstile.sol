@@ -239,23 +239,26 @@ interface ITurnstile is IMessagingReceiver {
     function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
     /// @notice Set the routability of an address-selector combination by generic messages.
+    /// @dev Routable targets must use the `TurnstileGated` meta-transaction implementation in order to properly attribute a message to its sender.
     /// @param target Call target.
     /// @param selectors Call function selectors.
     /// @param allowed Whether calldata is routable.
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
 
-    /// @notice Disable sensitive functions in an emergency.
+    /// @notice Disable sensitive functions in an emergency, including inbound message handling.
     function pause() external;
 
     /// @notice Enable sensitive functions.
     function unpause() external;
 
     /// @notice Execute a batch of actions.
+    /// @dev `msg.value` must exactly equal the sum of `fares`.
+    /// Same-chain actions must have a fare of 0.
     /// @param actionTypes List of action types.
     /// @param actionData List of action data.
     /// @param fares List of cross-chain bridge fees.
     /// @param messageGas List of cross-chain destination message execution gas limits.
-    /// @return messageHashes List of hashes of dispatched messages.
+    /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
     function dispatch(
         ActionType[] calldata actionTypes,
         bytes[] calldata actionData,
@@ -267,6 +270,8 @@ interface ITurnstile is IMessagingReceiver {
         returns (bytes32[] memory messageHashes);
 
     /// @notice Execute a batch of actions on behalf of users using ECDSA signature authorization.
+    /// @dev `msg.value` must exactly equal the sum of `fares`.
+    /// Same-chain actions must have a fare of 0.
     /// @param actionTypes List of action types.
     /// @param actionData List of action data.
     /// @param signatures List of signatures for action sender authentication.
@@ -297,7 +302,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @return Hash.
     function hashGenericAction(GenericAction memory action) external view returns (bytes32);
 
-    /// @notice Calculate the hash of a message.
+    /// @notice Calculate the hash of a message for use as a unique id and replay protection key.
     /// @param chainId Message's source EVM chainId.
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
