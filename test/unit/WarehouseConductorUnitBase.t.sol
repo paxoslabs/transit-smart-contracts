@@ -14,13 +14,7 @@ import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import {
-    ADMIN_ROLE,
-    MESSAGING_ADAPTER_ROLE,
-    SOLVER_ROLE,
-    TURNSTILE_ROLE,
-    CONDUCTOR_ROLE
-} from "../../src/helpers/Constants.sol";
+import { Roles } from "../../src/helpers/Roles.sol";
 
 abstract contract WarehouseConductorUnitBase is Test {
 
@@ -66,9 +60,9 @@ abstract contract WarehouseConductorUnitBase is Test {
         facilitateSels[0] = Turnstile.facilitate.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
-        authority.grantRole(SOLVER_ROLE, backend);
+        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
+        authority.grantRole(Roles.SOLVER, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
         vm.stopPrank();
 
@@ -105,24 +99,24 @@ abstract contract WarehouseConductorUnitBase is Test {
         routedSels[0] = UserConductor.reserve.selector;
         routedSels[1] = UserConductor.reserveAndRequest.selector;
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
-        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.grantRole(TURNSTILE_ROLE, address(turnstile));
+        authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
+        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
+        authority.grantRole(Roles.TURNSTILE, address(turnstile));
         bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
-        authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
+        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setMessagingAdapter(address(local));

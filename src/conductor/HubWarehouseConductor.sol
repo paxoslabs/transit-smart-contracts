@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { WITHDRAWAL_ACTION_TYPEHASH } from "../helpers/Constants.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { ITurnstile } from "../turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
@@ -80,7 +80,7 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
     function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                WITHDRAWAL_ACTION_TYPEHASH,
+                Typehashes.WITHDRAWAL_ACTION,
                 action.ownerChainId,
                 action.owner,
                 action.to,

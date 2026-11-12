@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { ADMIN_ROLE } from "./helpers/Constants.sol";
+import { Roles } from "./helpers/Roles.sol";
 
 contract TransitAuthority is AccessControlEnumerable {
 
@@ -16,7 +16,7 @@ contract TransitAuthority is AccessControlEnumerable {
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(ADMIN_ROLE, admin);
+        _grantRole(Roles.ADMIN, admin);
     }
 
     function canCall(address caller, address target, bytes4 selector) external view returns (bool) {

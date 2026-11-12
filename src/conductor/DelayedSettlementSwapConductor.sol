@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { DELAYED_SETTLEMENT_ORDER_TYPEHASH } from "../helpers/Constants.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -394,7 +394,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    DELAYED_SETTLEMENT_ORDER_TYPEHASH,
+                    Typehashes.DELAYED_SETTLEMENT_ORDER,
                     order.ownerChainId,
                     order.owner,
                     order.sellTokenId,

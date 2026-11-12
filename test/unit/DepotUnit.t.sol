@@ -17,14 +17,7 @@ import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import {
-    ADMIN_ROLE,
-    MESSAGING_ADAPTER_ROLE,
-    SOLVER_ROLE,
-    TURNSTILE_ROLE,
-    CONDUCTOR_ROLE,
-    EPOCH_ROLE
-} from "../../src/helpers/Constants.sol";
+import { Roles } from "../../src/helpers/Roles.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract DepotUnitTest is Test {
@@ -102,18 +95,18 @@ contract DepotUnitTest is Test {
         swapRoutedSels[1] = SwapConductor.requestOrderCancellation.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
-        authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, SOLVER_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
-        authority.setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
-        authority.grantRole(EPOCH_ROLE, address(spotSwapConductor));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
-        authority.grantRole(SOLVER_ROLE, backend);
+        authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
+        authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, Roles.SOLVER);
+        authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
+        authority.setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
+        authority.grantRole(Roles.EPOCH, address(spotSwapConductor));
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
+        authority.grantRole(Roles.SOLVER, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
-        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.grantRole(TURNSTILE_ROLE, address(turnstile));
+        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
+        authority.grantRole(Roles.TURNSTILE, address(turnstile));
         bytes4[] memory userConductorSels = new bytes4[](6);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -121,15 +114,15 @@ contract DepotUnitTest is Test {
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.transferAmong.selector;
         userConductorSels[5] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
-        authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
+        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(spotSwapConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));

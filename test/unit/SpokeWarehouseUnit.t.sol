@@ -9,7 +9,7 @@ import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, TURNSTILE_ROLE } from "../../src/helpers/Constants.sol";
+import { Roles } from "../../src/helpers/Roles.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
@@ -97,15 +97,15 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         receiveSels[0] = Turnstile.receiveMessage.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeWarehouse), custodySels, TURNSTILE_ROLE);
-        authority.grantRole(TURNSTILE_ROLE, address(spokeTurnstile));
-        authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(hubAdapter), peerSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubAdapter));
+        authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(warehouse), warehouseSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(spokeWarehouse), custodySels, Roles.TURNSTILE);
+        authority.grantRole(Roles.TURNSTILE, address(spokeTurnstile));
+        authority.setTargetFunctionRole(address(spokeAdapter), peerSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(hubAdapter), peerSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(hubAdapter));
 
         spokeTurnstile.setMessagingAdapter(address(spokeAdapter));
         spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);

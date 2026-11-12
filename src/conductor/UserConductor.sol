@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { TRANSFER_REQUEST_TYPEHASH } from "../helpers/Constants.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 
@@ -81,7 +81,7 @@ contract UserConductor is TurnstileGated {
     function hashTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                TRANSFER_REQUEST_TYPEHASH,
+                Typehashes.TRANSFER_REQUEST,
                 request.ownerChainId,
                 request.owner,
                 request.toChainId,

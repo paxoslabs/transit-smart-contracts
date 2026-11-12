@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
-import { ORDER_TYPEHASH } from "../helpers/Constants.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -140,7 +140,7 @@ contract SpotSwapConductor is SwapConductor {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    ORDER_TYPEHASH,
+                    Typehashes.ORDER,
                     order.ownerChainId,
                     order.owner,
                     order.sellTokenId,

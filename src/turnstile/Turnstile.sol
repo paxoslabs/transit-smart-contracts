@@ -6,12 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
-import {
-    DEPOSIT_ACTION_TYPEHASH,
-    PERMIT_TYPEHASH,
-    WITHDRAWAL_ACTION_TYPEHASH,
-    GENERIC_ACTION_TYPEHASH
-} from "../helpers/Constants.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../SpokeWarehouse.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
@@ -108,7 +103,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    DEPOSIT_ACTION_TYPEHASH,
+                    Typehashes.DEPOSIT_ACTION,
                     action.asset,
                     action.amount,
                     action.toChainId,
@@ -117,7 +112,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.salt,
                     keccak256(
                         abi.encode(
-                            PERMIT_TYPEHASH, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
+                            Typehashes.PERMIT, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
                         )
                     )
                 )
@@ -130,7 +125,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    WITHDRAWAL_ACTION_TYPEHASH,
+                    Typehashes.WITHDRAWAL_ACTION,
                     action.ownerChainId,
                     action.owner,
                     action.to,
@@ -148,7 +143,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function hashGenericAction(GenericAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
-                abi.encode(GENERIC_ACTION_TYPEHASH, action.target, keccak256(action.data), action.deadline, action.salt)
+                abi.encode(
+                    Typehashes.GENERIC_ACTION, action.target, keccak256(action.data), action.deadline, action.salt
+                )
             )
         );
     }
