@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { IDepot } from "./IDepot.sol";
+import { TransitPolice } from "../TransitPolice.sol";
 
 contract Depot is IDepot, AccessManaged, Pausable {
 
@@ -13,6 +14,8 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     uint256 public settlementEpoch;
     uint256 public lastEpochAdvancedAt;
+
+    address public transitPolice;
 
     constructor(address _authority) AccessManaged(_authority) {
         settlementEpoch = 1;
@@ -25,6 +28,10 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     function unpause() external restricted {
         _unpause();
+    }
+
+    function setTransitPolice(address _transitPolice) external restricted {
+        transitPolice = _transitPolice;
     }
 
     // ========================================= LEDGER =========================================
@@ -40,6 +47,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     {
         _requireNotPaused();
         if (fromAccountId == bytes32(0) || toAccountId == bytes32(0)) revert ZeroAddress();
+        _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
             revert InsufficientBalance();
         }
@@ -62,6 +70,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
                 count++;
             }
             if (delta.fromAccountId != bytes32(0)) {
+                _requireNotFrozen(delta.fromAccountId);
                 if (balanceOf[delta.fromAccountId][assetId] < _reserved(delta.fromAccountId, assetId) + delta.amount) {
                     revert InsufficientBalance();
                 }
@@ -84,9 +93,28 @@ contract Depot is IDepot, AccessManaged, Pausable {
     function burn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
         _requireNotPaused();
         if (fromAccountId == bytes32(0)) revert ZeroAddress();
+        _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
             revert InsufficientBalance();
         }
+        _transfer(fromAccountId, bytes32(0), assetId, amount);
+    }
+
+    function forceTransferFrom(
+        bytes32 fromAccountId,
+        bytes32 toAccountId,
+        bytes32 assetId,
+        uint256 amount
+    )
+        external
+        restricted
+    {
+        if (fromAccountId == bytes32(0) || toAccountId == bytes32(0)) revert ZeroAddress();
+        _transfer(fromAccountId, toAccountId, assetId, amount);
+    }
+
+    function forceBurn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
+        if (fromAccountId == bytes32(0)) revert ZeroAddress();
         _transfer(fromAccountId, bytes32(0), assetId, amount);
     }
 
@@ -114,6 +142,12 @@ contract Depot is IDepot, AccessManaged, Pausable {
     }
 
     // ========================================= INTERNAL =========================================
+
+    function _requireNotFrozen(bytes32 accountId) internal view {
+        // Check is skipped if transitPolice is unset.
+        if (transitPolice == address(0)) return;
+        if (TransitPolice(transitPolice).isFrozen(accountId)) revert AccountFrozen(accountId);
+    }
 
     function _reserved(bytes32 accountId, bytes32 assetId) internal view returns (uint256) {
         Reservation storage res = reservation[accountId][assetId];

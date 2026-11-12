@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { TurnstileGated } from "../TurnstileGated.sol";
+import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 
 contract UserConductor is TurnstileGated {
 
@@ -70,7 +70,10 @@ contract UserConductor is TurnstileGated {
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
             .transferFrom(
-                accountId, TransitTokenLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
+                accountId,
+                TransitTokenLib.formatAccountId(request.toChainId, request.to, false),
+                request.assetId,
+                amount
             );
 
         emit TransferExecuted(requestId, amount);
@@ -106,7 +109,7 @@ contract UserConductor is TurnstileGated {
         returns (bytes32 accountId)
     {
         _requireEffective(ownerChainId, owner, requestId);
-        accountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
+        accountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
         if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
         requestStatus[accountId][requestId] = EXECUTED;
         if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
@@ -129,7 +132,7 @@ contract UserConductor is TurnstileGated {
     }
 
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner);
+        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
         if (_senderAccountId() == ownerAccountId) return;
         uint256 status = requestStatus[ownerAccountId][requestId];
         if (status == EXECUTED) return;

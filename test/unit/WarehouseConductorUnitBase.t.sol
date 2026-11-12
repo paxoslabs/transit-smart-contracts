@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { Turnstile } from "../../src/Turnstile.sol";
+import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import {
@@ -26,7 +28,7 @@ abstract contract WarehouseConductorUnitBase is Test {
     uint64 constant SPOKE_CHAIN_ID = 4663;
 
     TransitAuthority authority;
-    SpokeWarehouseConductor warehouse;
+    SpokeWarehouse warehouse;
     ERC20 usdc;
     Depot depot;
     UserConductor userConductor;
@@ -48,10 +50,9 @@ abstract contract WarehouseConductorUnitBase is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        uint256 nonce = vm.getNonce(address(this));
-        turnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
+        warehouse = new SpokeWarehouse(address(authority), vault);
+        turnstile = new Turnstile(address(authority), address(warehouse));
         depot = new Depot(address(authority));
-        warehouse = new SpokeWarehouseConductor(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
         hubWarehouseConductor =
@@ -59,7 +60,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory facilitateSels = new bytes4[](1);
         facilitateSels[0] = Turnstile.facilitate.selector;
@@ -95,25 +96,20 @@ abstract contract WarehouseConductorUnitBase is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
-
-        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.reserve.selector;
         routedSels[1] = UserConductor.reserveAndRequest.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseConductor));
         bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -123,14 +119,12 @@ abstract contract WarehouseConductorUnitBase is Test {
         authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
         authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
         authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
-        bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = HubWarehouseConductor.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), receiveDepositSels, TURNSTILE_ROLE);
+        bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
+        hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
-        bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = HubWarehouseConductor.executeWithdrawal.selector;
-        turnstile.setRoutable(address(hubWarehouseConductor), executeSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
     }
@@ -139,7 +133,22 @@ abstract contract WarehouseConductorUnitBase is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(address(usdc), amount, HUB_CHAIN_ID, user, 0);
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdc),
+                    amount: amount,
+                    toChainId: HUB_CHAIN_ID,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            0
+        );
         vm.stopPrank();
     }
 

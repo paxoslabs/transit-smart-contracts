@@ -3,8 +3,10 @@ pragma solidity ^0.8.37;
 
 library TransitTokenLib {
 
-    function formatAccountId(uint64 chainId, address account) internal pure returns (bytes32) {
-        return bytes32(uint256(chainId) << 160 | uint160(account));
+    uint256 internal constant FACILITATED_FLAG = 1 << 224;
+
+    function formatAccountId(uint64 chainId, address account, bool facilitated) internal pure returns (bytes32) {
+        return bytes32(uint256(chainId) << 160 | uint160(account) | (facilitated ? FACILITATED_FLAG : 0));
     }
 
     function parseAccountId(bytes32 accountId) internal pure returns (uint64 chainId, address account) {
@@ -14,10 +16,6 @@ library TransitTokenLib {
 
     function formatAssetId(uint64 chainId, address asset) internal pure returns (bytes32) {
         return bytes32(uint256(chainId) << 160 | uint160(asset));
-    }
-
-    function formatFacilitatedAccountId(bytes32 accountId) internal pure returns (bytes32) {
-        return accountId | bytes32(uint256(1) << 224);
     }
 
     function clearFlags(bytes32 id) internal pure returns (bytes32) {

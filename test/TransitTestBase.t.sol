@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "./helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
@@ -8,13 +9,13 @@ import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../src/conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
 import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
-import { ITurnstile } from "../src/ITurnstile.sol";
-import { Turnstile } from "../src/Turnstile.sol";
+import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
+import { Turnstile } from "../src/turnstile/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
 import {
@@ -64,7 +65,7 @@ contract TransitTestBase is Test {
     HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => SpokeWarehouseConductor) warehouses;
+    mapping(uint64 => SpokeWarehouse) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -97,7 +98,7 @@ contract TransitTestBase is Test {
         spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
-            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient),
+            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient, false),
             address(turnstile)
         );
         _grantSpotSwapConductorRole();
@@ -110,17 +111,12 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        uint256 nonce = vm.getNonce(address(this));
-        Turnstile chainTurnstile;
+        SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
+        Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
         if (chain == hubChainId) {
-            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
             depot = new Depot(address(authority));
             turnstile = chainTurnstile;
-        } else {
-            chainTurnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 1));
         }
-        SpokeWarehouseConductor warehouse =
-            new SpokeWarehouseConductor(address(authority), vault, address(chainTurnstile), hubChainId);
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
             userConductor = new UserConductor(address(depot), address(chainTurnstile));
@@ -156,17 +152,19 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        SpokeWarehouseConductor warehouse = warehouses[chain];
+        SpokeWarehouse warehouse = warehouses[chain];
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
 
-        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -178,11 +176,10 @@ contract TransitTestBase is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, ADMIN_ROLE);
 
         authority.grantRole(MESSAGING_ADAPTER_ROLE, address(adapters[chain]));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
         authority.grantRole(PAUSER_ROLE, admin);
         authority.grantRole(SOLVER_ROLE, solver);
 
@@ -217,17 +214,11 @@ contract TransitTestBase is Test {
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
-        authority.setTargetFunctionRole(address(chainTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
-
         authority.grantRole(TURNSTILE_ROLE, address(chainTurnstile));
         chainTurnstile.setMessagingAdapter(address(adapters[chain]));
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseConductor));
         bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -237,19 +228,16 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
         authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
         authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
-        bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = HubWarehouseConductor.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), receiveDepositSels, TURNSTILE_ROLE);
+        bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
+        hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.reserve.selector;
         routedSels[1] = UserConductor.reserveAndRequest.selector;
         turnstile.setRoutable(address(userConductor), routedSels, true);
-
-        bytes4[] memory executeSels = new bytes4[](1);
-        executeSels[0] = HubWarehouseConductor.executeWithdrawal.selector;
-        turnstile.setRoutable(address(hubWarehouseConductor), executeSels, true);
     }
 
     function _grantSpotSwapConductorRole() internal {
@@ -353,7 +341,8 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitTokenLib.formatAccountId(hubChainId, user), TransitTokenLib.formatAssetId(assetChain, address(asset))
+            TransitTokenLib.formatAccountId(hubChainId, user, false),
+            TransitTokenLib.formatAssetId(assetChain, address(asset))
         );
     }
 
@@ -362,7 +351,22 @@ contract TransitTestBase is Test {
         deal(address(asset), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
-        warehouses[chain].deposit(address(asset), amount, hubChainId, user, _messageGas(chain));
+        dispatchOne(
+            turnstiles[chain],
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(asset),
+                    amount: amount,
+                    toChainId: hubChainId,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            _messageGas(chain)
+        );
         vm.stopPrank();
     }
 
@@ -385,30 +389,34 @@ contract TransitTestBase is Test {
         require(chain == hubChainId, "can only atomically withdraw on Depot");
 
         _selectChain(hubChainId);
-        HubWarehouseConductor.WithdrawalRequest memory request = _withdrawalRequestFor(user, amount, asset, chain);
+        ITurnstile.WithdrawalAction memory request = _withdrawalActionFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
-        ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
-        calls[0] = _facilitatedWithdrawal(request);
+        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
+        actionTypes[0] = ITurnstile.ActionType.Withdrawal;
+        bytes[] memory actionData = new bytes[](1);
+        actionData[0] = abi.encode(request);
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
-        uint256[] memory values = new uint256[](1);
+        uint256[] memory fares = new uint256[](1);
+        uint64[] memory messageGas = new uint64[](1);
+        messageGas[0] = _messageGas(hubChainId);
 
         vm.prank(solver);
-        turnstile.facilitate(calls, signatures, values);
-        withdrawId = hubWarehouseConductor.hashWithdrawalRequest(request);
+        turnstile.facilitate(actionTypes, actionData, signatures, fares, messageGas);
+        withdrawId = hubWarehouseConductor.hashWithdrawalAction(request);
     }
 
-    function _withdrawalRequestFor(
+    function _withdrawalActionFor(
         address user,
         uint256 amount,
         ERC20 asset,
         uint64 chain
     )
         internal
-        returns (HubWarehouseConductor.WithdrawalRequest memory)
+        returns (ITurnstile.WithdrawalAction memory)
     {
-        return HubWarehouseConductor.WithdrawalRequest({
+        return ITurnstile.WithdrawalAction({
             ownerChainId: hubChainId,
             owner: user,
             to: user,
@@ -420,29 +428,12 @@ contract TransitTestBase is Test {
         });
     }
 
-    function _facilitatedWithdrawal(HubWarehouseConductor.WithdrawalRequest memory request)
-        internal
-        view
-        returns (ITurnstile.GenericMessage memory)
-    {
-        return ITurnstile.GenericMessage({
-            sender: request.owner,
-            target: address(hubWarehouseConductor),
-            data: abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (request, _messageGas(hubChainId))),
-            deadline: request.deadline,
-            salt: request.salt
-        });
-    }
-
-    function _signWithdraw(
-        HubWarehouseConductor.WithdrawalRequest memory request,
-        uint256 pk
-    )
+    function _signWithdraw(ITurnstile.WithdrawalAction memory request, uint256 pk)
         internal
         view
         returns (bytes memory)
     {
-        bytes32 digest = turnstile.hashGenericMessage(_facilitatedWithdrawal(request));
+        bytes32 digest = turnstile.hashWithdrawalAction(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }

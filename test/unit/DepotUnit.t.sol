@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
+import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
-import { Turnstile } from "../../src/Turnstile.sol";
-import { ITurnstile } from "../../src/ITurnstile.sol";
+import { Turnstile } from "../../src/turnstile/Turnstile.sol";
+import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import {
@@ -31,7 +32,7 @@ contract DepotUnitTest is Test {
     uint64 constant HUB_CHAIN_ID = 1;
 
     TransitAuthority authority;
-    SpokeWarehouseConductor warehouse;
+    SpokeWarehouse warehouse;
     Depot depot;
     UserConductor userConductor;
     HubWarehouseConductor hubWarehouseConductor;
@@ -54,10 +55,9 @@ contract DepotUnitTest is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        uint256 nonce = vm.getNonce(address(this));
-        turnstile = new Turnstile(address(authority), vm.computeCreateAddress(address(this), nonce + 2));
+        warehouse = new SpokeWarehouse(address(authority), vault);
+        turnstile = new Turnstile(address(authority), address(warehouse));
         depot = new Depot(address(authority));
-        warehouse = new SpokeWarehouseConductor(address(authority), vault, address(turnstile), HUB_CHAIN_ID);
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
         hubWarehouseConductor =
@@ -68,10 +68,12 @@ contract DepotUnitTest is Test {
         usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
 
         bytes4[] memory warehouseAdminSels = new bytes4[](1);
-        warehouseAdminSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        warehouseAdminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
-        bytes4[] memory receiveWithdrawalSels = new bytes4[](1);
-        receiveWithdrawalSels[0] = SpokeWarehouseConductor.receiveWithdrawal.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Turnstile.receiveMessage.selector;
@@ -90,10 +92,6 @@ contract DepotUnitTest is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
-
         bytes4[] memory routedSels = new bytes4[](3);
         routedSels[0] = UserConductor.reserve.selector;
         routedSels[1] = UserConductor.reserveAndRequest.selector;
@@ -106,8 +104,7 @@ contract DepotUnitTest is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveWithdrawalSels, TURNSTILE_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(warehouse));
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
         authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, SOLVER_ROLE);
         authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
         authority.setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
@@ -116,9 +113,7 @@ contract DepotUnitTest is Test {
         authority.grantRole(SOLVER_ROLE, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
         authority.grantRole(TURNSTILE_ROLE, address(turnstile));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(hubWarehouseConductor));
         bytes4[] memory userConductorSels = new bytes4[](6);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -129,9 +124,10 @@ contract DepotUnitTest is Test {
         authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
         authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
         authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
-        bytes4[] memory receiveDepositSels = new bytes4[](1);
-        receiveDepositSels[0] = HubWarehouseConductor.receiveDeposit.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), receiveDepositSels, TURNSTILE_ROLE);
+        bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
+        hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         authority.grantRole(CONDUCTOR_ROLE, address(spotSwapConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
@@ -152,7 +148,22 @@ contract DepotUnitTest is Test {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
         SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
-        warehouse.deposit(address(usdc), amount, HUB_CHAIN_ID, user, 0);
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdc),
+                    amount: amount,
+                    toChainId: HUB_CHAIN_ID,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            0
+        );
         vm.stopPrank();
     }
 
@@ -182,14 +193,8 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _withdrawalRequest(
-        address owner,
-        uint256 amount
-    )
-        internal
-        returns (HubWarehouseConductor.WithdrawalRequest memory)
-    {
-        return HubWarehouseConductor.WithdrawalRequest({
+    function _withdrawalAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawalAction memory) {
+        return ITurnstile.WithdrawalAction({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
@@ -217,9 +222,14 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _facilitatedCancellation(bytes32 orderHash) internal returns (ITurnstile.GenericMessage memory) {
-        return ITurnstile.GenericMessage({
-            sender: alice,
+    function _generic(address target, bytes memory data) internal returns (ITurnstile.GenericAction memory) {
+        return ITurnstile.GenericAction({
+            target: target, data: data, deadline: block.timestamp, salt: bytes32(++requestSalt)
+        });
+    }
+
+    function _facilitatedCancellation(bytes32 orderHash) internal returns (ITurnstile.GenericAction memory) {
+        return ITurnstile.GenericAction({
             target: address(spotSwapConductor),
             data: abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
             deadline: type(uint256).max,
@@ -227,24 +237,24 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _signFacilitated(
-        ITurnstile.GenericMessage memory message,
-        uint256 pk
-    )
+    function _signFacilitated(ITurnstile.GenericAction memory message, uint256 pk)
         internal
         view
         returns (bytes memory)
     {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericMessage(message));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericAction(message));
         return abi.encodePacked(r, s, v);
     }
 
-    function _facilitate(ITurnstile.GenericMessage memory message, bytes memory signature) internal {
-        ITurnstile.GenericMessage[] memory calls = new ITurnstile.GenericMessage[](1);
-        calls[0] = message;
-        uint256[] memory values = new uint256[](1);
+    function _facilitate(ITurnstile.GenericAction memory message, bytes memory signature) internal {
+        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
+        actionTypes[0] = ITurnstile.ActionType.Generic;
+        bytes[] memory actionData = new bytes[](1);
+        actionData[0] = abi.encode(message);
+        uint256[] memory fares = new uint256[](1);
+        uint64[] memory messageGas = new uint64[](1);
         vm.prank(backend);
-        turnstile.facilitate(calls, _toArray(signature), values);
+        turnstile.facilitate(actionTypes, actionData, _toArray(signature), fares, messageGas);
     }
 
     function _toArray(bytes memory signature) internal pure returns (bytes[] memory signatures) {
@@ -278,12 +288,16 @@ contract DepotUnitTest is Test {
 
         bytes32 requestId = userConductor.hashTransferRequest(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(userConductor),
-            abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(userConductor),
+                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -326,27 +340,31 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(userConductor), data, block.timestamp, 0, bytes32(++requestSalt));
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
         vm.expectRevert(UserConductor.RequestReplay.selector);
-        turnstile.sendGenericMessage(address(userConductor), data, block.timestamp, 0, bytes32(++requestSalt));
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
     // ---------------------------------------------------------------- withdrawal
 
     function testRequestWithdrawalReservesThenExecutes() public {
         _deposit(alice, 100e6);
-        HubWarehouseConductor.WithdrawalRequest memory request = _withdrawalRequest(alice, 40e6);
+        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
-        bytes32 requestId = hubWarehouseConductor.hashWithdrawalRequest(request);
+        bytes32 requestId = hubWarehouseConductor.hashWithdrawalAction(request);
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(userConductor),
-            abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(userConductor),
+                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -359,7 +377,7 @@ contract DepotUnitTest is Test {
         _advanceEpoch();
 
         vm.prank(bob);
-        hubWarehouseConductor.executeWithdrawal(request, 0);
+        dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(request), 0);
 
         assertEq(
             hubWarehouseConductor.requestStatus(_account(alice), requestId),
@@ -372,19 +390,19 @@ contract DepotUnitTest is Test {
 
     function testRequestWithdrawalReplayReverts() public {
         _deposit(alice, 100e6);
-        HubWarehouseConductor.WithdrawalRequest memory request = _withdrawalRequest(alice, 40e6);
+        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
         bytes memory data = abi.encodeCall(
             UserConductor.reserveAndRequest,
-            (hubWarehouseConductor.hashWithdrawalRequest(request), request.assetId, request.amount)
+            (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(address(userConductor), data, block.timestamp, 0, bytes32(++requestSalt));
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
         vm.expectRevert(UserConductor.RequestReplay.selector);
-        turnstile.sendGenericMessage(address(userConductor), data, block.timestamp, 0, bytes32(++requestSalt));
+        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
     // ---------------------------------------------------------------- orders
@@ -395,12 +413,11 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SpotSwapConductor.preApprove, (order)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
 
         assertTrue(spotSwapConductor.preApproved(orderHash), "preApprove: hash not marked");
@@ -424,21 +441,23 @@ contract DepotUnitTest is Test {
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SpotSwapConductor.preApprove, (order)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -462,18 +481,17 @@ contract DepotUnitTest is Test {
         orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SpotSwapConductor.preApprove, (order)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
     }
 
     function testFacilitatedOrderCancellationIsImmediateAndPaysFee() public {
         (SpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericMessage memory message = _facilitatedCancellation(orderHash);
+        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
 
         _facilitate(message, _signFacilitated(message, alicePk));
 
@@ -489,7 +507,7 @@ contract DepotUnitTest is Test {
 
     function testFacilitatedOrderCancellationReplayReverts() public {
         (, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericMessage memory message = _facilitatedCancellation(orderHash);
+        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
         bytes memory sig = _signFacilitated(message, alicePk);
 
         _facilitate(message, sig);
@@ -502,12 +520,15 @@ contract DepotUnitTest is Test {
         (, bytes32 orderHash) = _preApprovedOrder();
 
         vm.prank(alice);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(
+                _generic(
+                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
+                )
+            ),
+            0
         );
 
         assertEq(
@@ -516,7 +537,7 @@ contract DepotUnitTest is Test {
             "setup: user cancel not pending"
         );
 
-        ITurnstile.GenericMessage memory message = _facilitatedCancellation(orderHash);
+        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
         _facilitate(message, _signFacilitated(message, alicePk));
 
         assertEq(
@@ -526,19 +547,17 @@ contract DepotUnitTest is Test {
         );
     }
 
+    /// TODO: Decide test name; a wrong signer no longer reverts, it acts as its own account.
     function testFacilitatedOrderCancellationBadSignatureReverts() public {
         (, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericMessage memory message = _facilitatedCancellation(orderHash);
+        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _signFacilitated(message, wrongPk);
 
-        vm.expectRevert(ITurnstile.BadSignature.selector);
         _facilitate(message, sig);
 
         assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash),
-            0,
-            "bad sig: cancellation recorded despite revert"
+            spotSwapConductor.cancelledFrom(_account(alice), orderHash), 0, "bad sig: cancellation recorded for alice"
         );
     }
 
@@ -549,12 +568,11 @@ contract DepotUnitTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(SwapConductor.NotOwner.selector);
-        turnstile.sendGenericMessage(
-            address(spotSwapConductor),
-            abi.encodeCall(SpotSwapConductor.preApprove, (order)),
-            block.timestamp,
-            0,
-            bytes32(++requestSalt)
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Generic,
+            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            0
         );
     }
 
@@ -563,7 +581,7 @@ contract DepotUnitTest is Test {
     }
 
     function _account(address user) internal pure returns (bytes32) {
-        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user);
+        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user, false);
     }
 
 }

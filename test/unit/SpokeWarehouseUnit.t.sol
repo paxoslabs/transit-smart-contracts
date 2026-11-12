@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SpokeWarehouseConductor } from "../../src/conductor/SpokeWarehouseConductor.sol";
-import { ITurnstile } from "../../src/ITurnstile.sol";
-import { Turnstile } from "../../src/Turnstile.sol";
+import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
+import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
-import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE } from "../../src/helpers/Constants.sol";
+import { ADMIN_ROLE, MESSAGING_ADAPTER_ROLE, TURNSTILE_ROLE } from "../../src/helpers/Constants.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
-contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
+contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
     // ---------------------------------------------------------------- deposit
 
@@ -21,7 +22,7 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
             ),
             100e6,
@@ -39,12 +40,27 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
-        warehouse.deposit(address(other), 1e18, HUB_CHAIN_ID, alice, 0);
+        dispatchOne(
+            turnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(other),
+                    amount: 1e18,
+                    toChainId: HUB_CHAIN_ID,
+                    to: alice,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            0
+        );
         vm.stopPrank();
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(other))
             ),
             1e18,
@@ -55,10 +71,8 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
     function testSpokeDepositCreditsDepot() public {
         vm.chainId(SPOKE_CHAIN_ID);
-        Turnstile spokeTurnstile =
-            new Turnstile(address(authority), vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
-        SpokeWarehouseConductor spokeWarehouse =
-            new SpokeWarehouseConductor(address(authority), vault, address(spokeTurnstile), HUB_CHAIN_ID);
+        SpokeWarehouse spokeWarehouse = new SpokeWarehouse(address(authority), vault);
+        Turnstile spokeTurnstile = new Turnstile(address(authority), address(spokeWarehouse));
         MockMessagingAdapter spokeAdapter =
             new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
@@ -67,14 +81,14 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
 
         bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = SpokeWarehouseConductor.setAssetWhitelisted.selector;
+        warehouseSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
         bytes4[] memory turnstileAdminSels = new bytes4[](1);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
 
-        bytes4[] memory turnstileSendSels = new bytes4[](2);
-        turnstileSendSels[0] = Turnstile.sendDepositMessage.selector;
-        turnstileSendSels[1] = Turnstile.sendWithdrawalMessage.selector;
+        bytes4[] memory custodySels = new bytes4[](2);
+        custodySels[0] = SpokeWarehouse.custody.selector;
+        custodySels[1] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -86,8 +100,8 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(warehouse), warehouseSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileSendSels, MESSAGING_ADAPTER_ROLE);
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(spokeWarehouse));
+        authority.setTargetFunctionRole(address(spokeWarehouse), custodySels, TURNSTILE_ROLE);
+        authority.grantRole(TURNSTILE_ROLE, address(spokeTurnstile));
         authority.setTargetFunctionRole(address(spokeAdapter), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(hubAdapter), peerSels, ADMIN_ROLE);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
@@ -108,7 +122,22 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         deal(address(usdg), alice, 100e6);
         vm.startPrank(alice);
         SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
-        spokeWarehouse.deposit(address(usdg), 100e6, SPOKE_CHAIN_ID, alice, 200_000);
+        dispatchOne(
+            spokeTurnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(usdg),
+                    amount: 100e6,
+                    toChainId: SPOKE_CHAIN_ID,
+                    to: alice,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            200_000
+        );
         vm.stopPrank();
 
         assertEq(usdg.balanceOf(vault), 100e6, "spoke deposit: vault did not receive usdg");
@@ -120,7 +149,7 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice),
+                TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice, false),
                 TransitTokenLib.formatAssetId(SPOKE_CHAIN_ID, address(usdg))
             ),
             100e6,
@@ -134,7 +163,7 @@ contract SpokeWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.WithdrawalMessage memory m = ITurnstile.WithdrawalMessage({
             asset: address(usdc), amount: 1e6, to: alice, salt: bytes32(++withdrawSalt)
         });
-        bytes memory payload = abi.encode(ITurnstile.MessageType.Withdrawal, abi.encode(m));
+        bytes memory payload = abi.encode(ITurnstile.ActionType.Withdrawal, abi.encode(m));
 
         vm.prank(mallory);
         vm.expectRevert();

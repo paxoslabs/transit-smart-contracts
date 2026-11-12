@@ -67,7 +67,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     mapping(uint256 escrowId => uint256) public escrowDeadline;
 
     event Escrowed(uint256 indexed escrowId, bytes32 indexed firstOrderHash, bytes32 indexed secondOrderHash);
-    event Repaid(uint256 indexed escrowId, uint256 side, uint256 amount);
+    event Repaid(uint256 indexed escrowId, uint256 side);
     event Released(uint256 indexed escrowId);
     event Reclaimed(uint256 indexed escrowId);
 
@@ -97,7 +97,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     /// @notice preApprove an order hash as  _senderAccountId to bypass need for offchain signatures
     function preApprove(DelayedSettlementOrder calldata order) external {
         bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash);
@@ -115,7 +115,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         leg.owed = 0;
 
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
-        emit Repaid(escrowId, side, amount);
+        emit Repaid(escrowId, side);
 
         // since side must be 0 or 1: 1 - side results in whichever number side is not
         Leg storage counterparty = escrowLegs[escrowId][1 - side];
@@ -211,15 +211,14 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     {
         ownerAccountIds = new bytes32[](orders.length);
         orderHashes = new bytes32[](orders.length);
+        uint256 lastEpochAdvancedAt = IDepot(DEPOT).lastEpochAdvancedAt();
         for (uint256 i; i < orders.length; i++) {
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner);
+            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
 
-            // TODO: I think we need to check against lock time not block.timestamp and perhaps have that passed in on
-            // settle(). Will send a message in Slack about this
-            if (block.timestamp > order.expiresAt) revert Expired(orderHash);
+            if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
             // Empty signature: pre-approved order. Otherwise ECDSA.
             if (signatures[i].length == 0) {
@@ -256,9 +255,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
             revert BadPair(index);
         }
 
-        unchecked {
-            uint256 escrowId = ++escrowCount;
-        }
+        uint256 escrowId = ++escrowCount;
         escrowDeadline[escrowId] = block.timestamp + _settlementPeriod(first, second, index);
         // Create the delta and store the escrow leg in storage for each matched pair
         deltas[index * 2] = _escrowLeg(orders, fill, ownerAccountIds, orderHashes, escrowId, 0);
@@ -296,7 +293,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         // Publish the Leg onchain to track the escrow
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
-            receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver),
+            receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
             assetId: order.sellTokenId,
             amount: amount,
             owed: order.delayedSettlement ? amount : 0,
@@ -390,7 +387,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     /// @dev The escrow account is an account for this contract on this chain
     function _conductorAccountId() internal view returns (bytes32) {
-        return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this));
+        return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this), false);
     }
 
     // ========================================= VIEWS =========================================
