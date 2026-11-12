@@ -8,17 +8,16 @@ import { Typehashes } from "../helpers/Typehashes.sol";
 import { ITurnstile } from "../turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
-import { UserConductor } from "./UserConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, TurnstileGated {
 
     uint256 public constant EXECUTED = type(uint256).max;
 
     address public immutable DEPOT;
-    address public immutable USER_CONDUCTOR;
 
     mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
 
+    event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
     error RequestReplay();
@@ -28,14 +27,21 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
     constructor(
         address _authority,
         address _depot,
-        address _userConductor,
         address _turnstile
     )
         AccessManaged(_authority)
         TurnstileGated(_turnstile)
     {
         DEPOT = _depot;
-        USER_CONDUCTOR = _userConductor;
+    }
+
+    function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
+        bytes32 accountId = _senderAccountId();
+        if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
+        uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
+        requestStatus[accountId][requestId] = effectiveAtEpoch;
+        IDepot(DEPOT).reserve(accountId, assetId, amount);
+        emit Requested(accountId, requestId, effectiveAtEpoch);
     }
 
     function receiveDeposit(
@@ -126,13 +132,11 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         if (!partiallyFillable && amount < requested) revert InsufficientBalance();
     }
 
-    /// TODO: Decide request-state ownership. Currently effectiveness is read from UserConductor.requestStatus (set by
-    /// reserveAndRequest) and execution is tracked here.
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
         if (_senderAccountId() == ownerAccountId) return;
-        if (requestStatus[ownerAccountId][requestId] == EXECUTED) return;
-        uint256 status = UserConductor(USER_CONDUCTOR).requestStatus(ownerAccountId, requestId);
+        uint256 status = requestStatus[ownerAccountId][requestId];
+        if (status == EXECUTED) return;
         if (status == 0 || IDepot(DEPOT).settlementEpoch() < status) revert NotEffective();
     }
 

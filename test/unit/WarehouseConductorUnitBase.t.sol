@@ -49,8 +49,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         depot = new Depot(address(authority));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
-        hubWarehouseConductor =
-            new HubWarehouseConductor(address(authority), address(depot), address(userConductor), address(turnstile));
+        hubWarehouseConductor = new HubWarehouseConductor(address(authority), address(depot), address(turnstile));
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
@@ -119,6 +118,9 @@ abstract contract WarehouseConductorUnitBase is Test {
         authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.reserveAndRequest.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
     }

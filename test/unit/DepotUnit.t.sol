@@ -53,8 +53,7 @@ contract DepotUnitTest is Test {
         depot = new Depot(address(authority));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
-        hubWarehouseConductor =
-            new HubWarehouseConductor(address(authority), address(depot), address(userConductor), address(turnstile));
+        hubWarehouseConductor = new HubWarehouseConductor(address(authority), address(depot), address(turnstile));
         spotSwapConductor =
             new SpotSwapConductor(address(authority), address(depot), _account(backend), address(turnstile));
         usdc = ERC20(address(new MockERC20("USD Coin", "USDC", 6)));
@@ -125,6 +124,9 @@ contract DepotUnitTest is Test {
         authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.reserveAndRequest.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
 
@@ -353,15 +355,17 @@ contract DepotUnitTest is Test {
             ITurnstile.ActionType.Generic,
             abi.encode(
                 _generic(
-                    address(userConductor),
-                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                    address(hubWarehouseConductor),
+                    abi.encodeCall(
+                        HubWarehouseConductor.reserveAndRequest, (requestId, request.assetId, request.amount)
+                    )
                 )
             ),
             0
         );
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestStatus(_account(alice), requestId),
             depot.settlementEpoch() + 1,
             "request: status not pending next epoch"
         );
@@ -386,16 +390,20 @@ contract DepotUnitTest is Test {
         ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
         bytes memory data = abi.encodeCall(
-            UserConductor.reserveAndRequest,
+            HubWarehouseConductor.reserveAndRequest,
             (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
         );
 
         vm.prank(alice);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
+        dispatchOne(
+            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
+        );
 
         vm.prank(alice);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
+        vm.expectRevert(HubWarehouseConductor.RequestReplay.selector);
+        dispatchOne(
+            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
+        );
     }
 
     // ---------------------------------------------------------------- orders

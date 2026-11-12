@@ -112,9 +112,8 @@ contract TransitTestBase is Test {
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
             userConductor = new UserConductor(address(depot), address(chainTurnstile));
-            hubWarehouseConductor = new HubWarehouseConductor(
-                address(authority), address(depot), address(userConductor), address(chainTurnstile)
-            );
+            hubWarehouseConductor =
+                new HubWarehouseConductor(address(authority), address(depot), address(chainTurnstile));
         }
 
         authorities[chain] = authority;
@@ -230,6 +229,10 @@ contract TransitTestBase is Test {
         routedSels[0] = UserConductor.reserve.selector;
         routedSels[1] = UserConductor.reserveAndRequest.selector;
         turnstile.setRoutable(address(userConductor), routedSels, true);
+
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.reserveAndRequest.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
     }
 
     function _grantSpotSwapConductorRole() internal {
