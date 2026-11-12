@@ -111,9 +111,10 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
     {
         _requireEffective(ownerChainId, owner, requestId);
         accountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
-        if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
+        uint256 status = requestStatus[accountId][requestId];
+        if (status == EXECUTED) revert RequestReplay();
         requestStatus[accountId][requestId] = EXECUTED;
-        if (!_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
+        if (status != 0 || !_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
     /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other
