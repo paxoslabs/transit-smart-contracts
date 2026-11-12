@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
@@ -96,7 +97,7 @@ abstract contract WarehouseConductorUnitBase is Test {
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.reserveAndRequest.selector;
+        routedSels[1] = RequestConductor.reserveAndRequest.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
         authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
@@ -119,7 +120,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
-        hubWarehouseRoutedSels[0] = HubWarehouseConductor.reserveAndRequest.selector;
+        hubWarehouseRoutedSels[0] = RequestConductor.reserveAndRequest.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();

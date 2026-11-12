@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
@@ -86,7 +87,7 @@ contract DepotUnitTest is Test {
 
         bytes4[] memory routedSels = new bytes4[](3);
         routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.reserveAndRequest.selector;
+        routedSels[1] = RequestConductor.reserveAndRequest.selector;
         routedSels[2] = UserConductor.executeTransfer.selector;
 
         bytes4[] memory swapRoutedSels = new bytes4[](2);
@@ -125,7 +126,7 @@ contract DepotUnitTest is Test {
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
-        hubWarehouseRoutedSels[0] = HubWarehouseConductor.reserveAndRequest.selector;
+        hubWarehouseRoutedSels[0] = RequestConductor.reserveAndRequest.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
@@ -289,7 +290,7 @@ contract DepotUnitTest is Test {
             abi.encode(
                 _generic(
                     address(userConductor),
-                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                    abi.encodeCall(RequestConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
                 )
             ),
             0
@@ -304,7 +305,7 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
 
         vm.prank(bob);
-        vm.expectRevert(UserConductor.NotEffective.selector);
+        vm.expectRevert(RequestConductor.NotEffective.selector);
         userConductor.executeTransfer(request);
 
         _advanceEpoch();
@@ -321,7 +322,7 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
 
         vm.prank(bob);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         userConductor.executeTransfer(request);
     }
 
@@ -330,7 +331,7 @@ contract DepotUnitTest is Test {
         UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
         bytes memory data = abi.encodeCall(
-            UserConductor.reserveAndRequest,
+            RequestConductor.reserveAndRequest,
             (userConductor.digestTransferRequest(request), request.assetId, request.amount)
         );
 
@@ -338,7 +339,7 @@ contract DepotUnitTest is Test {
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
@@ -356,9 +357,7 @@ contract DepotUnitTest is Test {
             abi.encode(
                 _generic(
                     address(hubWarehouseConductor),
-                    abi.encodeCall(
-                        HubWarehouseConductor.reserveAndRequest, (requestId, request.assetId, request.amount)
-                    )
+                    abi.encodeCall(RequestConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
                 )
             ),
             0
@@ -390,7 +389,7 @@ contract DepotUnitTest is Test {
         ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
         bytes memory data = abi.encodeCall(
-            HubWarehouseConductor.reserveAndRequest,
+            RequestConductor.reserveAndRequest,
             (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
         );
 
@@ -400,7 +399,7 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        vm.expectRevert(HubWarehouseConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         dispatchOne(
             turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
         );

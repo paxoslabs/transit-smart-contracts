@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
@@ -90,7 +91,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(backend);
-        vm.expectRevert(HubWarehouseConductor.NotEffective.selector);
+        vm.expectRevert(RequestConductor.NotEffective.selector);
         _withdraw(req, sig);
     }
 
@@ -103,7 +104,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(HubWarehouseConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         _withdraw(req, sig);
     }
 
