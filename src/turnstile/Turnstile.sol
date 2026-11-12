@@ -197,6 +197,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     abi.encode(
                         GenericMessage({
                             sender: msg.sender,
+                            facilitated: false,
                             target: action.target,
                             data: action.data,
                             deadline: action.deadline,
@@ -214,14 +215,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         delete messageStatus[messageHash];
         emit MessageRetried(sourceChainId, actionType, messageHash);
-        _sendMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0, false);
+        _sendMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0);
     }
 
     // ========================================= ADAPTER ========================================
 
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
-        _sendMessage(chainId, uint64(block.chainid), 0, actionType, body, 0, false);
+        _sendMessage(chainId, uint64(block.chainid), 0, actionType, body, 0);
     }
 
     function _dispatch(
@@ -261,9 +262,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        messageHash = _sendMessage(
-            uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare, facilitated
-        );
+        messageHash = _sendMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare);
     }
 
     function _dispatchDeposit(
@@ -348,7 +347,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             GenericMessage({
-                sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
+                sender: sender,
+                facilitated: facilitated,
+                target: action.target,
+                data: action.data,
+                deadline: action.deadline,
+                salt: action.salt
             })
         );
     }
@@ -359,8 +363,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint64 messageGas,
         ActionType actionType,
         bytes memory body,
-        uint256 fare,
-        bool facilitated
+        uint256 fare
     )
         internal
         returns (bytes32 messageHash)
@@ -373,7 +376,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
             if (fare != 0) revert NoFare();
-            _executeMessage(sourceChainId, actionType, body, facilitated);
+            _executeMessage(sourceChainId, actionType, body);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
             IMessagingAdapter(messagingAdapter).send{ value: fare }(
@@ -400,8 +403,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @param chainId Message's source chainId.
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
-    /// @param facilitated Whether message is being facilitated by trusted executor.
-    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body, bool facilitated) internal {
+    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body) internal {
         _requireNotPaused();
 
         bytes32 messageHash = digestMessage(chainId, actionType, body);
@@ -432,7 +434,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 target = message.target;
                 // Append accountId to calldata so that it may be used as meta-transaction sender.
                 data = abi.encodePacked(
-                    message.data, TransitTokenLib.formatAccountId(chainId, message.sender, facilitated)
+                    message.data, TransitTokenLib.formatAccountId(chainId, message.sender, message.facilitated)
                 );
             }
         }

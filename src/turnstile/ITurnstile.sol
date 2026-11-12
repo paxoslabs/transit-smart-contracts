@@ -40,12 +40,14 @@ interface ITurnstile is IMessagingReceiver {
 
     /// @notice Body of a Generic message.
     /// @param sender Message's sender.
+    /// @param facilitated Whether the message was facilitated by a trusted executor.
     /// @param target Message's target address.
     /// @param data Message's calldata.
     /// @param deadline Action execution deadline.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct GenericMessage {
         address sender;
+        bool facilitated;
         address target;
         bytes data;
         uint256 deadline;
