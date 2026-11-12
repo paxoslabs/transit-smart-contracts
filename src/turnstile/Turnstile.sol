@@ -6,26 +6,18 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
+import {
+    DEPOSIT_ACTION_TYPEHASH,
+    PERMIT_TYPEHASH,
+    WITHDRAWAL_ACTION_TYPEHASH,
+    GENERIC_ACTION_TYPEHASH
+} from "../helpers/Constants.sol";
 import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../SpokeWarehouse.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
-
-    /// @inheritdoc ITurnstile
-    bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
-        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
-    );
-    /// @inheritdoc ITurnstile
-    bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
-    /// @inheritdoc ITurnstile
-    bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
-        "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
-    );
-    /// @inheritdoc ITurnstile
-    bytes32 public constant GENERIC_ACTION_TYPEHASH =
-        keccak256("GenericAction(address target,bytes data,uint256 deadline,bytes32 salt)");
 
     /// @inheritdoc ITurnstile
     address public immutable SPOKE_WAREHOUSE;

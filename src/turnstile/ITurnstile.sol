@@ -188,22 +188,6 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An action's deadline has already passed.
     error Expired();
 
-    /// @notice Query the EIP-712 type hash for the Deposit action.
-    /// @return EIP-712 Deposit type hash.
-    function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for the Permit struct nested within the Deposit action.
-    /// @return EIP-712 Permit type hash.
-    function PERMIT_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for the Withdrawal action.
-    /// @return EIP-712 Withdrawal type hash.
-    function WITHDRAWAL_ACTION_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for a Generic action.
-    /// @return EIP-712 Generic type hash.
-    function GENERIC_ACTION_TYPEHASH() external view returns (bytes32);
-
     /// @notice Query the SpokeWarehouse contract address.
     /// @return SpokeWarehouse contract address.
     function SPOKE_WAREHOUSE() external view returns (address);

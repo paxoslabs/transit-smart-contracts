@@ -4,16 +4,13 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { WITHDRAWAL_ACTION_TYPEHASH } from "../helpers/Constants.sol";
 import { ITurnstile } from "../turnstile/ITurnstile.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 import { UserConductor } from "./UserConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, TurnstileGated {
-
-    bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
-        "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
-    );
 
     uint256 public constant EXECUTED = type(uint256).max;
 

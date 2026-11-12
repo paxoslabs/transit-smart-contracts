@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { DELAYED_SETTLEMENT_ORDER_TYPEHASH } from "../helpers/Constants.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -52,10 +53,6 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 collateral;
         uint256 fee;
     }
-
-    bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,uint256 settlementPeriod,bytes32 salt)"
-    );
 
     uint256 public constant FILL_RATIO = 100;
     uint256 public constant MAX_SETTLEMENT_PERIOD = 1 days;

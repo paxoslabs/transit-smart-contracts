@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { TRANSFER_REQUEST_TYPEHASH } from "../helpers/Constants.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 
@@ -19,10 +20,6 @@ contract UserConductor is TurnstileGated {
         bool partiallyFillable;
         bytes32 salt;
     }
-
-    bytes32 public constant TRANSFER_REQUEST_TYPEHASH = keccak256(
-        "TransferRequest(uint64 ownerChainId,address owner,uint64 toChainId,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
-    );
 
     uint256 public constant EXECUTED = type(uint256).max;
 

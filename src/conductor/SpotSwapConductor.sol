@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { ORDER_TYPEHASH } from "../helpers/Constants.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -32,10 +33,6 @@ contract SpotSwapConductor is SwapConductor {
         bytes32 assetId;
         uint256 amount;
     }
-
-    bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bytes32 salt)"
-    );
 
     constructor(
         address _authority,
