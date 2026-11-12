@@ -57,7 +57,9 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being withdrawn, denominated in native units.
     /// @param to Recipient of withdrawn asset.  Bare address rather than composite accountId because chainId is implied
     /// by the message's destination chain.
-    /// @param salt Internally generated salt used to disambiguate hashes of otherwise identical messages.
+    /// @param salt Hash of the originating WithdrawalAction, used to disambiguate hashes of otherwise identical
+    /// messages.  A user-set salt could allow a griefing attack because WithdrawalMessage does not include any
+    /// ownership information.
     struct WithdrawalMessage {
         address asset;
         uint256 amount;

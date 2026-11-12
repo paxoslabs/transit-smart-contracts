@@ -34,7 +34,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     address public messagingAdapter;
     /// @inheritdoc ITurnstile
     address public hubWarehouseConductor;
-    uint256 internal outboundNonce;
 
     /// @inheritdoc ITurnstile
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
@@ -209,7 +208,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     ActionType.Withdrawal,
                     abi.encode(
                         WithdrawalMessage({
-                            asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
+                            asset: asset, amount: action.amount, to: action.to, salt: hashWithdrawalAction(action)
                         })
                     )
                 );
@@ -380,7 +379,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address asset;
         (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
         body = abi.encode(
-            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
+            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action) })
         );
     }
 
