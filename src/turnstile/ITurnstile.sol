@@ -171,14 +171,14 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice A message with an identical hash has already been processed.
     error MessageReplay();
 
-    /// @notice The MessagingAdapter has not been set.
-    error NoAdapter();
+    /// @notice The address has no code.
+    error NoCode();
 
     /// @notice An encoded call ran out of gas.
     error OutOfGas();
 
     /// @notice Message encodes a call which has not been authorized.
-    error NotRoutable();
+    error NotWhitelisted();
 
     /// @notice A retry was attempted of a message that had not failed.
     error NotFailed();
@@ -231,11 +231,11 @@ interface ITurnstile is IMessagingReceiver {
     /// @return Message's execution status.
     function messageStatus(bytes32 messageHash) external view returns (MessageStatus);
 
-    /// @notice Query whether an address-selector combination is routable by generic messages.
+    /// @notice Query whether an address-selector combination is whitelisted for generic messages.
     /// @param target Call target.
     /// @param selector Call function selector.
-    /// @return Whether calldata is routable.
-    function routable(address target, bytes4 selector) external view returns (bool);
+    /// @return Whether calldata is whitelisted.
+    function genericMessageWhitelist(address target, bytes4 selector) external view returns (bool);
 
     /// @notice Set the MessagingAdapter contract address.
     /// @param adapter MessagingAdapter contract address.
@@ -250,7 +250,7 @@ interface ITurnstile is IMessagingReceiver {
     /// attribute a message to its sender.
     /// @param target Call target.
     /// @param selectors Call function selectors.
-    /// @param allowed Whether calldata is routable.
+    /// @param allowed Whether calldata is whitelisted.
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
 
     /// @notice Disable sensitive functions in an emergency, including inbound message handling.

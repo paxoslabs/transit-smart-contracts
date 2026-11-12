@@ -39,7 +39,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @inheritdoc ITurnstile
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     /// @inheritdoc ITurnstile
-    mapping(address target => mapping(bytes4 selector => bool)) public routable;
+    mapping(address target => mapping(bytes4 selector => bool)) public genericMessageWhitelist;
 
     constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
         SPOKE_WAREHOUSE = _spokeWarehouse;
@@ -58,13 +58,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function setMessagingAdapter(address adapter) external restricted {
-        if (adapter.code.length == 0) revert NoAdapter();
+        if (adapter.code.length == 0) revert NoCode();
         messagingAdapter = adapter;
         emit MessagingAdapterUpdated(adapter);
     }
 
     /// @inheritdoc ITurnstile
     function setHubWarehouseConductor(address _hubWarehouseConductor) external restricted {
+        if (_hubWarehouseConductor.code.length == 0) revert NoCode();
         hubWarehouseConductor = _hubWarehouseConductor;
         emit HubWarehouseConductorUpdated(_hubWarehouseConductor);
     }
@@ -72,7 +73,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @inheritdoc ITurnstile
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
         for (uint256 i; i < selectors.length; i++) {
-            routable[target][selectors[i]] = allowed;
+            genericMessageWhitelist[target][selectors[i]] = allowed;
         }
     }
 
@@ -425,8 +426,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
             if (block.timestamp > message.deadline) {
                 result = abi.encodeWithSelector(Expired.selector);
-            } else if (!routable[message.target][bytes4(message.data)]) {
-                result = abi.encodeWithSelector(NotRoutable.selector);
+            } else if (!genericMessageWhitelist[message.target][bytes4(message.data)]) {
+                result = abi.encodeWithSelector(NotWhitelisted.selector);
             } else {
                 target = message.target;
                 // Append accountId to calldata so that it may be used as meta-transaction sender.
