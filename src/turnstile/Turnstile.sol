@@ -43,6 +43,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
         SPOKE_WAREHOUSE = _spokeWarehouse;
+        /// NOTE: messagingAdapter is not set here because MessagingAdapter takes this Turnstile as its immutable
+        /// ENDPOINT, making constructor wiring circular. We could instead check !=0 on ever call as was done before.
+        /// But this saves the check for only on set. And the window between deploy and setting still reverts, just with
+        /// a less convinient error. This is an efficiency gain for no less security but slightly less verbosity that
+        /// should never occur anyways with a deployment script
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -53,6 +58,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function setMessagingAdapter(address adapter) external restricted {
+        if (adapter.code.length == 0) revert NoAdapter();
         messagingAdapter = adapter;
         emit MessagingAdapterUpdated(adapter);
     }
@@ -154,10 +160,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         for (uint256 i; i < actions.length; i++) {
             if (actions[i].actionType == ActionType.Deposit) {
                 DepositAction memory action = abi.decode(actions[i].data, (DepositAction));
-                address adapter = messagingAdapter;
-                if (adapter == address(0)) revert NoAdapter();
                 fares[i] = _quote(
-                    IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+                    IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Deposit,
                     abi.encode(
@@ -185,10 +189,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             } else {
                 GenericAction memory action = abi.decode(actions[i].data, (GenericAction));
-                address adapter = messagingAdapter;
-                if (adapter == address(0)) revert NoAdapter();
                 fares[i] = _quote(
-                    IMessagingAdapter(adapter).HUB_CHAIN_ID(),
+                    IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Generic,
                     abi.encode(
@@ -258,13 +260,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
-        /// in Turnstile.
-        if (body.length != 0) {
-            messageHash = _sendMessage(
-                uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare, facilitated
-            );
-        }
+        messageHash = _sendMessage(
+            uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare, facilitated
+        );
     }
 
     function _dispatchDeposit(
@@ -286,11 +284,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
         }
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
-        address adapter = messagingAdapter;
-        if (adapter == address(0)) revert NoAdapter();
         bytes32 fromAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), from, false);
         bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to, false);
-        chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
+        chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             DepositMessage({
                 asset: action.asset,
@@ -331,7 +327,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
             amount = abi.decode(result, (uint256));
         }
-        if (amount == 0) return (0, "");
         address asset;
         (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
         body = abi.encode(
@@ -349,9 +344,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
-        address adapter = messagingAdapter;
-        if (adapter == address(0)) revert NoAdapter();
-        chainId = IMessagingAdapter(adapter).HUB_CHAIN_ID();
+        chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             GenericMessage({
                 sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
@@ -382,9 +375,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             _executeMessage(sourceChainId, actionType, body, facilitated);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
-            address adapter = messagingAdapter;
-            if (adapter == address(0)) revert NoAdapter();
-            IMessagingAdapter(adapter).send{ value: fare }(destinationChainId, messageGas, abi.encode(actionType, body));
+            IMessagingAdapter(messagingAdapter).send{ value: fare }(
+                destinationChainId, messageGas, abi.encode(actionType, body)
+            );
         }
     }
 

@@ -263,7 +263,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @dev `msg.value` must exactly equal the sum of action `fare`s.
     /// Same-chain actions must have a fare of 0.
     /// @param actions List of actions.
-    /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
+    /// @return messageHashes List of hashes of dispatched messages.
     function dispatch(Action[] calldata actions) external payable returns (bytes32[] memory messageHashes);
 
     /// @notice Execute a batch of actions on behalf of users using ECDSA signature authorization.

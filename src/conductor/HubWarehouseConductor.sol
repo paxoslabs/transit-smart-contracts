@@ -27,6 +27,10 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
     error RequestReplay();
     error NotEffective();
     error InsufficientBalance();
+    error Expired();
+    error ZeroAmount();
+    error NotExpired();
+    error NotRequested();
 
     constructor(
         address _authority,
@@ -64,20 +68,29 @@ contract HubWarehouseConductor is AccessManaged, TurnstileGated {
         restricted
         returns (uint256 amount)
     {
+        if (block.timestamp > action.deadline) revert Expired();
         bytes32 requestId = hashWithdrawalAction(action);
         bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 
-        /// TODO: Decide expired-action handling. Currently consumes it and releases the reservation without moving
-        /// funds.
-        if (block.timestamp > action.deadline) {
-            emit WithdrawalExecuted(requestId, 0);
-            return 0;
-        }
-
         amount = _fillAmount(accountId, action.assetId, action.amount, action.partiallyFillable);
+        if (amount == 0) revert ZeroAmount();
         IDepot(DEPOT).burn(accountId, action.assetId, amount);
 
         emit WithdrawalExecuted(requestId, amount);
+    }
+
+    /// @notice Releases the reservation of an expired withdrawal request and marks it executed. executeWithdrawal
+    /// reverts on expired requests, and spoke-chain owners cannot dispatch their own withdrawals on the hub, so
+    /// without this their reserved funds would stay locked.
+    function releaseExpired(ITurnstile.WithdrawalAction calldata action) external {
+        if (block.timestamp <= action.deadline) revert NotExpired();
+        bytes32 requestId = hashWithdrawalAction(action);
+        bytes32 accountId = TransitTokenLib.formatAccountId(action.ownerChainId, action.owner, false);
+        if (UserConductor(USER_CONDUCTOR).requestStatus(accountId, requestId) == 0) revert NotRequested();
+        if (requestStatus[accountId][requestId] == EXECUTED) revert RequestReplay();
+        requestStatus[accountId][requestId] = EXECUTED;
+        IDepot(DEPOT).release(accountId, action.assetId, action.amount);
+        emit WithdrawalExecuted(requestId, 0);
     }
 
     function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
