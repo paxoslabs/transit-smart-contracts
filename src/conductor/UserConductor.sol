@@ -54,7 +54,7 @@ contract UserConductor is TurnstileGated {
 
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
-        bytes32 requestId = hashTransferRequest(request);
+        bytes32 requestId = digestTransferRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
 
         /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving
@@ -76,9 +76,7 @@ contract UserConductor is TurnstileGated {
         emit TransferExecuted(requestId, amount);
     }
 
-    /// TODO: Decide hashing. Currently plain struct hash with no EIP-712 domain, so IDs are the same across conductor
-    /// versions.
-    function hashTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
+    function digestTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 Typehashes.TRANSFER_REQUEST,

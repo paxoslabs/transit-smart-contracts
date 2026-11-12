@@ -279,7 +279,7 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
-        bytes32 requestId = userConductor.hashTransferRequest(request);
+        bytes32 requestId = userConductor.digestTransferRequest(request);
         vm.prank(alice);
         dispatchOne(
             turnstile,
@@ -329,7 +329,7 @@ contract DepotUnitTest is Test {
 
         bytes memory data = abi.encodeCall(
             UserConductor.reserveAndRequest,
-            (userConductor.hashTransferRequest(request), request.assetId, request.amount)
+            (userConductor.digestTransferRequest(request), request.assetId, request.amount)
         );
 
         vm.prank(alice);
