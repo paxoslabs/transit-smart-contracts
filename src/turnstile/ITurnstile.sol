@@ -128,6 +128,18 @@ interface ITurnstile is IMessagingReceiver {
         bytes32 salt;
     }
 
+    /// @notice A single action to execute within a batch.
+    /// @param actionType Type of the action.
+    /// @param data ABI-encoded DepositAction, WithdrawalAction, or GenericAction.
+    /// @param fare Cross-chain bridge fee (ignored by `quote`).
+    /// @param messageGas Cross-chain destination message execution gas limit.
+    struct Action {
+        ActionType actionType;
+        bytes data;
+        uint256 fare;
+        uint64 messageGas;
+    }
+
     /// @notice A DepositAction was initiated and custody taken of underlying assets.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param from Address of the depositor.
@@ -248,40 +260,18 @@ interface ITurnstile is IMessagingReceiver {
     function unpause() external;
 
     /// @notice Execute a batch of actions.
-    /// @dev `msg.value` must exactly equal the sum of `fares`.
+    /// @dev `msg.value` must exactly equal the sum of action `fare`s.
     /// Same-chain actions must have a fare of 0.
-    /// @param actionTypes List of action types.
-    /// @param actionData List of action data.
-    /// @param fares List of cross-chain bridge fees.
-    /// @param messageGas List of cross-chain destination message execution gas limits.
+    /// @param actions List of actions.
     /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
-    function dispatch(
-        ActionType[] calldata actionTypes,
-        bytes[] calldata actionData,
-        uint256[] calldata fares,
-        uint64[] calldata messageGas
-    )
-        external
-        payable
-        returns (bytes32[] memory messageHashes);
+    function dispatch(Action[] calldata actions) external payable returns (bytes32[] memory messageHashes);
 
     /// @notice Execute a batch of actions on behalf of users using ECDSA signature authorization.
-    /// @dev `msg.value` must exactly equal the sum of `fares`.
+    /// @dev `msg.value` must exactly equal the sum of action `fare`s.
     /// Same-chain actions must have a fare of 0.
-    /// @param actionTypes List of action types.
-    /// @param actionData List of action data.
+    /// @param actions List of actions.
     /// @param signatures List of signatures for action sender authentication.
-    /// @param fares List of cross-chain bridge fees.
-    /// @param messageGas List of cross-chain destination message execution gas limits.
-    function facilitate(
-        ActionType[] calldata actionTypes,
-        bytes[] calldata actionData,
-        bytes[] calldata signatures,
-        uint256[] calldata fares,
-        uint64[] calldata messageGas
-    )
-        external
-        payable;
+    function facilitate(Action[] calldata actions, bytes[] calldata signatures) external payable;
 
     /// @notice Generate EIP-712 hash for Deposit action.
     /// @param action DepositAction to hash.
@@ -306,18 +296,9 @@ interface ITurnstile is IMessagingReceiver {
     function digestMessage(uint64 chainId, ActionType actionType, bytes memory body) external pure returns (bytes32);
 
     /// @notice Quote cross-chain bridge fees for a batch of actions.
-    /// @param actionTypes List of action types.
-    /// @param actionData List of action data.
-    /// @param messageGas List of cross-chain destination message execution gas limits.
+    /// @param actions List of actions (`fare` is ignored).
     /// @return fares List of cross-chain bridge fees.
-    function quote(
-        ActionType[] calldata actionTypes,
-        bytes[] calldata actionData,
-        uint64[] calldata messageGas
-    )
-        external
-        view
-        returns (uint256[] memory fares);
+    function quote(Action[] calldata actions) external view returns (uint256[] memory fares);
 
     /// @notice Retry a previously failed message.
     /// @param sourceChainId Message's source EVM chainId.
