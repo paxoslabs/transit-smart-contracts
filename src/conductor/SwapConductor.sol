@@ -60,4 +60,23 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
         emit OrderCancellationRequested(accountId, orderHash, effectiveAtEpoch);
     }
 
+    function _recordFill(
+        bytes32 orderHash,
+        bytes32 ownerAccountId,
+        uint256 sellAmount,
+        uint256 sellFilled,
+        uint256 buyFilled,
+        uint256 settlementEpoch
+    )
+        internal
+    {
+        uint256 filled = filledAmount[orderHash] + sellFilled;
+        if (filled > sellAmount) revert Overfill(orderHash);
+        filledAmount[orderHash] = filled;
+        uint256 cancelled = cancelledFrom[ownerAccountId][orderHash];
+        if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
+
+        emit Filled(orderHash, ownerAccountId, sellFilled, buyFilled);
+    }
+
 }

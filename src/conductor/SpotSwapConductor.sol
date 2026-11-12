@@ -135,11 +135,14 @@ contract SpotSwapConductor is SwapConductor {
         uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
-            uint256 filled = filledAmount[orderHashes[i]] + fills[i].sellFilled;
-            if (filled > order.sellAmount) revert Overfill(orderHashes[i]);
-            filledAmount[orderHashes[i]] = filled;
-            uint256 cancelled = cancelledFrom[ownerAccountIds[i]][orderHashes[i]];
-            if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHashes[i]);
+            _recordFill(
+                orderHashes[i],
+                ownerAccountIds[i],
+                order.sellAmount,
+                fills[i].sellFilled,
+                fills[i].buyFilled,
+                settlementEpoch
+            );
 
             if (
                 fills[i].buyFilled
@@ -154,8 +157,6 @@ contract SpotSwapConductor is SwapConductor {
                 order.buyTokenId,
                 fills[i].buyFilled
             );
-
-            emit Filled(orderHashes[i], ownerAccountIds[i], fills[i].sellFilled, fills[i].buyFilled);
         }
     }
 
