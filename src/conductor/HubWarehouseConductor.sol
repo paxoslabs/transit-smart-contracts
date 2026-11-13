@@ -38,7 +38,8 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         bytes32 assetId = TransitTokenLib.formatAssetId(sourceChainId, asset);
         IDepot(DEPOT).mint(fromAccountId, assetId, amount);
         if (fromAccountId == toAccountId) return;
-        try IDepot(DEPOT).priorityTransferFrom(fromAccountId, toAccountId, assetId, amount) { } catch {
+        try IDepot(DEPOT).priorityTransferFrom(fromAccountId, toAccountId, assetId, amount) { }
+            catch {
             // If transfer fails, sender's account is frozen; do nothing.
         }
     }
