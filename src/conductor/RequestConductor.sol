@@ -54,8 +54,6 @@ abstract contract RequestConductor is TurnstileGated {
         if (status != 0) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
-    /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other
-    /// reservations and revert InsufficientBalance.
     function _fillAmount(
         bytes32 accountId,
         bytes32 assetId,
@@ -66,7 +64,7 @@ abstract contract RequestConductor is TurnstileGated {
         view
         returns (uint256 amount)
     {
-        amount = FixedPointMathLib.min(requested, IDepot(DEPOT).balanceOf(accountId, assetId));
+        amount = FixedPointMathLib.min(requested, IDepot(DEPOT).freeBalanceOf(accountId, assetId));
         if (!partiallyFillable && amount < requested) revert InsufficientBalance();
     }
 

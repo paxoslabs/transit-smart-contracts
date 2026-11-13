@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "./IDepot.sol";
 import { TransitPolice } from "../TransitPolice.sol";
 
@@ -139,6 +140,10 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _requireNotPaused();
         _release(accountId, assetId, amount);
         emit Release(accountId, assetId, amount);
+    }
+
+    function freeBalanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256) {
+        return FixedPointMathLib.zeroFloorSub(balanceOf[accountId][assetId], _reserved(accountId, assetId));
     }
 
     // ========================================= INTERNAL =========================================
