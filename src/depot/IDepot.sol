@@ -59,6 +59,8 @@ interface IDepot {
 
     function transferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
 
+    function priorityTransferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+
     function transferAmong(TransferDelta[] calldata deltas) external;
 
     function mint(bytes32 toAccountId, bytes32 assetId, uint256 amount) external;

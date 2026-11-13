@@ -55,6 +55,21 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
+    function priorityTransferFrom(
+        bytes32 fromAccountId,
+        bytes32 toAccountId,
+        bytes32 assetId,
+        uint256 amount
+    )
+        external
+        restricted
+    {
+        _requireNotPaused();
+        if (fromAccountId == bytes32(0) || toAccountId == bytes32(0)) revert ZeroAddress();
+        _requireNotFrozen(fromAccountId);
+        _transfer(fromAccountId, toAccountId, assetId, amount);
+    }
+
     function transferAmong(TransferDelta[] calldata deltas) external restricted {
         _requireNotPaused();
         bytes32[] memory assetIds = new bytes32[](deltas.length);

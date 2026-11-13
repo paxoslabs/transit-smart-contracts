@@ -38,9 +38,9 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         bytes32 assetId = TransitTokenLib.formatAssetId(sourceChainId, asset);
         IDepot(DEPOT).mint(fromAccountId, assetId, amount);
         if (fromAccountId == toAccountId) return;
-        /// TODO: Decide reservation handling. transferFrom enforces depositor reservations, so an over-reserved
-        /// depositor's transfer also fails and funds stay with the depositor.
-        try IDepot(DEPOT).transferFrom(fromAccountId, toAccountId, assetId, amount) { } catch { }
+        try IDepot(DEPOT).priorityTransferFrom(fromAccountId, toAccountId, assetId, amount) { } catch {
+            // If transfer fails, sender's account is frozen; do nothing.
+        }
     }
 
     function executeWithdrawal(ITurnstile.WithdrawalAction calldata action)

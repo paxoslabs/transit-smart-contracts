@@ -106,13 +106,14 @@ contract DepotUnitTest is Test {
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
         authority.grantRole(Roles.TURNSTILE, address(turnstile));
-        bytes4[] memory userConductorSels = new bytes4[](6);
+        bytes4[] memory userConductorSels = new bytes4[](7);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.transferAmong.selector;
         userConductorSels[5] = Depot.mint.selector;
+        userConductorSels[6] = Depot.priorityTransferFrom.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
         authority.grantRole(Roles.CONDUCTOR, address(userConductor));
         authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));

@@ -103,12 +103,13 @@ abstract contract WarehouseConductorUnitBase is Test {
         authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
         authority.grantRole(Roles.TURNSTILE, address(turnstile));
-        bytes4[] memory userConductorSels = new bytes4[](5);
+        bytes4[] memory userConductorSels = new bytes4[](6);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
+        userConductorSels[5] = Depot.priorityTransferFrom.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
         authority.grantRole(Roles.CONDUCTOR, address(userConductor));
         authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
