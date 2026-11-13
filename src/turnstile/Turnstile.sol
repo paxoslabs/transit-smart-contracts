@@ -6,6 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { ITurnstile } from "./ITurnstile.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../SpokeWarehouse.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
@@ -14,27 +15,12 @@ import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
-    bytes32 public constant DEPOSIT_ACTION_TYPEHASH = keccak256(
-        "DepositAction(address asset,uint256 amount,uint64 toChainId,address to,uint256 deadline,bytes32 salt,Permit permit)Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)"
-    );
-    /// @inheritdoc ITurnstile
-    bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(uint256 deadline,uint8 v,bytes32 r,bytes32 s)");
-    /// @inheritdoc ITurnstile
-    bytes32 public constant WITHDRAWAL_ACTION_TYPEHASH = keccak256(
-        "WithdrawalAction(uint64 ownerChainId,address owner,address to,bytes32 assetId,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 salt)"
-    );
-    /// @inheritdoc ITurnstile
-    bytes32 public constant GENERIC_ACTION_TYPEHASH =
-        keccak256("GenericAction(address target,bytes data,uint256 deadline,bytes32 salt)");
-
-    /// @inheritdoc ITurnstile
     address public immutable SPOKE_WAREHOUSE;
 
     /// @inheritdoc ITurnstile
     address public messagingAdapter;
     /// @inheritdoc ITurnstile
     address public hubWarehouseConductor;
-    uint256 internal outboundNonce;
 
     /// @inheritdoc ITurnstile
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
@@ -105,7 +91,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    DEPOSIT_ACTION_TYPEHASH,
+                    Typehashes.DEPOSIT_ACTION,
                     action.asset,
                     action.amount,
                     action.toChainId,
@@ -114,7 +100,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.salt,
                     keccak256(
                         abi.encode(
-                            PERMIT_TYPEHASH, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
+                            Typehashes.PERMIT, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
                         )
                     )
                 )
@@ -127,7 +113,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    WITHDRAWAL_ACTION_TYPEHASH,
+                    Typehashes.WITHDRAWAL_ACTION,
                     action.ownerChainId,
                     action.owner,
                     action.to,
@@ -145,7 +131,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     function hashGenericAction(GenericAction memory action) public view returns (bytes32) {
         return _hashTypedData(
             keccak256(
-                abi.encode(GENERIC_ACTION_TYPEHASH, action.target, keccak256(action.data), action.deadline, action.salt)
+                abi.encode(
+                    Typehashes.GENERIC_ACTION, action.target, keccak256(action.data), action.deadline, action.salt
+                )
             )
         );
     }
@@ -184,7 +172,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     ActionType.Withdrawal,
                     abi.encode(
                         WithdrawalMessage({
-                            asset: asset, amount: action.amount, to: action.to, salt: bytes32(outboundNonce + 1)
+                            asset: asset, amount: action.amount, to: action.to, salt: hashWithdrawalAction(action)
                         })
                     )
                 );
@@ -262,7 +250,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        messageHash = _sendMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare);
+        /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
+        /// in Turnstile.
+        if (body.length != 0) {
+            messageHash = _sendMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare);
+        }
     }
 
     function _dispatchDeposit(
@@ -327,10 +319,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
             amount = abi.decode(result, (uint256));
         }
+        if (amount == 0) return (0, "");
         address asset;
         (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
         body = abi.encode(
-            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: bytes32(++outboundNonce) })
+            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action) })
         );
     }
 

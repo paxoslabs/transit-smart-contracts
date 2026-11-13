@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -53,10 +54,6 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 fee;
     }
 
-    bytes32 public constant DELAYED_SETTLEMENT_ORDER_TYPEHASH = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,uint256 settlementPeriod,bytes32 salt)"
-    );
-
     uint256 public constant FILL_RATIO = 100;
     uint256 public constant MAX_SETTLEMENT_PERIOD = 1 days;
 
@@ -66,6 +63,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     mapping(uint256 escrowId => Leg[2]) public escrowLegs;
     mapping(uint256 escrowId => uint256) public escrowDeadline;
 
+    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, DelayedSettlementOrder order);
     event Escrowed(uint256 indexed escrowId, bytes32 indexed firstOrderHash, bytes32 indexed secondOrderHash);
     event Repaid(uint256 indexed escrowId, uint256 side);
     event Released(uint256 indexed escrowId);
@@ -100,7 +98,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
-        emit PreApproved(accountId, orderHash);
+        emit PreApproved(accountId, orderHash, order);
     }
 
     /// @notice repay a leg of an escrow. Must repay in full. If both sides have fully repaid upon this call _release()
@@ -397,7 +395,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    DELAYED_SETTLEMENT_ORDER_TYPEHASH,
+                    Typehashes.DELAYED_SETTLEMENT_ORDER,
                     order.ownerChainId,
                     order.owner,
                     order.sellTokenId,

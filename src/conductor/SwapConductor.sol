@@ -18,7 +18,6 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
     event OrderCancellationRequested(
         bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
     );
-    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash);
     event Filled(bytes32 indexed orderHash, bytes32 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
 
     error LimitPrice(bytes32 orderHash);

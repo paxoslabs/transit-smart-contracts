@@ -3,6 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "./IDepot.sol";
 import { TransitPolice } from "../TransitPolice.sol";
 
@@ -51,6 +52,21 @@ contract Depot is IDepot, AccessManaged, Pausable {
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
             revert InsufficientBalance();
         }
+        _transfer(fromAccountId, toAccountId, assetId, amount);
+    }
+
+    function priorityTransferFrom(
+        bytes32 fromAccountId,
+        bytes32 toAccountId,
+        bytes32 assetId,
+        uint256 amount
+    )
+        external
+        restricted
+    {
+        _requireNotPaused();
+        if (fromAccountId == bytes32(0) || toAccountId == bytes32(0)) revert ZeroAddress();
+        _requireNotFrozen(fromAccountId);
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
@@ -139,6 +155,10 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _requireNotPaused();
         _release(accountId, assetId, amount);
         emit Release(accountId, assetId, amount);
+    }
+
+    function freeBalanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256) {
+        return FixedPointMathLib.zeroFloorSub(balanceOf[accountId][assetId], _reserved(accountId, assetId));
     }
 
     // ========================================= INTERNAL =========================================

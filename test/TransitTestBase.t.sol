@@ -5,6 +5,7 @@ import { dispatchOne } from "./helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { RequestConductor } from "../src/conductor/RequestConductor.sol";
 import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
@@ -18,15 +19,7 @@ import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
 import { Turnstile } from "../src/turnstile/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
-import {
-    ADMIN_ROLE,
-    PAUSER_ROLE,
-    MESSAGING_ADAPTER_ROLE,
-    SOLVER_ROLE,
-    CONDUCTOR_ROLE,
-    EPOCH_ROLE,
-    TURNSTILE_ROLE
-} from "../src/helpers/Constants.sol";
+import { Roles } from "../src/helpers/Roles.sol";
 
 contract TransitTestBase is Test {
 
@@ -120,9 +113,8 @@ contract TransitTestBase is Test {
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
         if (chain == hubChainId) {
             userConductor = new UserConductor(address(depot), address(chainTurnstile));
-            hubWarehouseConductor = new HubWarehouseConductor(
-                address(authority), address(depot), address(userConductor), address(chainTurnstile)
-            );
+            hubWarehouseConductor =
+                new HubWarehouseConductor(address(authority), address(depot), address(chainTurnstile));
         }
 
         authorities[chain] = authority;
@@ -174,14 +166,14 @@ contract TransitTestBase is Test {
         peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
-        authority.setTargetFunctionRole(address(adapters[chain]), peerSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, Roles.PAUSER);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
+        authority.setTargetFunctionRole(address(adapters[chain]), peerSels, Roles.ADMIN);
 
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(adapters[chain]));
-        authority.grantRole(PAUSER_ROLE, admin);
-        authority.grantRole(SOLVER_ROLE, solver);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]));
+        authority.grantRole(Roles.PAUSER, admin);
+        authority.grantRole(Roles.SOLVER, solver);
 
         _wireTurnstile(chain);
 
@@ -190,12 +182,12 @@ contract TransitTestBase is Test {
 
             bytes4[] memory facilitateSels = new bytes4[](1);
             facilitateSels[0] = Turnstile.facilitate.selector;
-            authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
+            authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
 
             bytes4[] memory depotPauseSels = new bytes4[](2);
             depotPauseSels[0] = Depot.pause.selector;
             depotPauseSels[1] = Depot.unpause.selector;
-            authority.setTargetFunctionRole(address(depot), depotPauseSels, PAUSER_ROLE);
+            authority.setTargetFunctionRole(address(depot), depotPauseSels, Roles.PAUSER);
         }
         vm.stopPrank();
     }
@@ -206,38 +198,42 @@ contract TransitTestBase is Test {
 
         bytes4[] memory receiveSels = new bytes4[](1);
         receiveSels[0] = Turnstile.receiveMessage.selector;
-        authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
+        authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, Roles.MESSAGING_ADAPTER);
 
         bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
-        authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, Roles.ADMIN);
 
-        authority.grantRole(TURNSTILE_ROLE, address(chainTurnstile));
+        authority.grantRole(Roles.TURNSTILE, address(chainTurnstile));
         chainTurnstile.setMessagingAdapter(address(adapters[chain]));
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        bytes4[] memory userConductorSels = new bytes4[](5);
+        bytes4[] memory userConductorSels = new bytes4[](6);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
-        authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
+        userConductorSels[5] = Depot.priorityTransferFrom.selector;
+        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
 
-        bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.reserveAndRequest.selector;
+        bytes4[] memory routedSels = new bytes4[](1);
+        routedSels[0] = UserConductor.requestTransfer.selector;
         turnstile.setRoutable(address(userConductor), routedSels, true);
+
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
     }
 
     function _grantSpotSwapConductorRole() internal {
@@ -249,14 +245,14 @@ contract TransitTestBase is Test {
         epochSels[0] = Depot.advanceEpoch.selector;
 
         vm.startPrank(admin);
-        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, CONDUCTOR_ROLE);
-        authorities[hubChainId].grantRole(CONDUCTOR_ROLE, address(spotSwapConductor));
-        authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
-        authorities[hubChainId].grantRole(EPOCH_ROLE, address(spotSwapConductor));
+        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, Roles.CONDUCTOR);
+        authorities[hubChainId].grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
+        authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
+        authorities[hubChainId].grantRole(Roles.EPOCH, address(spotSwapConductor));
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = SpotSwapConductor.settle.selector;
-        authorities[hubChainId].setTargetFunctionRole(address(spotSwapConductor), settleSels, SOLVER_ROLE);
+        authorities[hubChainId].setTargetFunctionRole(address(spotSwapConductor), settleSels, Roles.SOLVER);
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = SpotSwapConductor.preApprove.selector;

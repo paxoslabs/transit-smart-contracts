@@ -4,6 +4,7 @@ pragma solidity ^0.8.37;
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
+import { Typehashes } from "../helpers/Typehashes.sol";
 import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
@@ -33,9 +34,7 @@ contract SpotSwapConductor is SwapConductor {
         uint256 amount;
     }
 
-    bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint64 ownerChainId,address owner,bytes32 sellTokenId,bytes32 buyTokenId,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bytes32 salt)"
-    );
+    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
 
     constructor(
         address _authority,
@@ -52,13 +51,12 @@ contract SpotSwapConductor is SwapConductor {
 
     // ========================================= USER =========================================
 
-    /// TODO: Decide whether PreApproved should carry the full Order again.
     function preApprove(Order calldata order) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
-        emit PreApproved(accountId, orderHash);
+        emit PreApproved(accountId, orderHash, order);
     }
 
     // ========================================= SOLVER =========================================
@@ -76,8 +74,7 @@ contract SpotSwapConductor is SwapConductor {
         IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](orders.length * 2 + fees.length);
         if (orders.length != 0) {
             if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
-            (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures, fills);
-            _fillOrders(orders, fills, ownerAccountIds, orderHashes, deltas);
+            _fillOrders(orders, signatures, fills, deltas);
         }
 
         for (uint256 i; i < fees.length; i++) {
@@ -91,23 +88,20 @@ contract SpotSwapConductor is SwapConductor {
         IDepot(DEPOT).advanceEpoch(epoch);
     }
 
-    function _checkOrders(
+    function _fillOrders(
         Order[] calldata orders,
         bytes[] calldata signatures,
-        Fill[] calldata fills
+        Fill[] calldata fills,
+        IDepot.TransferDelta[] memory deltas
     )
         internal
-        view
-        returns (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes)
     {
-        ownerAccountIds = new bytes32[](orders.length);
-        orderHashes = new bytes32[](orders.length);
         uint256 lastEpochAdvancedAt = IDepot(DEPOT).lastEpochAdvancedAt();
+        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
-            orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
+            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fills[i].sellFilled != order.sellAmount) {
@@ -120,37 +114,18 @@ contract SpotSwapConductor is SwapConductor {
             } else if (ECDSA.recoverCalldata(orderHash, signatures[i]) != order.owner) {
                 revert BadSignature();
             }
-        }
-    }
 
-    function _fillOrders(
-        Order[] calldata orders,
-        Fill[] calldata fills,
-        bytes32[] memory ownerAccountIds,
-        bytes32[] memory orderHashes,
-        IDepot.TransferDelta[] memory deltas
-    )
-        internal
-    {
-        uint256 settlementEpoch = IDepot(DEPOT).settlementEpoch();
-        for (uint256 i; i < orders.length; i++) {
-            Order calldata order = orders[i];
             _recordFill(
-                orderHashes[i],
-                ownerAccountIds[i],
-                order.sellAmount,
-                fills[i].sellFilled,
-                fills[i].buyFilled,
-                settlementEpoch
+                orderHash, ownerAccountId, order.sellAmount, fills[i].sellFilled, fills[i].buyFilled, settlementEpoch
             );
 
             if (
                 fills[i].buyFilled
                     < FixedPointMathLib.fullMulDivUp(fills[i].sellFilled, order.buyAmount, order.sellAmount)
             ) {
-                revert LimitPrice(orderHashes[i]);
+                revert LimitPrice(orderHash);
             }
-            deltas[i] = IDepot.TransferDelta(ownerAccountIds[i], bytes32(0), order.sellTokenId, fills[i].sellFilled);
+            deltas[i] = IDepot.TransferDelta(ownerAccountId, bytes32(0), order.sellTokenId, fills[i].sellFilled);
             deltas[orders.length + i] = IDepot.TransferDelta(
                 bytes32(0),
                 TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
@@ -166,7 +141,7 @@ contract SpotSwapConductor is SwapConductor {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    ORDER_TYPEHASH,
+                    Typehashes.ORDER,
                     order.ownerChainId,
                     order.owner,
                     order.sellTokenId,

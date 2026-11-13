@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
@@ -17,14 +18,7 @@ import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import {
-    ADMIN_ROLE,
-    MESSAGING_ADAPTER_ROLE,
-    SOLVER_ROLE,
-    TURNSTILE_ROLE,
-    CONDUCTOR_ROLE,
-    EPOCH_ROLE
-} from "../../src/helpers/Constants.sol";
+import { Roles } from "../../src/helpers/Roles.sol";
 import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
 
 contract DepotUnitTest is Test {
@@ -60,8 +54,7 @@ contract DepotUnitTest is Test {
         depot = new Depot(address(authority));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
-        hubWarehouseConductor =
-            new HubWarehouseConductor(address(authority), address(depot), address(userConductor), address(turnstile));
+        hubWarehouseConductor = new HubWarehouseConductor(address(authority), address(depot), address(turnstile));
         spotSwapConductor =
             new SpotSwapConductor(address(authority), address(depot), _account(backend), address(turnstile));
         usdc = ERC20(address(new MockERC20("USD Coin", "USDC", 6)));
@@ -92,46 +85,49 @@ contract DepotUnitTest is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory routedSels = new bytes4[](3);
-        routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.reserveAndRequest.selector;
-        routedSels[2] = UserConductor.executeTransfer.selector;
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = UserConductor.requestTransfer.selector;
+        routedSels[1] = UserConductor.executeTransfer.selector;
 
         bytes4[] memory swapRoutedSels = new bytes4[](2);
         swapRoutedSels[0] = SpotSwapConductor.preApprove.selector;
         swapRoutedSels[1] = SwapConductor.requestOrderCancellation.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), receiveSels, MESSAGING_ADAPTER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, TURNSTILE_ROLE);
-        authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, SOLVER_ROLE);
-        authority.setTargetFunctionRole(address(turnstile), facilitateSels, SOLVER_ROLE);
-        authority.setTargetFunctionRole(address(depot), epochSels, EPOCH_ROLE);
-        authority.grantRole(EPOCH_ROLE, address(spotSwapConductor));
-        authority.grantRole(MESSAGING_ADAPTER_ROLE, address(local));
-        authority.grantRole(SOLVER_ROLE, backend);
+        authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
+        authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, Roles.SOLVER);
+        authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
+        authority.setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
+        authority.grantRole(Roles.EPOCH, address(spotSwapConductor));
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
+        authority.grantRole(Roles.SOLVER, backend);
         warehouse.setAssetWhitelisted(_list(address(usdc)), true);
-        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, ADMIN_ROLE);
-        authority.grantRole(TURNSTILE_ROLE, address(turnstile));
-        bytes4[] memory userConductorSels = new bytes4[](6);
+        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
+        authority.grantRole(Roles.TURNSTILE, address(turnstile));
+        bytes4[] memory userConductorSels = new bytes4[](7);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.transferAmong.selector;
         userConductorSels[5] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userConductorSels, CONDUCTOR_ROLE);
-        authority.grantRole(CONDUCTOR_ROLE, address(userConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(hubWarehouseConductor));
+        userConductorSels[6] = Depot.priorityTransferFrom.selector;
+        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, TURNSTILE_ROLE);
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
-        authority.grantRole(CONDUCTOR_ROLE, address(spotSwapConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
 
@@ -284,17 +280,12 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
-        bytes32 requestId = userConductor.hashTransferRequest(request);
+        bytes32 requestId = userConductor.digestTransferRequest(request);
         vm.prank(alice);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(
-                    address(userConductor),
-                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
-                )
-            ),
+            abi.encode(_generic(address(userConductor), abi.encodeCall(UserConductor.requestTransfer, (request)))),
             0
         );
 
@@ -307,7 +298,7 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
 
         vm.prank(bob);
-        vm.expectRevert(UserConductor.NotEffective.selector);
+        vm.expectRevert(RequestConductor.NotEffective.selector);
         userConductor.executeTransfer(request);
 
         _advanceEpoch();
@@ -324,7 +315,7 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
 
         vm.prank(bob);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         userConductor.executeTransfer(request);
     }
 
@@ -332,16 +323,13 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
-        bytes memory data = abi.encodeCall(
-            UserConductor.reserveAndRequest,
-            (userConductor.hashTransferRequest(request), request.assetId, request.amount)
-        );
+        bytes memory data = abi.encodeCall(UserConductor.requestTransfer, (request));
 
         vm.prank(alice);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
@@ -358,15 +346,14 @@ contract DepotUnitTest is Test {
             ITurnstile.ActionType.Generic,
             abi.encode(
                 _generic(
-                    address(userConductor),
-                    abi.encodeCall(UserConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                    address(hubWarehouseConductor), abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request))
                 )
             ),
             0
         );
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestStatus(_account(alice), requestId),
             depot.settlementEpoch() + 1,
             "request: status not pending next epoch"
         );
@@ -390,17 +377,18 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
-        bytes memory data = abi.encodeCall(
-            UserConductor.reserveAndRequest,
-            (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
+        bytes memory data = abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request));
+
+        vm.prank(alice);
+        dispatchOne(
+            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
         );
 
         vm.prank(alice);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
-
-        vm.prank(alice);
-        vm.expectRevert(UserConductor.RequestReplay.selector);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
+        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        dispatchOne(
+            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
+        );
     }
 
     // ---------------------------------------------------------------- orders

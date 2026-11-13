@@ -59,7 +59,9 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being withdrawn, denominated in native units.
     /// @param to Recipient of withdrawn asset.  Bare address rather than composite accountId because chainId is implied
     /// by the message's destination chain.
-    /// @param salt Internally generated salt used to disambiguate hashes of otherwise identical messages.
+    /// @param salt Hash of the originating WithdrawalAction, used to disambiguate hashes of otherwise identical
+    /// messages.  A user-set salt could allow a griefing attack because WithdrawalMessage does not include any
+    /// ownership information.
     struct WithdrawalMessage {
         address asset;
         uint256 amount;
@@ -200,22 +202,6 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An action's deadline has already passed.
     error Expired();
 
-    /// @notice Query the EIP-712 type hash for the Deposit action.
-    /// @return EIP-712 Deposit type hash.
-    function DEPOSIT_ACTION_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for the Permit struct nested within the Deposit action.
-    /// @return EIP-712 Permit type hash.
-    function PERMIT_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for the Withdrawal action.
-    /// @return EIP-712 Withdrawal type hash.
-    function WITHDRAWAL_ACTION_TYPEHASH() external view returns (bytes32);
-
-    /// @notice Query the EIP-712 type hash for a Generic action.
-    /// @return EIP-712 Generic type hash.
-    function GENERIC_ACTION_TYPEHASH() external view returns (bytes32);
-
     /// @notice Query the SpokeWarehouse contract address.
     /// @return SpokeWarehouse contract address.
     function SPOKE_WAREHOUSE() external view returns (address);
@@ -265,7 +251,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @dev `msg.value` must exactly equal the sum of action `fare`s.
     /// Same-chain actions must have a fare of 0.
     /// @param actions List of actions.
-    /// @return messageHashes List of hashes of dispatched messages.
+    /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
     function dispatch(Action[] calldata actions) external payable returns (bytes32[] memory messageHashes);
 
     /// @notice Execute a batch of actions on behalf of users using ECDSA signature authorization.

@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
-import { FREEZE_MANAGER_ROLE as _FREEZE_MANAGER_ROLE } from "./helpers/Constants.sol";
+import { Roles } from "./helpers/Roles.sol";
 import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
 
 contract TransitPolice is IFreezable, AccessManaged {
@@ -42,7 +42,7 @@ contract TransitPolice is IFreezable, AccessManaged {
     }
 
     function FREEZE_MANAGER_ROLE() external pure returns (bytes32) {
-        return _FREEZE_MANAGER_ROLE;
+        return Roles.FREEZE_MANAGER;
     }
 
     function _freeze(address account) internal {

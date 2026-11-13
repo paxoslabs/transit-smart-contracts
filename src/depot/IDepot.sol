@@ -43,6 +43,8 @@ interface IDepot {
         view
         returns (uint256 effective, uint256 pending, uint256 pendingEpoch);
 
+    function freeBalanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256);
+
     function settlementEpoch() external view returns (uint256);
 
     function lastEpochAdvancedAt() external view returns (uint256);
@@ -56,6 +58,8 @@ interface IDepot {
     function setTransitPolice(address _transitPolice) external;
 
     function transferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+
+    function priorityTransferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
 
     function transferAmong(TransferDelta[] calldata deltas) external;
 
