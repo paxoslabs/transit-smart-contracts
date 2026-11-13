@@ -388,18 +388,18 @@ contract TransitTestBase is Test {
         ITurnstile.WithdrawalAction memory request = _withdrawalActionFor(user, amount, asset, chain);
         bytes memory validSignature = _signWithdraw(request, userPk);
 
-        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
-        actionTypes[0] = ITurnstile.ActionType.Withdrawal;
-        bytes[] memory actionData = new bytes[](1);
-        actionData[0] = abi.encode(request);
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Withdrawal,
+            data: abi.encode(request),
+            fare: 0,
+            messageGas: _messageGas(hubChainId)
+        });
         bytes[] memory signatures = new bytes[](1);
         signatures[0] = validSignature;
-        uint256[] memory fares = new uint256[](1);
-        uint64[] memory messageGas = new uint64[](1);
-        messageGas[0] = _messageGas(hubChainId);
 
         vm.prank(solver);
-        turnstile.facilitate(actionTypes, actionData, signatures, fares, messageGas);
+        turnstile.facilitate(actions, signatures);
         withdrawId = hubWarehouseConductor.hashWithdrawalAction(request);
     }
 

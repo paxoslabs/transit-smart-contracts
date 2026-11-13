@@ -243,14 +243,12 @@ contract DepotUnitTest is Test {
     }
 
     function _facilitate(ITurnstile.GenericAction memory message, bytes memory signature) internal {
-        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
-        actionTypes[0] = ITurnstile.ActionType.Generic;
-        bytes[] memory actionData = new bytes[](1);
-        actionData[0] = abi.encode(message);
-        uint256[] memory fares = new uint256[](1);
-        uint64[] memory messageGas = new uint64[](1);
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Generic, data: abi.encode(message), fare: 0, messageGas: 0
+        });
         vm.prank(backend);
-        turnstile.facilitate(actionTypes, actionData, _toArray(signature), fares, messageGas);
+        turnstile.facilitate(actions, _toArray(signature));
     }
 
     function _toArray(bytes memory signature) internal pure returns (bytes[] memory signatures) {

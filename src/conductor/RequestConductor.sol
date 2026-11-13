@@ -19,7 +19,6 @@ abstract contract RequestConductor is TurnstileGated {
 
     error RequestReplay();
     error NotEffective();
-    error InsufficientBalance();
     error NotOwner();
 
     constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
@@ -65,7 +64,7 @@ abstract contract RequestConductor is TurnstileGated {
         returns (uint256 amount)
     {
         amount = FixedPointMathLib.min(requested, IDepot(DEPOT).freeBalanceOf(accountId, assetId));
-        if (!partiallyFillable && amount < requested) revert InsufficientBalance();
+        if (!partiallyFillable && amount < requested) amount = 0;
     }
 
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {

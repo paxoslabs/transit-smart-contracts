@@ -23,15 +23,13 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
     }
 
     function _withdraw(ITurnstile.WithdrawalAction memory req, bytes memory sig) internal {
-        ITurnstile.ActionType[] memory actionTypes = new ITurnstile.ActionType[](1);
-        actionTypes[0] = ITurnstile.ActionType.Withdrawal;
-        bytes[] memory actionData = new bytes[](1);
-        actionData[0] = abi.encode(req);
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Withdrawal, data: abi.encode(req), fare: 0, messageGas: 0
+        });
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
-        uint256[] memory values = new uint256[](1);
-        uint64[] memory messageGas = new uint64[](1);
-        turnstile.facilitate(actionTypes, actionData, sigs, values, messageGas);
+        turnstile.facilitate(actions, sigs);
     }
 
     function _sign(ITurnstile.WithdrawalAction memory req, uint256 pk) internal view returns (bytes memory) {
