@@ -21,7 +21,7 @@ I may ask you questions as well about decisions being made, in this case do not 
 
 In general limit yourself to the pseudocode and resist the urge to overdevelop or start on your own things. You may create interfaces if you need them from scratch. This is an iterative process and I will ask for what I need.
 
-Interfaces are a mechanical copy of source that already exists. Writing one takes zero liberty. If the source does not exist yet, do not invent an interface for it — that is inventing my design. Import the contract that does not exist yet and TODO the parts you can't know. Structs never go in an interface, they go in the source contract.
+Interfaces are a mechanical copy of source that already exists. Writing one takes zero liberty. If the source does not exist yet, do not invent an interface for it — that is inventing my design. Import the contract that does not exist yet and TODO the parts you can't know.
 
 The levels above describe the default working pattern. If I tell you we're working a different way for a stretch (writing tests before the source, say), my instruction wins over the level for as long as it holds. Under test-first specifically, not compiling is the correct state and level 1's "should compile" does not apply — do not bend the design to get a green build.
 
