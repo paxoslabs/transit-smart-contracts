@@ -35,10 +35,8 @@ contract UserConductor is RequestConductor {
         bytes32 requestId = digestTransferRequest(request);
         bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
 
-        /// TODO: Decide expired-request handling. Currently consumes it and releases the reservation without moving
-        /// funds.
         if (block.timestamp > request.deadline) {
-            emit TransferExecuted(requestId, 0);
+            emit RequestExpired(requestId);
             return;
         }
 

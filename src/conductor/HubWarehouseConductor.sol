@@ -51,10 +51,8 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         bytes32 requestId = hashWithdrawalAction(action);
         bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 
-        /// TODO: Decide expired-action handling. Currently consumes it and releases the reservation without moving
-        /// funds.
         if (block.timestamp > action.deadline) {
-            emit WithdrawalExecuted(requestId, 0);
+            emit RequestExpired(requestId);
             return 0;
         }
 

@@ -15,6 +15,7 @@ abstract contract RequestConductor is TurnstileGated {
     mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
 
     event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
+    event RequestExpired(bytes32 indexed requestId);
 
     error RequestReplay();
     error NotEffective();
