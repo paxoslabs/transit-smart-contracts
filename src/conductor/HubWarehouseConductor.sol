@@ -21,6 +21,10 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         RequestConductor(_depot, _turnstile)
     { }
 
+    function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
+        _request(action.ownerChainId, action.owner, hashWithdrawalAction(action), action.assetId, action.amount);
+    }
+
     function receiveDeposit(
         uint64 sourceChainId,
         address asset,

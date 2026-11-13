@@ -97,7 +97,7 @@ abstract contract WarehouseConductorUnitBase is Test {
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = RequestConductor.reserveAndRequest.selector;
+        routedSels[1] = UserConductor.requestTransfer.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
         authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
@@ -120,7 +120,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
-        hubWarehouseRoutedSels[0] = RequestConductor.reserveAndRequest.selector;
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();

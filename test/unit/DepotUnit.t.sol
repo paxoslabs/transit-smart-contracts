@@ -87,7 +87,7 @@ contract DepotUnitTest is Test {
 
         bytes4[] memory routedSels = new bytes4[](3);
         routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = RequestConductor.reserveAndRequest.selector;
+        routedSels[1] = UserConductor.requestTransfer.selector;
         routedSels[2] = UserConductor.executeTransfer.selector;
 
         bytes4[] memory swapRoutedSels = new bytes4[](2);
@@ -126,7 +126,7 @@ contract DepotUnitTest is Test {
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
-        hubWarehouseRoutedSels[0] = RequestConductor.reserveAndRequest.selector;
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
         turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
@@ -287,12 +287,7 @@ contract DepotUnitTest is Test {
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(
-                    address(userConductor),
-                    abi.encodeCall(RequestConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
-                )
-            ),
+            abi.encode(_generic(address(userConductor), abi.encodeCall(UserConductor.requestTransfer, (request)))),
             0
         );
 
@@ -330,10 +325,7 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
-        bytes memory data = abi.encodeCall(
-            RequestConductor.reserveAndRequest,
-            (userConductor.digestTransferRequest(request), request.assetId, request.amount)
-        );
+        bytes memory data = abi.encodeCall(UserConductor.requestTransfer, (request));
 
         vm.prank(alice);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
@@ -356,8 +348,7 @@ contract DepotUnitTest is Test {
             ITurnstile.ActionType.Generic,
             abi.encode(
                 _generic(
-                    address(hubWarehouseConductor),
-                    abi.encodeCall(RequestConductor.reserveAndRequest, (requestId, request.assetId, request.amount))
+                    address(hubWarehouseConductor), abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request))
                 )
             ),
             0
@@ -388,10 +379,7 @@ contract DepotUnitTest is Test {
         _deposit(alice, 100e6);
         ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
 
-        bytes memory data = abi.encodeCall(
-            RequestConductor.reserveAndRequest,
-            (hubWarehouseConductor.hashWithdrawalAction(request), request.assetId, request.amount)
-        );
+        bytes memory data = abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request));
 
         vm.prank(alice);
         dispatchOne(

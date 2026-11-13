@@ -19,13 +19,15 @@ abstract contract RequestConductor is TurnstileGated {
     error RequestReplay();
     error NotEffective();
     error InsufficientBalance();
+    error NotOwner();
 
     constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
         DEPOT = _depot;
     }
 
-    function reserveAndRequest(bytes32 requestId, bytes32 assetId, uint256 amount) external {
+    function _request(uint64 ownerChainId, address owner, bytes32 requestId, bytes32 assetId, uint256 amount) internal {
         bytes32 accountId = _senderAccountId();
+        if (accountId != TransitTokenLib.formatAccountId(ownerChainId, owner, false)) revert NotOwner();
         if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
         requestStatus[accountId][requestId] = effectiveAtEpoch;

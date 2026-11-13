@@ -30,6 +30,10 @@ contract UserConductor is RequestConductor {
         IDepot(DEPOT).reserve(_senderAccountId(), assetId, amount);
     }
 
+    function requestTransfer(TransferRequest calldata request) external {
+        _request(request.ownerChainId, request.owner, digestTransferRequest(request), request.assetId, request.amount);
+    }
+
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
