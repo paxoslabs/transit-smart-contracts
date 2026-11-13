@@ -85,10 +85,9 @@ contract DepotUnitTest is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory routedSels = new bytes4[](3);
-        routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.requestTransfer.selector;
-        routedSels[2] = UserConductor.executeTransfer.selector;
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = UserConductor.requestTransfer.selector;
+        routedSels[1] = UserConductor.executeTransfer.selector;
 
         bytes4[] memory swapRoutedSels = new bytes4[](2);
         swapRoutedSels[0] = SpotSwapConductor.preApprove.selector;

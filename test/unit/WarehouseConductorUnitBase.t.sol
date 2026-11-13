@@ -95,9 +95,8 @@ abstract contract WarehouseConductorUnitBase is Test {
         warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
         warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
-        bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.requestTransfer.selector;
+        bytes4[] memory routedSels = new bytes4[](1);
+        routedSels[0] = UserConductor.requestTransfer.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
         authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);

@@ -226,9 +226,8 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
 
-        bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = UserConductor.reserve.selector;
-        routedSels[1] = UserConductor.requestTransfer.selector;
+        bytes4[] memory routedSels = new bytes4[](1);
+        routedSels[0] = UserConductor.requestTransfer.selector;
         turnstile.setRoutable(address(userConductor), routedSels, true);
 
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);

@@ -26,10 +26,6 @@ contract UserConductor is RequestConductor {
 
     constructor(address _depot, address _turnstile) RequestConductor(_depot, _turnstile) { }
 
-    function reserve(bytes32 assetId, uint256 amount) external {
-        IDepot(DEPOT).reserve(_senderAccountId(), assetId, amount);
-    }
-
     function requestTransfer(TransferRequest calldata request) external {
         _request(request.ownerChainId, request.owner, digestTransferRequest(request), request.assetId, request.amount);
     }
