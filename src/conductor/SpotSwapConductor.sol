@@ -34,6 +34,8 @@ contract SpotSwapConductor is SwapConductor {
         uint256 amount;
     }
 
+    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
+
     constructor(
         address _authority,
         address _depot,
@@ -49,13 +51,12 @@ contract SpotSwapConductor is SwapConductor {
 
     // ========================================= USER =========================================
 
-    /// TODO: Decide whether PreApproved should carry the full Order again.
     function preApprove(Order calldata order) external {
         bytes32 accountId = _senderAccountId();
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
-        emit PreApproved(accountId, orderHash);
+        emit PreApproved(accountId, orderHash, order);
     }
 
     // ========================================= SOLVER =========================================

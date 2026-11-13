@@ -63,6 +63,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     mapping(uint256 escrowId => Leg[2]) public escrowLegs;
     mapping(uint256 escrowId => uint256) public escrowDeadline;
 
+    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, DelayedSettlementOrder order);
     event Escrowed(uint256 indexed escrowId, bytes32 indexed firstOrderHash, bytes32 indexed secondOrderHash);
     event Repaid(uint256 indexed escrowId, uint256 side);
     event Released(uint256 indexed escrowId);
@@ -97,7 +98,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
-        emit PreApproved(accountId, orderHash);
+        emit PreApproved(accountId, orderHash, order);
     }
 
     /// @notice repay a leg of an escrow. Must repay in full. If both sides have fully repaid upon this call _release()
