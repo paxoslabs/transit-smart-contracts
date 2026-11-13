@@ -125,13 +125,17 @@ contract SpotSwapConductor is SwapConductor {
             ) {
                 revert LimitPrice(orderHash);
             }
-            deltas[i] = IDepot.TransferDelta(ownerAccountId, bytes32(0), order.sellTokenId, fills[i].sellFilled);
-            deltas[orders.length + i] = IDepot.TransferDelta(
+
+            // Encode the credits earlier in the list than the debits. This allows users to spend assets that they
+            // received within the same batch.
+            deltas[i] = IDepot.TransferDelta(
                 bytes32(0),
                 TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
                 order.buyTokenId,
                 fills[i].buyFilled
             );
+            deltas[orders.length + i] =
+                IDepot.TransferDelta(ownerAccountId, bytes32(0), order.sellTokenId, fills[i].sellFilled);
         }
     }
 
