@@ -50,7 +50,7 @@ abstract contract RequestConductor is TurnstileGated {
         uint256 status = requestStatus[accountId][requestId];
         if (status == EXECUTED) revert RequestReplay();
         requestStatus[accountId][requestId] = EXECUTED;
-        if (status != 0 || !_facilitated()) IDepot(DEPOT).release(accountId, assetId, amount);
+        if (status != 0) IDepot(DEPOT).release(accountId, assetId, amount);
     }
 
     /// TODO: Decide partial-fill cap. Uses raw balanceOf as before, but transferFrom/burn now also enforce other
@@ -71,8 +71,8 @@ abstract contract RequestConductor is TurnstileGated {
 
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
         bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
-        if (_senderAccountId() == ownerAccountId) return;
         uint256 status = requestStatus[ownerAccountId][requestId];
+        if (status == 0 && _facilitated() && _senderAccountId() == ownerAccountId) return;
         if (status == EXECUTED) return;
         if (status == 0 || IDepot(DEPOT).settlementEpoch() < status) revert NotEffective();
     }
