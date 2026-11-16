@@ -17,24 +17,19 @@ import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
  */
 contract Depot is IDepot, AccessManaged, Pausable {
 
-    /// @notice The main ledger of account (address/chainId) to a token (address/chainId) to a balance
+    /// @inheritdoc IDepot
     mapping(bytes28 accountId => mapping(bytes28 assetId => uint256)) public balanceOf;
 
-    /// @notice Balance locked for pending requests (e.g. withdrawals). Reservations take effect one epoch after being
-    /// made so fills settling in the current epoch are not invalidated mid-epoch. Reservations never expire; only
-    /// release frees them.
+    /// @inheritdoc IDepot
     mapping(bytes28 accountId => mapping(bytes28 assetId => Reservation)) public reservation;
 
-    /// @notice The current settlement round. A solver increments an epoch on settlement of a batch.
-    /// @dev Actions that could invalidate a batch in progress (reservations, requests, non-facilitated cancellations)
-    /// take effect at `settlementEpoch + 1`, after the current batch settles, so solvers build against stable state.
-    /// If no batch settles for 24h anyone may advance, so pending actions cannot stall. Starts at 1 so 0 can mean
-    /// "unset" in epoch-valued mappings (e.g. requestStatus, cancelledFrom).
+    /// @inheritdoc IDepot
     uint256 public settlementEpoch;
 
-    /// @notice the timestamp of when settlementEpoch was last incremented
+    /// @inheritdoc IDepot
     uint256 public lastEpochAdvancedAt;
 
+    /// @inheritdoc IDepot
     AddressFreezeList public addressFreezeList;
 
     constructor(address _authority, AddressFreezeList _addressFreezeList) AccessManaged(_authority) {
@@ -44,22 +39,24 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _setAddressFreezeList(_addressFreezeList);
     }
 
+    /// @inheritdoc IDepot
     function pause() external restricted {
         _pause();
     }
 
+    /// @inheritdoc IDepot
     function unpause() external restricted {
         _unpause();
     }
 
+    /// @inheritdoc IDepot
     function setAddressFreezeList(AddressFreezeList _addressFreezeList) external restricted {
         _setAddressFreezeList(_addressFreezeList);
     }
 
     // ========================================= LEDGER =========================================
 
-    /// @notice transfer an asset between 2 accounts. This does not use an approval system so is not available for
-    /// anyone but access gated modules to use. The function will not allow transferring of reserved funds
+    /// @inheritdoc IDepot
     function transferFrom(
         bytes28 fromAccountId,
         bytes28 toAccountId,
@@ -80,11 +77,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
-    /// @notice Applies a batch of transfers (e.g. a solver settlement) atomically. A delta with a zero `fromAccountId`
-    /// mints and one with a zero `toAccountId` burns, but per asset total mints must equal total burns, so the batch
-    /// conserves supply. Like transferFrom, debits respect pause, freeze and reservations.
-    /// @dev Balance checks run against live balances as each delta applies, so a credit must precede any debit that
-    /// relies on it.
+    /// @inheritdoc IDepot
     function transferAmong(TransferDelta[] calldata deltas) external restricted whenNotPaused {
         bytes28[] memory assetIds = new bytes28[](deltas.length);
         uint256[] memory debits = new uint256[](deltas.length);
@@ -141,16 +134,14 @@ contract Depot is IDepot, AccessManaged, Pausable {
         }
     }
 
-    /// @notice Credits a new balance, e.g. on deposit, backed by tokens locked in the asset's spoke warehouse.
-    /// @dev Frozen recipients may still receive; freeze only restricts outflows.
+    /// @inheritdoc IDepot
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
         if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
 
-    /// @notice Removes a balance, e.g. on withdrawal, before the asset's spoke warehouse releases the tokens.
-    /// Respects pause, freeze and reservations.
+    /// @inheritdoc IDepot
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(fromAccountId)) revert InvalidAccount();
         _requireNotFrozen(fromAccountId);
@@ -160,9 +151,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, bytes28(0), assetId, amount);
     }
 
-    /// @notice Admin override to move or seize funds, e.g. from a frozen account. Pass a zero `toAccountId` to burn.
-    /// @dev Bypasses all checks: pause, freeze, reservations and account validity. Reservations may then exceed the
-    /// balance (see freeBalanceOf).
+    /// @inheritdoc IDepot
     function forceTransferFrom(
         bytes28 fromAccountId,
         bytes28 toAccountId,
@@ -175,9 +164,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
-    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch and by DepotTimelock on
-    /// execution. Restricted until 24h after the last advance, then callable by anyone so pending actions cannot stall.
-    /// @dev Settlers should guard against an advance racing their batch by checking the expected epoch before settling.
+    /// @inheritdoc IDepot
     function advanceEpoch() external {
         if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
         unchecked {
@@ -189,22 +176,20 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     // ========================================= USER =========================================
 
-    /// @notice Reserves `amount` of an account's balance, effective from the next settlement epoch.
+    /// @inheritdoc IDepot
     function reserve(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         _reserve(accountId, assetId, amount);
         emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
     }
 
-    /// @notice Releases `amount` of an account's effective (has been reserved for >= 1 epoch) reservation.
-    /// @dev Reverts on underflow if the amount is not yet effective. Callers only release after the request is
-    /// effective.
+    /// @inheritdoc IDepot
     function release(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         _release(accountId, assetId, amount);
         emit Release(accountId, assetId, amount);
     }
 
-    /// @notice Balance not locked by reservations, floored at 0 since forced transfers can bypass reservations.
+    /// @inheritdoc IDepot
     function freeBalanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256) {
         return FixedPointMathLib.zeroFloorSub(balanceOf[accountId][assetId], _reserved(accountId, assetId));
     }
