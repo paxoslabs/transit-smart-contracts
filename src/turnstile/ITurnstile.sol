@@ -159,6 +159,12 @@ interface ITurnstile is IMessagingReceiver {
     /// @param hubWarehouseConductor New HubWarehouseConductor address.
     event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
 
+    /// @notice Generic message whitelist entries have been updated.
+    /// @param target Call target.
+    /// @param selectors Call function selectors.
+    /// @param allowed Whether calldata is whitelisted.
+    event GenericMessageWhitelistUpdated(address indexed target, bytes4[] selectors, bool allowed);
+
     /// @notice Message execution failed.
     /// @param sourceChainId Message's source EVM chainId.
     /// @param actionType Message's ActionType.

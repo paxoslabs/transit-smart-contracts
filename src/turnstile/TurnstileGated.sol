@@ -18,6 +18,8 @@ abstract contract TurnstileGated {
         (accountId,) = _appended();
     }
 
+    /// @dev True only when called by the Turnstile for an action a trusted facilitator submitted with the user's
+    /// signature.
     function _facilitated() internal view returns (bool) {
         if (msg.sender != TURNSTILE) return false;
         (, bytes4 flags) = _appended();

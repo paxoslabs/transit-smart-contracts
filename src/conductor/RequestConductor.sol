@@ -70,6 +70,8 @@ abstract contract RequestConductor is TurnstileGated {
     function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
         bytes28 ownerAccountId = TransitAccountLib.formatAccountId(ownerChainId, owner);
         uint256 status = requestStatus[ownerAccountId][requestId];
+        // A facilitated owner with no prior request may execute immediately: the facilitator is trusted not to pull
+        // funds out from under an in-flight batch. Anyone else must wait for the request to become effective.
         if (status == 0 && _facilitated() && _senderAccountId() == ownerAccountId) return;
         if (status == EXECUTED) return;
         if (status == 0 || IDepot(DEPOT).settlementEpoch() < status) revert NotEffective();
