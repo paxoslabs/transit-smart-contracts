@@ -5,6 +5,14 @@ import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
 bytes4 constant FACILITATED_FLAG = 0x00000001;
 
+/**
+ * @title TurnstileGated
+ * @notice Base for contracts that users reach through the Turnstile, whether directly, via a facilitator, or
+ * cross-chain. Resolves the real sender as a bytes28 account (chainId + address), like ERC-2771's _msgSender.
+ * @dev When msg.sender is the Turnstile, the last 32 bytes of calldata are a suffix it appended: the 28-byte sender
+ * account followed by 4 bytes of flags (FACILITATED_FLAG). Otherwise the sender is msg.sender on this chain. The
+ * Turnstile builds all such calldata with _buildTurnstileCallData so the suffix is always present.
+ */
 abstract contract TurnstileGated {
 
     address public immutable TURNSTILE;
