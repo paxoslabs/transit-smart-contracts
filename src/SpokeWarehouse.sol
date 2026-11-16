@@ -2,8 +2,8 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/turnstile/ITurnstile.sol";
 
@@ -12,6 +12,10 @@ contract SpokeWarehouse is AccessManaged {
     address public immutable VAULT;
 
     mapping(address asset => bool) public assetWhitelisted;
+
+    event AssetWhitelistUpdated(address[] assets, bool allowed);
+    event Custodied(address indexed from, address indexed asset, uint256 amount);
+    event WithdrawalReleased(address indexed to, address indexed asset, uint256 amount);
 
     error VaultUnset();
     error ZeroAssets();
@@ -29,6 +33,7 @@ contract SpokeWarehouse is AccessManaged {
         for (uint256 i; i < assets.length; i++) {
             assetWhitelisted[assets[i]] = allowed;
         }
+        emit AssetWhitelistUpdated(assets, allowed);
     }
 
     // ========================================= TURNSTILE ========================================
@@ -55,10 +60,12 @@ contract SpokeWarehouse is AccessManaged {
         if (amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[asset]) revert AssetNotWhitelisted();
         SafeTransferLib.safeTransferFrom(asset, from, VAULT, amount);
+        emit Custodied(from, asset, amount);
     }
 
     function receiveWithdrawal(address asset, uint256 amount, address to) external restricted {
         SafeTransferLib.safeTransferFrom(asset, VAULT, to, amount);
+        emit WithdrawalReleased(to, asset, amount);
     }
 
 }
