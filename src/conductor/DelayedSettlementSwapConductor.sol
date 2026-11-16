@@ -170,6 +170,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         external
         restricted
     {
+        if (epoch != IDepot(DEPOT).settlementEpoch()) revert BadEpoch(epoch);
         // Signatures must be provided for each order
         if (orders.length != signatures.length) revert LengthMismatch();
         (bytes28[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures);
@@ -195,7 +196,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
         IDepot(DEPOT).transferAmong(deltas);
 
-        IDepot(DEPOT).advanceEpoch(epoch);
+        IDepot(DEPOT).advanceEpoch();
     }
 
     /// @dev Helper to check order expirations and signatures

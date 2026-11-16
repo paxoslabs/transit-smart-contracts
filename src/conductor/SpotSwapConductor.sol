@@ -71,6 +71,7 @@ contract SpotSwapConductor is SwapConductor {
         external
         restricted
     {
+        if (epoch != IDepot(DEPOT).settlementEpoch()) revert BadEpoch(epoch);
         IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](orders.length * 2 + fees.length);
         if (orders.length != 0) {
             if (orders.length != signatures.length || orders.length != fills.length) revert LengthMismatch();
@@ -85,7 +86,7 @@ contract SpotSwapConductor is SwapConductor {
 
         IDepot(DEPOT).transferAmong(deltas);
 
-        IDepot(DEPOT).advanceEpoch(epoch);
+        IDepot(DEPOT).advanceEpoch();
     }
 
     function _fillOrders(

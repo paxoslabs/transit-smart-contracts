@@ -32,9 +32,11 @@ interface IDepot {
 
     /// TODO: Consider renaming to InvalidAccount; now thrown when TransitAccountLib.isValid fails, not only on zero.
     error ZeroAddress();
-    error BadEpoch(uint256 epoch);
     error InsufficientBalance();
     error NotZeroSum();
+    error EmptyDelta();
+    error ZeroAmount();
+    error InvalidAsset();
     error AccountFrozen(bytes28 accountId);
     error NoCode();
 
@@ -72,9 +74,7 @@ interface IDepot {
 
     function forceTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    function forceBurn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external;
-
-    function advanceEpoch(uint256 epoch) external;
+    function advanceEpoch() external;
 
     function reserve(bytes28 accountId, bytes28 assetId, uint256 amount) external;
 

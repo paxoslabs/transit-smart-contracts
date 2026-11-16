@@ -165,7 +165,7 @@ contract DepotUnitTest is Test {
 
     function _advanceEpoch() internal {
         vm.warp(block.timestamp + 24 hours);
-        depot.advanceEpoch(depot.settlementEpoch());
+        depot.advanceEpoch();
     }
 
     function _transferRequest(

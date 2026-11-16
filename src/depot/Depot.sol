@@ -58,7 +58,8 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     // ========================================= LEDGER =========================================
 
-    /// @notice transfer an asset between 2 accounts. This does not use an approval system so is not available for anyone but access gated modules to use. The function will not allow transferring of reserved funds
+    /// @notice transfer an asset between 2 accounts. This does not use an approval system so is not available for
+    /// anyone but access gated modules to use. The function will not allow transferring of reserved funds
     function transferFrom(
         bytes28 fromAccountId,
         bytes28 toAccountId,
@@ -77,44 +78,77 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
+    /// @notice Applies a batch of transfers (e.g. a solver settlement) atomically. A delta with a zero `fromAccountId`
+    /// mints and one with a zero `toAccountId` burns, but per asset total mints must equal total burns, so the batch
+    /// conserves supply. Like transferFrom, debits respect pause, freeze and reservations.
+    /// @dev Balance checks run against live balances as each delta applies, so a credit must precede any debit that
+    /// relies on it.
     function transferAmong(TransferDelta[] calldata deltas) external restricted whenNotPaused {
         bytes28[] memory assetIds = new bytes28[](deltas.length);
         uint256[] memory debits = new uint256[](deltas.length);
         uint256[] memory credits = new uint256[](deltas.length);
-        uint256 count;
-        for (uint256 i; i < deltas.length; i++) {
-            TransferDelta calldata delta = deltas[i];
+        uint256 uniqueAssetCount;
+
+        // Loop through the provided deltas
+        for (uint256 deltaIndex; deltaIndex < deltas.length; deltaIndex++) {
+            TransferDelta calldata delta = deltas[deltaIndex];
+            if (delta.fromAccountId == bytes28(0) && delta.toAccountId == bytes28(0)) revert EmptyDelta();
+            if (delta.amount == 0) revert ZeroAmount();
+
             bytes28 assetId = delta.assetId;
-            uint256 j;
-            while (j < count && assetIds[j] != assetId) j++;
-            if (j == count) {
-                assetIds[j] = assetId;
-                count++;
+            if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
+            uint256 assetIndex;
+
+            /// TODO: Linear search is O(deltas * uniqueAssets). Could require solvers to order inputs so conductors
+            /// emit deltas grouped by ascending assetId, then net-check each group in one pass with no arrays.
+            // loop through assetIds and find the index of this deltas asset or insert it
+            while (assetIndex < uniqueAssetCount && assetIds[assetIndex] != assetId) assetIndex++;
+            if (assetIndex == uniqueAssetCount) {
+                assetIds[assetIndex] = assetId;
+                uniqueAssetCount++;
             }
+
+            // bytes28(0) represents an intent to mint so the following applies to all non-mints
             if (delta.fromAccountId != bytes28(0)) {
+                // Ensure the account is valid and from is not from a frozen address
                 if (!TransitAccountLib.isValid(delta.fromAccountId)) revert ZeroAddress();
                 _requireNotFrozen(delta.fromAccountId);
+                // Ensure enough balance exists at the account unreserved at this point
                 if (balanceOf[delta.fromAccountId][assetId] < _reserved(delta.fromAccountId, assetId) + delta.amount) {
                     revert InsufficientBalance();
                 }
-                debits[j] += delta.amount;
+                // increment debits at the index of this assetId
+                debits[assetIndex] += delta.amount;
             }
+
+            // bytes28(0) represents an intent to burn so the following applies to all non-burns
             if (delta.toAccountId != bytes28(0)) {
+                // Ensure the account is valid
                 if (!TransitAccountLib.isValid(delta.toAccountId)) revert ZeroAddress();
-                credits[j] += delta.amount;
+                credits[assetIndex] += delta.amount;
             }
+
             _transfer(delta.fromAccountId, delta.toAccountId, assetId, delta.amount);
         }
-        for (uint256 j; j < count; j++) {
-            if (debits[j] != credits[j]) revert NotZeroSum();
+
+        // Loop through the credits and debits to ensure they are equal. This protects against malicious solvers, tokens
+        // cannot be sent if they are not taken from somewhere. This check combined with enforcing users signed limits
+        // is what ensures that users are never allocated too little or too much on the ledger
+        for (uint256 assetIndex; assetIndex < uniqueAssetCount; assetIndex++) {
+            if (debits[assetIndex] != credits[assetIndex]) revert NotZeroSum();
         }
     }
 
+    /// @notice Credits a new balance, e.g. on deposit, backed by tokens locked in the asset's spoke warehouse.
+    /// @dev Frozen recipients may still receive; freeze only restricts outflows.
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
+        if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
 
+    /// @notice Removes a balance, e.g. on withdrawal, before the asset's spoke warehouse releases the tokens.
+    /// Respects pause, freeze and reservations.
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(fromAccountId)) revert ZeroAddress();
         _requireNotFrozen(fromAccountId);
@@ -124,6 +158,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, bytes28(0), assetId, amount);
     }
 
+    /// @notice Admin override to move or seize funds, e.g. from a frozen account. Pass a zero `toAccountId` to burn.
+    /// @dev Bypasses all checks: pause, freeze, reservations and account validity. Reservations may then exceed the
+    /// balance (see freeBalanceOf).
     function forceTransferFrom(
         bytes28 fromAccountId,
         bytes28 toAccountId,
@@ -133,21 +170,19 @@ contract Depot is IDepot, AccessManaged, Pausable {
         external
         restricted
     {
-        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
-    function forceBurn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted {
-        if (!TransitAccountLib.isValid(fromAccountId)) revert ZeroAddress();
-        _transfer(fromAccountId, bytes28(0), assetId, amount);
-    }
-
-    function advanceEpoch(uint256 epoch) external {
+    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch and by DepotTimelock on
+    /// execution. Restricted until 24h after the last advance, then callable by anyone so pending actions cannot stall.
+    /// @dev Settlers should guard against an advance racing their batch by checking the expected epoch before settling.
+    function advanceEpoch() external {
         if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
-        if (epoch != settlementEpoch) revert BadEpoch(epoch);
-        settlementEpoch = epoch + 1;
+        unchecked{
+            ++settlementEpoch;
+        }
         lastEpochAdvancedAt = block.timestamp;
-        emit EpochAdvanced(epoch + 1);
+        emit EpochAdvanced(settlementEpoch);
     }
 
     // ========================================= USER =========================================
@@ -178,14 +213,14 @@ contract Depot is IDepot, AccessManaged, Pausable {
         if (addressFreezeList.isFrozen(accountId)) revert AccountFrozen(accountId);
     }
 
-    /// @dev View equivalent of _rollReservation: counts pending as reserved once its epoch has arrived, without
-    /// writing.
     function _setAddressFreezeList(AddressFreezeList _addressFreezeList) internal {
         if (address(_addressFreezeList).code.length == 0) revert NoCode();
         addressFreezeList = _addressFreezeList;
         emit AddressFreezeListSet(_addressFreezeList);
     }
 
+    /// @dev View equivalent of _rollReservation: counts pending as reserved once its epoch has arrived, without
+    /// writing.
     function _reserved(bytes28 accountId, bytes28 assetId) internal view returns (uint256) {
         Reservation storage res = reservation[accountId][assetId];
         if (res.pendingEpoch <= settlementEpoch) return res.effective + res.pending;
@@ -215,6 +250,8 @@ contract Depot is IDepot, AccessManaged, Pausable {
         }
     }
 
+    /// @dev Moves a balance with no checks. A zero `fromAccountId` mints and a zero `toAccountId` burns, mirroring
+    /// ERC20 `_update`. Callers enforce all validation.
     function _transfer(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) internal {
         if (fromAccountId != bytes28(0)) balanceOf[fromAccountId][assetId] -= amount;
         if (toAccountId != bytes28(0)) balanceOf[toAccountId][assetId] += amount;

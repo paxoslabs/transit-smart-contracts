@@ -32,7 +32,7 @@ contract DepotTimelock is TimelockController {
         override
     {
         super.execute(target, value, payload, predecessor, salt);
-        IDepot(DEPOT).advanceEpoch(IDepot(DEPOT).settlementEpoch());
+        IDepot(DEPOT).advanceEpoch();
     }
 
     function executeBatch(
@@ -47,7 +47,7 @@ contract DepotTimelock is TimelockController {
         override
     {
         super.executeBatch(targets, values, payloads, predecessor, salt);
-        IDepot(DEPOT).advanceEpoch(IDepot(DEPOT).settlementEpoch());
+        IDepot(DEPOT).advanceEpoch();
     }
 
 }

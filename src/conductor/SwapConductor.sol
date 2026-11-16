@@ -29,6 +29,7 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
     error Overfill(bytes32 orderHash);
     error NotPartiallyFillable(bytes32 orderHash);
     error Cancelled(bytes32 orderHash);
+    error BadEpoch(uint256 epoch);
 
     constructor(
         address _authority,
