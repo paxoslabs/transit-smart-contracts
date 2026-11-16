@@ -2,12 +2,17 @@
 pragma solidity 0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
-import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { Roles } from "src/helpers/Roles.sol";
 
+/**
+ * @title TransitAuthority
+ * @notice Central authority for every AccessManaged Transit contract. Each (target, selector) is mapped to one role,
+ * and a caller may call that function if it holds the role. Roles are enumerable on-chain.
+ * @dev Glue between AccessManaged, which asks canCall(caller, target, selector), and OZ AccessControlEnumerable, which
+ * only answers hasRole. Unmapped functions are callable by no one. Used instead of OZ AccessManager to keep role
+ * enumeration.
+ */
 contract TransitAuthority is AccessControlEnumerable {
-
-    using Address for address;
 
     // Predicate's freeze manager on all EVM chains, granted Roles.FREEZE_MANAGER to enforce Asset Compliance
     // freezes on AddressFreezeList. See https://docs.predicate.io/v2/assets/get-started
@@ -16,7 +21,6 @@ contract TransitAuthority is AccessControlEnumerable {
     mapping(address target => mapping(bytes4 selector => bytes32 role)) public roleOf;
 
     event TargetFunctionRoleSet(address indexed target, bytes4 indexed selector, bytes32 indexed role);
-    event Executed(address indexed target, bytes data, bytes result);
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -42,19 +46,6 @@ contract TransitAuthority is AccessControlEnumerable {
             roleOf[target][selectors[i]] = role;
             emit TargetFunctionRoleSet(target, selectors[i], role);
         }
-    }
-
-    function execute(
-        address target,
-        bytes calldata data
-    )
-        external
-        payable
-        onlyRole(DEFAULT_ADMIN_ROLE)
-        returns (bytes memory result)
-    {
-        result = target.functionCallWithValue(data, msg.value);
-        emit Executed(target, data, result);
     }
 
 }
