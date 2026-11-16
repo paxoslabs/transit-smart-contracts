@@ -70,7 +70,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
         restricted
         whenNotPaused
     {
-        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
+        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) {
+            revert InvalidAccount();
+        }
         _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
             revert InsufficientBalance();
@@ -111,7 +113,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to mint so the following applies to all non-mints
             if (delta.fromAccountId != bytes28(0)) {
                 // Ensure the account is valid and from is not from a frozen address
-                if (!TransitAccountLib.isValid(delta.fromAccountId)) revert ZeroAddress();
+                if (!TransitAccountLib.isValid(delta.fromAccountId)) revert InvalidAccount();
                 _requireNotFrozen(delta.fromAccountId);
                 // Ensure enough balance exists at the account unreserved at this point
                 if (balanceOf[delta.fromAccountId][assetId] < _reserved(delta.fromAccountId, assetId) + delta.amount) {
@@ -124,7 +126,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to burn so the following applies to all non-burns
             if (delta.toAccountId != bytes28(0)) {
                 // Ensure the account is valid
-                if (!TransitAccountLib.isValid(delta.toAccountId)) revert ZeroAddress();
+                if (!TransitAccountLib.isValid(delta.toAccountId)) revert InvalidAccount();
                 credits[assetIndex] += delta.amount;
             }
 
@@ -142,7 +144,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     /// @notice Credits a new balance, e.g. on deposit, backed by tokens locked in the asset's spoke warehouse.
     /// @dev Frozen recipients may still receive; freeze only restricts outflows.
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
+        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
         if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
@@ -150,7 +152,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     /// @notice Removes a balance, e.g. on withdrawal, before the asset's spoke warehouse releases the tokens.
     /// Respects pause, freeze and reservations.
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(fromAccountId)) revert ZeroAddress();
+        if (!TransitAccountLib.isValid(fromAccountId)) revert InvalidAccount();
         _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
             revert InsufficientBalance();
@@ -178,7 +180,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     /// @dev Settlers should guard against an advance racing their batch by checking the expected epoch before settling.
     function advanceEpoch() external {
         if (block.timestamp < lastEpochAdvancedAt + 24 hours) _checkCanCall(_msgSender(), _msgData());
-        unchecked{
+        unchecked {
             ++settlementEpoch;
         }
         lastEpochAdvancedAt = block.timestamp;
