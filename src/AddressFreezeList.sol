@@ -6,7 +6,7 @@ import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
-contract TransitPolice is IFreezable, AccessManaged {
+contract AddressFreezeList is IFreezable, AccessManaged {
 
     mapping(address account => bool) internal _isFrozen;
 

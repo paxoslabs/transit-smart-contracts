@@ -50,13 +50,13 @@ interface IDepot {
 
     function lastEpochAdvancedAt() external view returns (uint256);
 
-    function transitPolice() external view returns (address);
+    function addressFreezeList() external view returns (address);
 
     function pause() external;
 
     function unpause() external;
 
-    function setTransitPolice(address _transitPolice) external;
+    function setAddressFreezeList(address _addressFreezeList) external;
 
     function transferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
