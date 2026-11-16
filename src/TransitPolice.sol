@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { Roles } from "./helpers/Roles.sol";
-import { TransitTokenLib } from "./helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "./helpers/TransitAccountLib.sol";
 
 contract TransitPolice is IFreezable, AccessManaged {
 
@@ -32,8 +32,8 @@ contract TransitPolice is IFreezable, AccessManaged {
         }
     }
 
-    function isFrozen(bytes32 accountId) external view returns (bool) {
-        (, address account) = TransitTokenLib.parseAccountId(accountId);
+    function isFrozen(bytes28 accountId) external view returns (bool) {
+        (, address account) = TransitAccountLib.parseAccountId(accountId);
         return _isFrozen[account];
     }
 

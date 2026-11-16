@@ -19,7 +19,7 @@ import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 
 contract DepotUnitTest is Test {
 
@@ -181,7 +181,7 @@ contract DepotUnitTest is Test {
             owner: owner,
             toChainId: HUB_CHAIN_ID,
             to: to,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
@@ -194,7 +194,7 @@ contract DepotUnitTest is Test {
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
@@ -206,8 +206,8 @@ contract DepotUnitTest is Test {
         return SpotSwapConductor.Order({
             ownerChainId: HUB_CHAIN_ID,
             owner: alice,
-            sellTokenId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
-            buyTokenId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            sellTokenId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)),
+            buyTokenId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)),
             sellAmount: sellAmount,
             buyAmount: sellAmount,
             receiverChainId: HUB_CHAIN_ID,
@@ -563,11 +563,11 @@ contract DepotUnitTest is Test {
     }
 
     function _depotBalance(address user) internal view returns (uint256) {
-        return depot.balanceOf(_account(user), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)));
+        return depot.balanceOf(_account(user), TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)));
     }
 
-    function _account(address user) internal pure returns (bytes32) {
-        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user, false);
+    function _account(address user) internal pure returns (bytes28) {
+        return TransitAccountLib.formatAccountId(HUB_CHAIN_ID, user);
     }
 
 }

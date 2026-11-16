@@ -13,9 +13,9 @@ contract AdminConductor is AccessManaged {
     }
 
     function forceTransferFrom(
-        bytes32 fromAccountId,
-        bytes32 toAccountId,
-        bytes32 assetId,
+        bytes28 fromAccountId,
+        bytes28 toAccountId,
+        bytes28 assetId,
         uint256 amount
     )
         external
@@ -24,7 +24,7 @@ contract AdminConductor is AccessManaged {
         IDepot(DEPOT).forceTransferFrom(fromAccountId, toAccountId, assetId, amount);
     }
 
-    function forceBurn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external restricted {
+    function forceBurn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted {
         IDepot(DEPOT).forceBurn(fromAccountId, assetId, amount);
     }
 

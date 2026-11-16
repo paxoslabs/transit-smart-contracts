@@ -10,7 +10,7 @@ import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
 contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
@@ -22,8 +22,8 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
-                TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc))
             ),
             100e6,
             "deposit: alice not credited depot balance"
@@ -60,8 +60,8 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
-                TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(other))
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(other))
             ),
             1e18,
             "deposit: arbitrary asset not credited on depot"
@@ -149,8 +149,8 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(SPOKE_CHAIN_ID, alice, false),
-                TransitTokenLib.formatAssetId(SPOKE_CHAIN_ID, address(usdg))
+                TransitAccountLib.formatAccountId(SPOKE_CHAIN_ID, alice),
+                TransitAccountLib.formatAccountId(SPOKE_CHAIN_ID, address(usdg))
             ),
             100e6,
             "spoke deposit: depot did not credit alice"

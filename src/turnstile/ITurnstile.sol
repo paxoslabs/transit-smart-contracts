@@ -33,8 +33,8 @@ interface ITurnstile is IMessagingReceiver {
     struct DepositMessage {
         address asset;
         uint256 amount;
-        bytes32 fromAccountId;
-        bytes32 toAccountId;
+        bytes28 fromAccountId;
+        bytes28 toAccountId;
         bytes32 salt;
     }
 
@@ -113,7 +113,7 @@ interface ITurnstile is IMessagingReceiver {
         uint64 ownerChainId;
         address owner;
         address to;
-        bytes32 assetId;
+        bytes28 assetId;
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
@@ -149,7 +149,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @param from Address of the depositor.
     /// @param toAccountId Account id of deposit recipient.
     /// @param amount Amount of asset deposited, denominated in native units.
-    event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
+    event Deposit(address indexed asset, address indexed from, bytes28 indexed toAccountId, uint256 amount);
 
     /// @notice The MessagingAdapter contract address has been updated.
     /// @param adapter New MessagingAdapter address.

@@ -4,7 +4,7 @@ pragma solidity ^0.8.37;
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
 contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
@@ -14,7 +14,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
@@ -43,8 +43,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
             asset: address(usdc),
             amount: 1e6,
-            fromAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
-            toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
+            fromAccountId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, mallory),
+            toAccountId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, mallory),
             salt: bytes32(uint256(1))
         });
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
@@ -72,8 +72,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
-                TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
+                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc))
             ),
             0,
             "withdraw: depot balance not burned"

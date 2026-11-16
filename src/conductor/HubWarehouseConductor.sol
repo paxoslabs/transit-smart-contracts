@@ -5,7 +5,7 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { IDepot } from "../depot/IDepot.sol";
 import { Typehashes } from "../helpers/Typehashes.sol";
 import { ITurnstile } from "../turnstile/ITurnstile.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
 import { RequestConductor } from "./RequestConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, RequestConductor {
@@ -29,13 +29,13 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         uint64 sourceChainId,
         address asset,
         uint256 amount,
-        bytes32 fromAccountId,
-        bytes32 toAccountId
+        bytes28 fromAccountId,
+        bytes28 toAccountId
     )
         external
         restricted
     {
-        bytes32 assetId = TransitTokenLib.formatAssetId(sourceChainId, asset);
+        bytes28 assetId = TransitAccountLib.formatAccountId(sourceChainId, asset);
         IDepot(DEPOT).mint(fromAccountId, assetId, amount);
         if (fromAccountId == toAccountId) return;
         try IDepot(DEPOT).priorityTransferFrom(fromAccountId, toAccountId, assetId, amount) { }
@@ -50,7 +50,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         returns (uint256 amount)
     {
         bytes32 requestId = hashWithdrawalAction(action);
-        bytes32 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
+        bytes28 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
 
         if (block.timestamp > action.deadline) {
             emit RequestExpired(requestId);

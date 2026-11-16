@@ -9,8 +9,9 @@ import { ITurnstile } from "./ITurnstile.sol";
 import { Typehashes } from "../helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../SpokeWarehouse.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
 import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
+import { FACILITATED_FLAG } from "./TurnstileGated.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
@@ -157,15 +158,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            fromAccountId: TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender, false),
-                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to, false),
+                            fromAccountId: TransitAccountLib.formatAccountId(uint64(block.chainid), msg.sender),
+                            toAccountId: TransitAccountLib.formatAccountId(action.toChainId, action.to),
                             salt: action.salt
                         })
                     )
                 );
             } else if (actions[i].actionType == ActionType.Withdrawal) {
                 WithdrawalAction memory action = abi.decode(actions[i].data, (WithdrawalAction));
-                (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
+                (uint64 assetChainId, address asset) = TransitAccountLib.parseAccountId(action.assetId);
                 fares[i] = _quote(
                     assetChainId,
                     actions[i].messageGas,
@@ -276,8 +277,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             }
         }
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
-        bytes32 fromAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), from, false);
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to, false);
+        bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
+        bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             DepositMessage({
@@ -300,17 +301,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint64 chainId, bytes memory body)
     {
         WithdrawalAction memory action = abi.decode(actionData, (WithdrawalAction));
-        bytes32 accountId;
+        bytes28 accountId;
         {
             address owner = facilitated ? ECDSA.recover(hashWithdrawalAction(action), signature) : msg.sender;
-            accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner, facilitated);
+            accountId = TransitAccountLib.formatAccountId(uint64(block.chainid), owner);
         }
         uint256 amount;
         {
             address handler = hubWarehouseConductor;
             if (handler == address(0)) revert NoHandler();
             (bool ok, bytes memory result) = handler.call(
-                abi.encodePacked(abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), accountId)
+                abi.encodePacked(
+                    abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)),
+                    accountId,
+                    facilitated ? FACILITATED_FLAG : bytes4(0)
+                )
             );
             if (!ok) {
                 assembly {
@@ -321,7 +326,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
         if (amount == 0) return (0, "");
         address asset;
-        (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
+        (chainId, asset) = TransitAccountLib.parseAccountId(action.assetId);
         body = abi.encode(
             WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action) })
         );
@@ -427,7 +432,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 target = message.target;
                 // Append accountId to calldata so that it may be used as meta-transaction sender.
                 data = abi.encodePacked(
-                    message.data, TransitTokenLib.formatAccountId(chainId, message.sender, message.facilitated)
+                    message.data,
+                    TransitAccountLib.formatAccountId(chainId, message.sender),
+                    message.facilitated ? FACILITATED_FLAG : bytes4(0)
                 );
             }
         }

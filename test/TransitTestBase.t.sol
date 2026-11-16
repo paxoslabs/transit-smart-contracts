@@ -13,7 +13,7 @@ import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.so
 import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
-import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../src/helpers/TransitAccountLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
 import { Turnstile } from "../src/turnstile/Turnstile.sol";
@@ -91,7 +91,7 @@ contract TransitTestBase is Test {
         spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
-            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient, false),
+            TransitAccountLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
         _grantSpotSwapConductorRole();
@@ -337,8 +337,8 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitTokenLib.formatAccountId(hubChainId, user, false),
-            TransitTokenLib.formatAssetId(assetChain, address(asset))
+            TransitAccountLib.formatAccountId(hubChainId, user),
+            TransitAccountLib.formatAccountId(assetChain, address(asset))
         );
     }
 
@@ -416,7 +416,7 @@ contract TransitTestBase is Test {
             ownerChainId: hubChainId,
             owner: user,
             to: user,
-            assetId: TransitTokenLib.formatAssetId(chain, address(asset)),
+            assetId: TransitAccountLib.formatAccountId(chain, address(asset)),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,

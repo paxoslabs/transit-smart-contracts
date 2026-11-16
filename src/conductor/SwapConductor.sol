@@ -9,16 +9,16 @@ import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
 abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
 
     address public immutable DEPOT;
-    bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
+    bytes28 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
     mapping(bytes32 orderHash => uint256) public filledAmount;
-    mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
+    mapping(bytes28 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
     mapping(bytes32 orderHash => bool) public preApproved;
 
     event OrderCancellationRequested(
-        bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
+        bytes28 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
     );
-    event Filled(bytes32 indexed orderHash, bytes32 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
+    event Filled(bytes32 indexed orderHash, bytes28 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
 
     error LimitPrice(bytes32 orderHash);
     error BadSignature();
@@ -33,7 +33,7 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
     constructor(
         address _authority,
         address _depot,
-        bytes32 _surplusRecipientAccountId,
+        bytes28 _surplusRecipientAccountId,
         address _turnstile
     )
         AccessManaged(_authority)
@@ -50,7 +50,7 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
     // ========================================= USER =========================================
 
     function requestOrderCancellation(bytes32 orderHash) external {
-        bytes32 accountId = _senderAccountId();
+        bytes28 accountId = _senderAccountId();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();
         if (!_facilitated()) effectiveAtEpoch++;
         uint256 cancelled = cancelledFrom[accountId][orderHash];
@@ -61,7 +61,7 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
 
     function _recordFill(
         bytes32 orderHash,
-        bytes32 ownerAccountId,
+        bytes28 ownerAccountId,
         uint256 sellAmount,
         uint256 sellFilled,
         uint256 buyFilled,

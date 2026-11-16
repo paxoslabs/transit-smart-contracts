@@ -3,7 +3,7 @@ pragma solidity ^0.8.37;
 
 import { IDepot } from "../depot/IDepot.sol";
 import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
 import { RequestConductor } from "./RequestConductor.sol";
 
 contract UserConductor is RequestConductor {
@@ -13,7 +13,7 @@ contract UserConductor is RequestConductor {
         address owner;
         uint64 toChainId;
         address to;
-        bytes32 assetId;
+        bytes28 assetId;
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
@@ -33,7 +33,7 @@ contract UserConductor is RequestConductor {
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
-        bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
+        bytes28 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
             emit RequestExpired(requestId);
@@ -43,10 +43,7 @@ contract UserConductor is RequestConductor {
         uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
             .transferFrom(
-                accountId,
-                TransitTokenLib.formatAccountId(request.toChainId, request.to, false),
-                request.assetId,
-                amount
+                accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
             );
 
         emit TransferExecuted(requestId, amount);

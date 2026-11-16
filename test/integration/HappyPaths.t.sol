@@ -5,7 +5,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 
 contract HappyPaths is TransitTestBase {
 
@@ -47,8 +47,8 @@ contract HappyPaths is TransitTestBase {
         orders[0] = SpotSwapConductor.Order(
             hubChainId,
             alice,
-            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
-            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
+            TransitAccountLib.formatAccountId(hubChainId, address(usdc)),
+            TransitAccountLib.formatAccountId(hubChainId, address(usdg)),
             amount,
             amount,
             hubChainId,
@@ -60,8 +60,8 @@ contract HappyPaths is TransitTestBase {
         orders[1] = SpotSwapConductor.Order(
             hubChainId,
             bob,
-            TransitTokenLib.formatAssetId(hubChainId, address(usdg)),
-            TransitTokenLib.formatAssetId(hubChainId, address(usdc)),
+            TransitAccountLib.formatAccountId(hubChainId, address(usdg)),
+            TransitAccountLib.formatAccountId(hubChainId, address(usdc)),
             amount,
             amount,
             hubChainId,

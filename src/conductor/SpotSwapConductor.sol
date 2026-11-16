@@ -5,7 +5,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "../depot/IDepot.sol";
 import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
+import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
 import { SwapConductor } from "./SwapConductor.sol";
 
 contract SpotSwapConductor is SwapConductor {
@@ -13,8 +13,8 @@ contract SpotSwapConductor is SwapConductor {
     struct Order {
         uint64 ownerChainId;
         address owner;
-        bytes32 sellTokenId;
-        bytes32 buyTokenId;
+        bytes28 sellTokenId;
+        bytes28 buyTokenId;
         uint256 sellAmount;
         uint256 buyAmount;
         uint64 receiverChainId;
@@ -30,16 +30,16 @@ contract SpotSwapConductor is SwapConductor {
     }
 
     struct Fee {
-        bytes32 assetId;
+        bytes28 assetId;
         uint256 amount;
     }
 
-    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
+    event PreApproved(bytes28 indexed ownerAccountId, bytes32 indexed orderHash, Order order);
 
     constructor(
         address _authority,
         address _depot,
-        bytes32 _surplusRecipientAccountId,
+        bytes28 _surplusRecipientAccountId,
         address _turnstile
     )
         SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
@@ -52,8 +52,8 @@ contract SpotSwapConductor is SwapConductor {
     // ========================================= USER =========================================
 
     function preApprove(Order calldata order) external {
-        bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
+        bytes28 accountId = _senderAccountId();
+        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
@@ -80,7 +80,7 @@ contract SpotSwapConductor is SwapConductor {
         for (uint256 i; i < fees.length; i++) {
             Fee calldata fee = fees[i];
             deltas[orders.length * 2 + i] =
-                IDepot.TransferDelta(bytes32(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
+                IDepot.TransferDelta(bytes28(0), SURPLUS_RECIPIENT_ACCOUNT_ID, fee.assetId, fee.amount);
         }
 
         IDepot(DEPOT).transferAmong(deltas);
@@ -101,7 +101,7 @@ contract SpotSwapConductor is SwapConductor {
         for (uint256 i; i < orders.length; i++) {
             Order calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
-            bytes32 ownerAccountId = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
+            bytes28 ownerAccountId = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fills[i].sellFilled != order.sellAmount) {
@@ -125,10 +125,10 @@ contract SpotSwapConductor is SwapConductor {
             ) {
                 revert LimitPrice(orderHash);
             }
-            deltas[i] = IDepot.TransferDelta(ownerAccountId, bytes32(0), order.sellTokenId, fills[i].sellFilled);
+            deltas[i] = IDepot.TransferDelta(ownerAccountId, bytes28(0), order.sellTokenId, fills[i].sellFilled);
             deltas[orders.length + i] = IDepot.TransferDelta(
-                bytes32(0),
-                TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
+                bytes28(0),
+                TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
                 order.buyTokenId,
                 fills[i].buyFilled
             );

@@ -10,40 +10,41 @@ interface IDepot {
     }
 
     struct TransferDelta {
-        bytes32 fromAccountId;
-        bytes32 toAccountId;
-        bytes32 assetId;
+        bytes28 fromAccountId;
+        bytes28 toAccountId;
+        bytes28 assetId;
         uint256 amount;
     }
 
     event Transfer(
         address operator,
-        bytes32 indexed fromAccountId,
-        bytes32 indexed toAccountId,
-        bytes32 indexed assetId,
+        bytes28 indexed fromAccountId,
+        bytes28 indexed toAccountId,
+        bytes28 indexed assetId,
         uint256 amount
     );
     event EpochAdvanced(uint256 epoch);
-    event Reserved(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
-    event Release(bytes32 indexed accountId, bytes32 indexed assetId, uint256 amount);
+    event Reserved(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
+    event Release(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount);
 
+    /// TODO: Consider renaming to InvalidAccount; now thrown when TransitAccountLib.isValid fails, not only on zero.
     error ZeroAddress();
     error BadEpoch(uint256 epoch);
     error InsufficientBalance();
     error NotZeroSum();
-    error AccountFrozen(bytes32 accountId);
+    error AccountFrozen(bytes28 accountId);
 
-    function balanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256);
+    function balanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256);
 
     function reservation(
-        bytes32 accountId,
-        bytes32 assetId
+        bytes28 accountId,
+        bytes28 assetId
     )
         external
         view
         returns (uint256 effective, uint256 pending, uint256 pendingEpoch);
 
-    function freeBalanceOf(bytes32 accountId, bytes32 assetId) external view returns (uint256);
+    function freeBalanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256);
 
     function settlementEpoch() external view returns (uint256);
 
@@ -57,24 +58,24 @@ interface IDepot {
 
     function setTransitPolice(address _transitPolice) external;
 
-    function transferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+    function transferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    function priorityTransferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+    function priorityTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
     function transferAmong(TransferDelta[] calldata deltas) external;
 
-    function mint(bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+    function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    function burn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external;
+    function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external;
 
-    function forceTransferFrom(bytes32 fromAccountId, bytes32 toAccountId, bytes32 assetId, uint256 amount) external;
+    function forceTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    function forceBurn(bytes32 fromAccountId, bytes32 assetId, uint256 amount) external;
+    function forceBurn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external;
 
     function advanceEpoch(uint256 epoch) external;
 
-    function reserve(bytes32 accountId, bytes32 assetId, uint256 amount) external;
+    function reserve(bytes28 accountId, bytes28 assetId, uint256 amount) external;
 
-    function release(bytes32 accountId, bytes32 assetId, uint256 amount) external;
+    function release(bytes28 accountId, bytes28 assetId, uint256 amount) external;
 
 }
