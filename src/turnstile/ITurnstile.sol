@@ -87,7 +87,7 @@ interface ITurnstile is IMessagingReceiver {
         Permit permit;
     }
 
-    /// @notice ERC-2612 or Uniswap Permit2 fields.
+    /// @notice ERC-2612 permit fields.
     /// @param deadline Permit deadline.
     /// @param v Permit `v` value.
     /// @param r Permit `r` value.

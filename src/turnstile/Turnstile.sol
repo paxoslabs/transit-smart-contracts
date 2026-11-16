@@ -203,11 +203,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         delete messageStatus[messageHash];
-        emit MessageRetried(sourceChainId, actionType, messageHash);
 
         // _handleMessage will attempt to _execute locally if destChainId == block.chainid which this ensures, so this
         // will never send another crosschain message
         _handleMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0);
+        emit MessageRetried(sourceChainId, actionType, messageHash);
     }
 
     // ========================================= ADAPTER ========================================
@@ -279,11 +279,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
         if (block.timestamp > action.deadline) revert Expired();
         if (action.permit.deadline != 0) {
-            try SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit) { }
-                catch {
-                // Ignored: a front-run permit fails here but still grants the allowance. No allowance check,
-                // since custody may pull via token allowance or Permit2; it reverts if neither covers amount.
-            }
+            SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit);
         }
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
