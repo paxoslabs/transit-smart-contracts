@@ -36,12 +36,11 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         restricted
     {
         bytes28 assetId = TransitAccountLib.formatAccountId(sourceChainId, asset);
-        IDepot(DEPOT).mint(fromAccountId, assetId, amount);
-        if (fromAccountId == toAccountId) return;
-        try IDepot(DEPOT).priorityTransferFrom(fromAccountId, toAccountId, assetId, amount) { }
-            catch {
-            // If transfer fails, sender's account is frozen; do nothing.
+        bytes28 mintTo = toAccountId;
+        if (!TransitAccountLib.isValid(toAccountId) || IDepot(DEPOT).addressFreezeList().isFrozen(fromAccountId)) {
+            mintTo = fromAccountId;
         }
+        IDepot(DEPOT).mint(mintTo, assetId, amount);
     }
 
     function executeWithdrawal(ITurnstile.WithdrawalAction calldata action)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+import { AddressFreezeList } from "src/AddressFreezeList.sol";
+
 interface IDepot {
 
     struct Reservation {
@@ -24,6 +26,7 @@ interface IDepot {
         uint256 amount
     );
     event EpochAdvanced(uint256 epoch);
+    event AddressFreezeListSet(AddressFreezeList addressFreezeList);
     event Reserved(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
     event Release(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount);
 
@@ -33,6 +36,7 @@ interface IDepot {
     error InsufficientBalance();
     error NotZeroSum();
     error AccountFrozen(bytes28 accountId);
+    error NoCode();
 
     function balanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256);
 
@@ -50,17 +54,15 @@ interface IDepot {
 
     function lastEpochAdvancedAt() external view returns (uint256);
 
-    function addressFreezeList() external view returns (address);
+    function addressFreezeList() external view returns (AddressFreezeList);
 
     function pause() external;
 
     function unpause() external;
 
-    function setAddressFreezeList(address _addressFreezeList) external;
+    function setAddressFreezeList(AddressFreezeList _addressFreezeList) external;
 
     function transferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
-
-    function priorityTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
     function transferAmong(TransferDelta[] calldata deltas) external;
 

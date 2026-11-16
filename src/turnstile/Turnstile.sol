@@ -220,9 +220,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bool facilitated
     )
         internal
+        whenNotPaused
         returns (bytes32[] memory messageHashes)
     {
-        _requireNotPaused();
         if (facilitated && actions.length != signatures.length) revert LengthMismatch();
         messageHashes = new bytes32[](actions.length);
         uint256 totalFare;
@@ -401,9 +401,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @param chainId Message's source chainId.
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
-    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body) internal {
-        _requireNotPaused();
-
+    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body) internal whenNotPaused {
         bytes32 messageHash = digestMessage(chainId, actionType, body);
 
         address target;

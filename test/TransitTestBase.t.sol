@@ -12,6 +12,7 @@ import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
 import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
+import { AddressFreezeList } from "../src/AddressFreezeList.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
 import { TransitAccountLib } from "../src/helpers/TransitAccountLib.sol";
 import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
@@ -107,7 +108,7 @@ contract TransitTestBase is Test {
         SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
         Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
         if (chain == hubChainId) {
-            depot = new Depot(address(authority));
+            depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
             turnstile = chainTurnstile;
         }
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
@@ -211,13 +212,12 @@ contract TransitTestBase is Test {
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        bytes4[] memory userConductorSels = new bytes4[](6);
+        bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
-        userConductorSels[5] = Depot.priorityTransferFrom.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
         authority.grantRole(Roles.CONDUCTOR, address(userConductor));
         authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));

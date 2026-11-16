@@ -5,23 +5,43 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/depot/IDepot.sol";
-import { TransitPolice } from "src/TransitPolice.sol";
+import { AddressFreezeList } from "src/AddressFreezeList.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
+/**
+ * @title Depot
+ * @notice The main ledger for the Transit Terminal system. The Depot exists only on a Hub chain and uses a bytes28
+ * "account" data type to store data for different address/chainId combinations.
+ * @dev This is a bytes28 to save some bytes for extra metadata if ever necessary. 8 bytes should be plenty for a
+ * chainId.
+ */
 contract Depot is IDepot, AccessManaged, Pausable {
 
+    /// @notice The main ledger of account (address/chainId) to a token (address/chainId) to a balance
     mapping(bytes28 accountId => mapping(bytes28 assetId => uint256)) public balanceOf;
 
+    /// @notice Balance locked for pending requests (e.g. withdrawals). Reservations take effect one epoch after being
+    /// made so fills settling in the current epoch are not invalidated mid-epoch. Reservations never expire; only
+    /// release frees them.
     mapping(bytes28 accountId => mapping(bytes28 assetId => Reservation)) public reservation;
 
+    /// @notice The current settlement round. A solver increments an epoch on settlement of a batch.
+    /// @dev Actions that could invalidate a batch in progress (reservations, requests, non-facilitated cancellations)
+    /// take effect at `settlementEpoch + 1`, after the current batch settles, so solvers build against stable state.
+    /// If no batch settles for 24h anyone may advance, so pending actions cannot stall. Starts at 1 so 0 can mean
+    /// "unset" in epoch-valued mappings (e.g. requestStatus, cancelledFrom).
     uint256 public settlementEpoch;
+
+    /// @notice the timestamp of when settlementEpoch was last incremented
     uint256 public lastEpochAdvancedAt;
 
-    address public transitPolice;
+    AddressFreezeList public addressFreezeList;
 
-    constructor(address _authority) AccessManaged(_authority) {
+    constructor(address _authority, AddressFreezeList _addressFreezeList) AccessManaged(_authority) {
         settlementEpoch = 1;
         lastEpochAdvancedAt = block.timestamp;
+        emit EpochAdvanced(1);
+        _setAddressFreezeList(_addressFreezeList);
     }
 
     function pause() external restricted {
@@ -32,12 +52,13 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _unpause();
     }
 
-    function setTransitPolice(address _transitPolice) external restricted {
-        transitPolice = _transitPolice;
+    function setAddressFreezeList(AddressFreezeList _addressFreezeList) external restricted {
+        _setAddressFreezeList(_addressFreezeList);
     }
 
     // ========================================= LEDGER =========================================
 
+    /// @notice transfer an asset between 2 accounts. This does not use an approval system so is not available for anyone but access gated modules to use. The function will not allow transferring of reserved funds
     function transferFrom(
         bytes28 fromAccountId,
         bytes28 toAccountId,
@@ -46,8 +67,8 @@ contract Depot is IDepot, AccessManaged, Pausable {
     )
         external
         restricted
+        whenNotPaused
     {
-        _requireNotPaused();
         if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
         _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
@@ -56,23 +77,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
-    function priorityTransferFrom(
-        bytes28 fromAccountId,
-        bytes28 toAccountId,
-        bytes28 assetId,
-        uint256 amount
-    )
-        external
-        restricted
-    {
-        _requireNotPaused();
-        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
-        _requireNotFrozen(fromAccountId);
-        _transfer(fromAccountId, toAccountId, assetId, amount);
-    }
-
-    function transferAmong(TransferDelta[] calldata deltas) external restricted {
-        _requireNotPaused();
+    function transferAmong(TransferDelta[] calldata deltas) external restricted whenNotPaused {
         bytes28[] memory assetIds = new bytes28[](deltas.length);
         uint256[] memory debits = new uint256[](deltas.length);
         uint256[] memory credits = new uint256[](deltas.length);
@@ -105,14 +110,12 @@ contract Depot is IDepot, AccessManaged, Pausable {
         }
     }
 
-    function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted {
-        _requireNotPaused();
+    function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(toAccountId)) revert ZeroAddress();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
 
-    function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted {
-        _requireNotPaused();
+    function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(fromAccountId)) revert ZeroAddress();
         _requireNotFrozen(fromAccountId);
         if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
@@ -149,19 +152,22 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     // ========================================= USER =========================================
 
-    function reserve(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted {
-        _requireNotPaused();
+    /// @notice Reserves `amount` of an account's balance, effective from the next settlement epoch.
+    function reserve(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         uint256 effectiveAtEpoch = settlementEpoch + 1;
         _reserve(accountId, assetId, amount);
         emit Reserved(accountId, assetId, amount, effectiveAtEpoch);
     }
 
-    function release(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted {
-        _requireNotPaused();
+    /// @notice Releases `amount` of an account's effective (has been reserved for >= 1 epoch) reservation.
+    /// @dev Reverts on underflow if the amount is not yet effective. Callers only release after the request is
+    /// effective.
+    function release(bytes28 accountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         _release(accountId, assetId, amount);
         emit Release(accountId, assetId, amount);
     }
 
+    /// @notice Balance not locked by reservations, floored at 0 since forced transfers can bypass reservations.
     function freeBalanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256) {
         return FixedPointMathLib.zeroFloorSub(balanceOf[accountId][assetId], _reserved(accountId, assetId));
     }
@@ -169,9 +175,15 @@ contract Depot is IDepot, AccessManaged, Pausable {
     // ========================================= INTERNAL =========================================
 
     function _requireNotFrozen(bytes28 accountId) internal view {
-        // Check is skipped if transitPolice is unset.
-        if (transitPolice == address(0)) return;
-        if (TransitPolice(transitPolice).isFrozen(accountId)) revert AccountFrozen(accountId);
+        if (addressFreezeList.isFrozen(accountId)) revert AccountFrozen(accountId);
+    }
+
+    /// @dev View equivalent of _rollReservation: counts pending as reserved once its epoch has arrived, without
+    /// writing.
+    function _setAddressFreezeList(AddressFreezeList _addressFreezeList) internal {
+        if (address(_addressFreezeList).code.length == 0) revert NoCode();
+        addressFreezeList = _addressFreezeList;
+        emit AddressFreezeListSet(_addressFreezeList);
     }
 
     function _reserved(bytes28 accountId, bytes28 assetId) internal view returns (uint256) {
@@ -180,16 +192,21 @@ contract Depot is IDepot, AccessManaged, Pausable {
         return res.effective;
     }
 
+    /// @dev Rolls first, so any amount still pending shares the same pendingEpoch (always settlementEpoch + 1) and one
+    /// pending bucket suffices.
     function _reserve(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
         Reservation storage res = _rollReservation(accountId, assetId);
         res.pending += amount;
         res.pendingEpoch = settlementEpoch + 1;
     }
 
+    /// @dev Only effective amounts can be released; releasing a still-pending amount underflows and reverts.
     function _release(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
         _rollReservation(accountId, assetId).effective -= amount;
     }
 
+    /// @dev Promotes pending into effective once its epoch has arrived. advanceEpoch cannot iterate every
+    /// account, so each reservation catches up before its next write.
     function _rollReservation(bytes28 accountId, bytes28 assetId) internal returns (Reservation storage res) {
         res = reservation[accountId][assetId];
         if (res.pendingEpoch <= settlementEpoch) {
