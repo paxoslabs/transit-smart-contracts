@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/depot/Depot.sol";

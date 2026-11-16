@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
