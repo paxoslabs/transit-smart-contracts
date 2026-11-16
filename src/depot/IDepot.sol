@@ -30,8 +30,7 @@ interface IDepot {
     event Reserved(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount, uint256 effectiveAtEpoch);
     event Release(bytes28 indexed accountId, bytes28 indexed assetId, uint256 amount);
 
-    /// TODO: Consider renaming to InvalidAccount; now thrown when TransitAccountLib.isValid fails, not only on zero.
-    error ZeroAddress();
+    error InvalidAccount();
     error InsufficientBalance();
     error NotZeroSum();
     error EmptyDelta();
