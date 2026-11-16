@@ -316,13 +316,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         {
             address handler = hubWarehouseConductor;
             if (handler == address(0)) revert NoHandler();
-            // Append the owner's accountId and the facilitated flag to calldata, read back by TurnstileGated. A
-            // facilitated owner may withdraw without a prior request; otherwise the request must be effective.
+            // A facilitated owner may withdraw without a prior request; otherwise the request must be effective.
             (bool ok, bytes memory result) = handler.call(
-                abi.encodePacked(
-                    abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)),
-                    accountId,
-                    facilitated ? FACILITATED_FLAG : bytes4(0)
+                _buildTurnstileCallData(
+                    abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), accountId, facilitated
                 )
             );
             if (!ok) {
@@ -420,14 +417,23 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (actionType == ActionType.Deposit) {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             target = hubWarehouseConductor;
-            data = abi.encodeCall(
-                HubWarehouseConductor.receiveDeposit,
-                (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
+            data = _buildTurnstileCallData(
+                abi.encodeCall(
+                    HubWarehouseConductor.receiveDeposit,
+                    (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
+                ),
+                message.fromAccountId,
+                false
             );
         } else if (actionType == ActionType.Withdrawal) {
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
             target = SPOKE_WAREHOUSE;
-            data = abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to));
+            // WithdrawalMessage carries no sender; an invalid zero account is appended.
+            data = _buildTurnstileCallData(
+                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to)),
+                bytes28(0),
+                false
+            );
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
 
@@ -437,13 +443,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 result = abi.encodeWithSelector(NotWhitelisted.selector);
             } else {
                 target = message.target;
-                // Append accountId and facilitated flag to calldata so the target (a TurnstileGated contract) can read
-                // the meta-transaction sender and whether it was facilitated. The chainId comes from the bridge, not
-                // the message, so a spoke cannot spoof another chain's accounts.
-                data = abi.encodePacked(
-                    message.data,
-                    TransitAccountLib.formatAccountId(chainId, message.sender),
-                    message.facilitated ? FACILITATED_FLAG : bytes4(0)
+                // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
+                data = _buildTurnstileCallData(
+                    message.data, TransitAccountLib.formatAccountId(chainId, message.sender), message.facilitated
                 );
             }
         }
@@ -474,6 +476,22 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         // Cross-chain internal errors are tracked internally to allow contract-level retries.
         messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(chainId, actionType, messageHash, body);
+    }
+
+    /// @dev Every message-execution or conductor call must build its calldata here. TurnstileGated reads the sender
+    /// from the last 32 bytes whenever msg.sender is the Turnstile, so a call without this suffix would have its
+    /// trailing arguments misread as the sender. Typed calls to the SpokeWarehouse and MessagingAdapter (not
+    /// TurnstileGated) are exempt.
+    function _buildTurnstileCallData(
+        bytes memory data,
+        bytes28 accountId,
+        bool facilitated
+    )
+        private
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(data, accountId, facilitated ? FACILITATED_FLAG : bytes4(0));
     }
 
 }
