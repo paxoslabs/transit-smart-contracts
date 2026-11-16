@@ -6,6 +6,14 @@ import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
+/**
+ * @title AddressFreezeList
+ * @notice Compliance freeze list checked by the Depot on every debit. Frozen accounts can still receive funds but
+ * cannot move them out; admins may seize them with Depot.forceTransferFrom.
+ * @dev Implements Predicate's IFreezable so Predicate's freeze manager can enforce Asset Compliance freezes. Freezes
+ * are keyed by address only, so freezing an address freezes it on every chain. Freeze functions must be mapped to
+ * Roles.FREEZE_MANAGER in TransitAuthority.
+ */
 contract AddressFreezeList is IFreezable, AccessManaged {
 
     mapping(address account => bool) internal _isFrozen;
