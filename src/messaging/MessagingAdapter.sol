@@ -2,8 +2,8 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { IMessagingAdapter } from "./IMessagingAdapter.sol";
-import { IMessagingReceiver } from "./IMessagingReceiver.sol";
+import { IMessagingAdapter } from "src/messaging/IMessagingAdapter.sol";
+import { IMessagingReceiver } from "src/messaging/IMessagingReceiver.sol";
 
 abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 

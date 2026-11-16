@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
-import { MessagingAdapter } from "./MessagingAdapter.sol";
+import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
 
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 

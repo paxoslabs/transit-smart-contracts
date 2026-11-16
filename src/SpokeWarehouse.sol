@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { ITurnstile } from "./turnstile/ITurnstile.sol";
+import { ITurnstile } from "src/turnstile/ITurnstile.sol";
 
 contract SpokeWarehouse is AccessManaged {
 

@@ -2,7 +2,7 @@
 pragma solidity 0.8.37;
 
 import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
-import { IDepot } from "./IDepot.sol";
+import { IDepot } from "src/depot/IDepot.sol";
 
 contract DepotTimelock is TimelockController {
 

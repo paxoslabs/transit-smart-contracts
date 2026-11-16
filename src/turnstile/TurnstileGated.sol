@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
 bytes4 constant FACILITATED_FLAG = 0x00000001;
 

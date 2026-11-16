@@ -2,9 +2,9 @@
 pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
-import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
+import { IDepot } from "src/depot/IDepot.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
 
 abstract contract RequestConductor is TurnstileGated {
 

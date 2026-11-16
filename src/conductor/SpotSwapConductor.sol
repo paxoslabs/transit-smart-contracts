@@ -3,10 +3,10 @@ pragma solidity 0.8.37;
 
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
-import { SwapConductor } from "./SwapConductor.sol";
+import { IDepot } from "src/depot/IDepot.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { SwapConductor } from "src/conductor/SwapConductor.sol";
 
 contract SpotSwapConductor is SwapConductor {
 

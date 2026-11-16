@@ -3,8 +3,8 @@ pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
-import { Roles } from "./helpers/Roles.sol";
-import { TransitAccountLib } from "./helpers/TransitAccountLib.sol";
+import { Roles } from "src/helpers/Roles.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
 contract TransitPolice is IFreezable, AccessManaged {
 

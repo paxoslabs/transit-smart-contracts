@@ -5,13 +5,13 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { ITurnstile } from "./ITurnstile.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../SpokeWarehouse.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
-import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
-import { FACILITATED_FLAG } from "./TurnstileGated.sol";
+import { ITurnstile } from "src/turnstile/ITurnstile.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
+import { SpokeWarehouse } from "src/SpokeWarehouse.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { IMessagingAdapter } from "src/messaging/IMessagingAdapter.sol";
+import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
 
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 

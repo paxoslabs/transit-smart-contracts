@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { IDepot } from "../depot/IDepot.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
-import { RequestConductor } from "./RequestConductor.sol";
+import { IDepot } from "src/depot/IDepot.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { RequestConductor } from "src/conductor/RequestConductor.sol";
 
 contract UserConductor is RequestConductor {
 

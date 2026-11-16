@@ -2,11 +2,11 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { ITurnstile } from "../turnstile/ITurnstile.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
-import { RequestConductor } from "./RequestConductor.sol";
+import { IDepot } from "src/depot/IDepot.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { ITurnstile } from "src/turnstile/ITurnstile.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { RequestConductor } from "src/conductor/RequestConductor.sol";
 
 contract HubWarehouseConductor is AccessManaged, RequestConductor {
 

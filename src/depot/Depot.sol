@@ -4,9 +4,9 @@ pragma solidity 0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "./IDepot.sol";
-import { TransitPolice } from "../TransitPolice.sol";
-import { TransitAccountLib } from "../helpers/TransitAccountLib.sol";
+import { IDepot } from "src/depot/IDepot.sol";
+import { TransitPolice } from "src/TransitPolice.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 
 contract Depot is IDepot, AccessManaged, Pausable {
 
