@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/depot/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
@@ -221,12 +220,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
-            // Empty signature: pre-approved order. Otherwise ECDSA.
-            if (signatures[i].length == 0) {
-                if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
-            } else if (ECDSA.recoverCalldata(orderHash, signatures[i]) != order.owner) {
-                revert BadSignature();
-            }
+            _verifySignature(orderHash, order.owner, signatures[i]);
         }
     }
 
