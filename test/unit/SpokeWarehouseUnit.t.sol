@@ -5,7 +5,7 @@ import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";

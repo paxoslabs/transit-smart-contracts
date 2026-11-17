@@ -2,15 +2,14 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { ITurnstile } from "src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
+import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.sol";
 
-contract HubWarehouseConductor is AccessManaged, RequestConductor {
-
-    event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
+contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, RequestConductor {
 
     constructor(
         address _authority,
@@ -21,6 +20,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         RequestConductor(_depot, _turnstile)
     { }
 
+    /// @inheritdoc IHubWarehouseConductor
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
         _request(
             TransitAccountLib.formatAccountId(action.ownerChainId, action.owner),
@@ -30,6 +30,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         );
     }
 
+    /// @inheritdoc IHubWarehouseConductor
     function receiveDeposit(
         uint64 sourceChainId,
         address asset,
@@ -49,6 +50,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         IDepot(DEPOT).mint(mintTo, assetId, amount);
     }
 
+    /// @inheritdoc IHubWarehouseConductor
     function executeWithdrawal(ITurnstile.WithdrawalAction calldata action)
         external
         restricted
@@ -70,6 +72,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         emit WithdrawalExecuted(requestId, amount);
     }
 
+    /// @inheritdoc IHubWarehouseConductor
     function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
         return keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action));
     }

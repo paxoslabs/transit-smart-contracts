@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/depot/Depot.sol";
-import { ISpotSwapConductor } from "../../src/conductor/ISpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../../src/interfaces/ISpotSwapConductor.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 

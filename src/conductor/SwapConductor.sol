@@ -4,7 +4,8 @@ pragma solidity 0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
 import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
 
 /**
@@ -15,44 +16,19 @@ import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
  * effect from the next epoch, so a batch already in flight cannot be invalidated by one; a facilitated cancellation
  * takes effect in the current epoch.
  */
-abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
+abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, TurnstileGated {
 
-    /// @notice The Depot ledger settlements are applied to.
+    /// @inheritdoc ISwapConductor
     address public immutable DEPOT;
-    /// @notice Account credited with settlement fees.
+    /// @inheritdoc ISwapConductor
     bytes28 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
-    /// @notice Total sell amount filled so far per order.
+    /// @inheritdoc ISwapConductor
     mapping(bytes32 orderHash => uint256) public filledAmount;
-    /// @notice Epoch from which an owner's order may no longer be filled. 0 means not cancelled.
+    /// @inheritdoc ISwapConductor
     mapping(bytes28 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
-    /// @notice Orders approved on-chain by their owner, settled with an empty signature.
+    /// @inheritdoc ISwapConductor
     mapping(bytes32 orderHash => bool) public preApproved;
-
-    /// @notice An owner requested an order's cancellation.
-    /// @param ownerAccountId Account that cancelled.
-    /// @param orderHash Order cancelled.
-    /// @param effectiveAtEpoch Epoch from which the order can no longer be filled.
-    event OrderCancellationRequested(
-        bytes28 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
-    );
-    /// @notice An order was filled in a settlement.
-    /// @param orderHash Order filled.
-    /// @param ownerAccountId Order owner.
-    /// @param sellFilled Amount of sell token taken from the owner.
-    /// @param buyFilled Amount of buy token given to the receiver.
-    event Filled(bytes32 indexed orderHash, bytes28 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
-
-    error LimitPrice(bytes32 orderHash);
-    error BadSignature();
-    error NotPreApproved(bytes32 orderHash);
-    error LengthMismatch();
-    error NotOwner();
-    error Expired(bytes32 id);
-    error Overfill(bytes32 orderHash);
-    error NotPartiallyFillable(bytes32 orderHash);
-    error Cancelled(bytes32 orderHash);
-    error BadEpoch(uint256 epoch);
 
     constructor(
         address _authority,
@@ -67,16 +43,14 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
 
-    /// @notice EIP-712 domain separator orders are signed under.
+    /// @inheritdoc ISwapConductor
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
     }
 
     // ========================================= USER =========================================
 
-    /// @notice Cancel one of the sender's orders from the next epoch, or the current epoch if facilitated. An earlier
-    /// pending cancellation is kept.
-    /// @param orderHash Order to cancel.
+    /// @inheritdoc ISwapConductor
     function requestOrderCancellation(bytes32 orderHash) external {
         bytes28 accountId = _senderAccountId();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();

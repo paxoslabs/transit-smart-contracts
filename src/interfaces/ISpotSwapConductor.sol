@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
+
 /// @title Transit Terminal SpotSwapConductor
 /// @notice Order types and solver entrypoint for spot swaps settled in the Depot.
-interface ISpotSwapConductor {
+interface ISpotSwapConductor is ISwapConductor {
 
     /// @notice A user's signed swap order.
     /// @param ownerChainId Owner's account chainId.

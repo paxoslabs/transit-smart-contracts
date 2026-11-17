@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import { Roles } from "src/helpers/Roles.sol";
+import { ITransitAuthority } from "src/interfaces/ITransitAuthority.sol";
 
 /**
  * @title TransitAuthority
@@ -12,15 +13,14 @@ import { Roles } from "src/helpers/Roles.sol";
  * only answers hasRole. Unmapped functions are callable by no one. Used instead of OZ AccessManager to keep role
  * enumeration.
  */
-contract TransitAuthority is AccessControlEnumerable {
+contract TransitAuthority is ITransitAuthority, AccessControlEnumerable {
 
     // Predicate's freeze manager on all EVM chains, granted Roles.FREEZE_MANAGER to enforce Asset Compliance
     // freezes on AddressFreezeList. See https://docs.predicate.io/v2/assets/get-started
     address constant PREDICATE_FREEZE_MANAGER = 0x363c256D368277BBFaf6EaF65beE123a7AdbA464;
 
+    /// @inheritdoc ITransitAuthority
     mapping(address target => mapping(bytes4 selector => bytes32 role)) public roleOf;
-
-    event TargetFunctionRoleSet(address indexed target, bytes4 indexed selector, bytes32 indexed role);
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -28,12 +28,14 @@ contract TransitAuthority is AccessControlEnumerable {
         _grantRole(Roles.FREEZE_MANAGER, PREDICATE_FREEZE_MANAGER);
     }
 
+    /// @inheritdoc ITransitAuthority
     function canCall(address caller, address target, bytes4 selector) external view returns (bool) {
         bytes32 role = roleOf[target][selector];
         if (role == bytes32(0)) return false;
         return hasRole(role, caller);
     }
 
+    /// @inheritdoc ITransitAuthority
     function setTargetFunctionRole(
         address target,
         bytes4[] calldata selectors,

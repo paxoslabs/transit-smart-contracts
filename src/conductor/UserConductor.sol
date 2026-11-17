@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
+import { IUserConductor } from "src/interfaces/IUserConductor.sol";
 
 /**
  * @title UserConductor
@@ -13,27 +14,11 @@ import { RequestConductor } from "src/conductor/RequestConductor.sol";
  * @dev Built on RequestConductor: the request reserves the funds, and execution transfers up to the executable
  * amount. Expired requests are consumed without moving funds.
  */
-contract UserConductor is RequestConductor {
-
-    struct TransferRequest {
-        uint64 ownerChainId;
-        address owner;
-        uint64 toChainId;
-        address to;
-        uint64 assetChainId;
-        address asset;
-        uint256 amount;
-        uint256 deadline;
-        bool partiallyFillable;
-        bytes32 salt;
-    }
-
-    event TransferExecuted(bytes32 indexed requestId, uint256 amount);
-
-    error ZeroAddress();
+contract UserConductor is IUserConductor, RequestConductor {
 
     constructor(address _depot, address _turnstile) RequestConductor(_depot, _turnstile) { }
 
+    /// @inheritdoc IUserConductor
     function requestTransfer(TransferRequest calldata request) external {
         _request(
             TransitAccountLib.formatAccountId(request.ownerChainId, request.owner),
@@ -43,6 +28,7 @@ contract UserConductor is RequestConductor {
         );
     }
 
+    /// @inheritdoc IUserConductor
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
@@ -62,6 +48,7 @@ contract UserConductor is RequestConductor {
         emit TransferExecuted(requestId, amount);
     }
 
+    /// @inheritdoc IUserConductor
     function digestTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(abi.encode(Typehashes.TRANSFER_REQUEST, request));
     }

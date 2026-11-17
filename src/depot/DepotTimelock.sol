@@ -2,7 +2,8 @@
 pragma solidity 0.8.37;
 
 import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { IDepotTimelock } from "src/interfaces/IDepotTimelock.sol";
 
 /**
  * @title DepotTimelock
@@ -13,9 +14,9 @@ import { IDepot } from "src/depot/IDepot.sol";
  * object must cancel during the delay. Requires a role permitting advanceEpoch. Side effect: actions waiting on the
  * next epoch (reservations, requests, cancellations) take effect one batch early.
  */
-contract DepotTimelock is TimelockController {
+contract DepotTimelock is IDepotTimelock, TimelockController {
 
-    /// @notice The Depot whose epoch is advanced on every execution.
+    /// @inheritdoc IDepotTimelock
     address public immutable DEPOT;
 
     constructor(

@@ -2,10 +2,10 @@
 pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
-import { ISpotSwapConductor } from "src/conductor/ISpotSwapConductor.sol";
+import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 
 /**

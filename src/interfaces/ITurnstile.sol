@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { IMessagingReceiver } from "src/messaging/IMessagingReceiver.sol";
+import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
 /// @title Transit Terminal Turnstile
 /// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for

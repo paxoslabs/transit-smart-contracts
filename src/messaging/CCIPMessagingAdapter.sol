@@ -5,6 +5,7 @@ import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceive
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
+import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
@@ -18,6 +19,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         CCIPReceiver(_router)
     { }
 
+    /// @inheritdoc IMessagingAdapter
     function quote(
         uint64 chainId,
         uint64 gasLimit,

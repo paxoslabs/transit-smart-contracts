@@ -3,9 +3,10 @@ pragma solidity 0.8.37;
 
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
+import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
 
 contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
@@ -90,7 +91,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(backend);
-        vm.expectRevert(RequestConductor.NotEffective.selector);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
         _withdraw(req, sig);
     }
 
@@ -103,7 +104,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         _withdraw(req, sig);
     }
 

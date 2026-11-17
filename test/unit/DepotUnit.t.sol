@@ -12,16 +12,19 @@ import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
-import { ISpotSwapConductor } from "../../src/conductor/ISpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../../src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
+import { IMessagingAdapter } from "../../src/interfaces/IMessagingAdapter.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
 import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
+import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
+import { ISwapConductor } from "../../src/interfaces/ISwapConductor.sol";
+import { IUserConductor } from "../../src/interfaces/IUserConductor.sol";
 
 contract DepotUnitTest is Test {
 
@@ -175,9 +178,9 @@ contract DepotUnitTest is Test {
         uint256 amount
     )
         internal
-        returns (UserConductor.TransferRequest memory)
+        returns (IUserConductor.TransferRequest memory)
     {
-        return UserConductor.TransferRequest({
+        return IUserConductor.TransferRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             toChainId: HUB_CHAIN_ID,
@@ -281,7 +284,7 @@ contract DepotUnitTest is Test {
 
     function testRequestTransferReservesThenExecutes() public {
         _deposit(alice, 100e6);
-        UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
+        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
         bytes32 requestId = userConductor.digestTransferRequest(request);
         vm.prank(alice);
@@ -301,7 +304,7 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
 
         vm.prank(bob);
-        vm.expectRevert(RequestConductor.NotEffective.selector);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
         userConductor.executeTransfer(request);
 
         _advanceEpoch();
@@ -318,13 +321,13 @@ contract DepotUnitTest is Test {
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
 
         vm.prank(bob);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         userConductor.executeTransfer(request);
     }
 
     function testRequestTransferReplayReverts() public {
         _deposit(alice, 100e6);
-        UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
+        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
         bytes memory data = abi.encodeCall(UserConductor.requestTransfer, (request));
 
@@ -332,7 +335,7 @@ contract DepotUnitTest is Test {
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
@@ -388,7 +391,7 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         dispatchOne(
             turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
         );
@@ -421,7 +424,7 @@ contract DepotUnitTest is Test {
         ISpotSwapConductor.Order memory order = _order(100e6, false);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
-        _settle(order, "", 100e6, abi.encodeWithSelector(SwapConductor.NotPreApproved.selector, orderHash));
+        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.NotPreApproved.selector, orderHash));
     }
 
     function testRequestOrderCancellationTakesEffectNextEpoch() public {
@@ -459,7 +462,7 @@ contract DepotUnitTest is Test {
 
         _advanceEpoch();
 
-        _settle(order, "", 40e6, abi.encodeWithSelector(SwapConductor.Cancelled.selector, orderHash));
+        _settle(order, "", 40e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
     }
 
     // ---------------------------------------------------------------- facilitated cancel
@@ -491,7 +494,7 @@ contract DepotUnitTest is Test {
         );
         /// TODO: Restore fee assertions once facilitate charges fees.
 
-        _settle(order, "", 100e6, abi.encodeWithSelector(SwapConductor.Cancelled.selector, orderHash));
+        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
     }
 
     function testFacilitatedOrderCancellationReplayReverts() public {
@@ -556,7 +559,7 @@ contract DepotUnitTest is Test {
         ISpotSwapConductor.Order memory order = _order(100e6, false);
 
         vm.prank(bob);
-        vm.expectRevert(SwapConductor.NotOwner.selector);
+        vm.expectRevert(ISwapConductor.NotOwner.selector);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Generic,

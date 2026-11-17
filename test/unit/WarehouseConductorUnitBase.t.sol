@@ -12,7 +12,7 @@ import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";

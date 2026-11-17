@@ -2,8 +2,9 @@
 pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "src/depot/IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
 import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
+import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /**
  * @title RequestConductor
@@ -13,23 +14,16 @@ import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
  * @dev The delay keeps user-initiated outflows from invalidating a solver batch already in flight. A facilitated owner
  * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
  */
-abstract contract RequestConductor is TurnstileGated {
+abstract contract RequestConductor is IRequestConductor, TurnstileGated {
 
+    /// @inheritdoc IRequestConductor
     uint256 public constant EXECUTED = type(uint256).max;
 
+    /// @inheritdoc IRequestConductor
     address public immutable DEPOT;
 
-    /// @notice Epoch from which a request may be executed. Two special values: 0 means no request was made, and
-    /// EXECUTED (type(uint256).max) means it has been consumed. Any other value is a pending request's epoch.
+    /// @inheritdoc IRequestConductor
     mapping(bytes28 accountId => mapping(bytes32 requestId => uint256 effectiveAtEpoch)) public requestEffectiveAtEpoch;
-
-    event Requested(bytes28 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
-    event Consumed(bytes28 indexed accountId, bytes32 indexed requestId);
-    event RequestExpired(bytes32 indexed requestId);
-
-    error RequestReplay();
-    error NotEffective();
-    error NotOwner();
 
     constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
         DEPOT = _depot;
