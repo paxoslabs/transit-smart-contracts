@@ -6,6 +6,13 @@ import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 
+/**
+ * @title UserConductor
+ * @notice Lets users move their own Depot balances between accounts, including to accounts on other chains, without
+ * leaving the ledger. A transfer is requested, waits one epoch, then may be executed by anyone.
+ * @dev Built on RequestConductor: the request reserves the funds, and execution transfers up to the executable
+ * amount. Expired requests are consumed without moving funds.
+ */
 contract UserConductor is RequestConductor {
 
     struct TransferRequest {
