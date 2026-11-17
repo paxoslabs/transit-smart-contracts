@@ -108,12 +108,12 @@ abstract contract WarehouseConductorUnitBase is Test {
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
         authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
+        turnstile.setMessagingAdapter(address(local));
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
         turnstile.setRoutable(address(userConductor), routedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
         hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
-        turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
     }
 

@@ -145,6 +145,28 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         );
     }
 
+    // ---------------------------------------------------------------- admin
+
+    function testSetHubWarehouseConductorRevertsOffHub() public {
+        vm.chainId(SPOKE_CHAIN_ID);
+        Turnstile spokeTurnstile = new Turnstile(address(authority), vault);
+        MockMessagingAdapter spokeAdapter =
+            new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
+
+        bytes4[] memory turnstileAdminSels = new bytes4[](2);
+        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
+        turnstileAdminSels[1] = Turnstile.setHubWarehouseConductor.selector;
+
+        vm.startPrank(admin);
+        authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, Roles.ADMIN);
+        spokeTurnstile.setMessagingAdapter(address(spokeAdapter));
+        vm.expectRevert(ITurnstile.NotHubChain.selector);
+        spokeTurnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
+        vm.stopPrank();
+
+        assertEq(spokeTurnstile.hubWarehouseConductor(), address(0), "spoke: hub warehouse conductor was set");
+    }
+
     // ---------------------------------------------------------------- messages
 
     function testReceiveMessageFromNonAdapterReverts() public {

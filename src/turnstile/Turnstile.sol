@@ -16,6 +16,16 @@ import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
 
+/**
+ * @title Turnstile
+ * @notice The single entrypoint for Transit on each chain. Users dispatch actions (deposit, withdrawal, generic call)
+ * directly or through a facilitator with signatures. It takes deposits into the chain's VAULT, releases withdrawals
+ * from it, and routes messages: same-chain messages execute locally, cross-chain ones go through the MessagingAdapter.
+ * @dev Inbound messages are replay-protected by hash. A failed same-chain message reverts its action; a failed
+ * cross-chain message is recorded as Failed for an admin retry, except out-of-gas, which reverts for a bridge retry.
+ * Calls into conductors carry the sender and facilitated flag as a calldata suffix (see _buildTurnstileCallData).
+ * The VAULT approves this contract, so the generic message whitelist must never include token contracts.
+ */
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
@@ -57,6 +67,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @inheritdoc ITurnstile
     function setHubWarehouseConductor(address _hubWarehouseConductor) external restricted {
         if (_hubWarehouseConductor.code.length == 0) revert NoCode();
+        if (block.chainid != IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID()) revert NotHubChain();
         hubWarehouseConductor = _hubWarehouseConductor;
         emit HubWarehouseConductorUpdated(_hubWarehouseConductor);
     }

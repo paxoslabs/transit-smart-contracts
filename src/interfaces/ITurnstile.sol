@@ -197,6 +197,9 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The address has no code.
     error NoCode();
 
+    /// @notice The function may only be used on the hub chain.
+    error NotHubChain();
+
     /// @notice The VAULT address is zero.
     error VaultUnset();
 
@@ -272,7 +275,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param adapter MessagingAdapter contract address.
     function setMessagingAdapter(address adapter) external;
 
-    /// @notice Set the HubWarehouseConductor contract address.
+    /// @notice Set the HubWarehouseConductor contract address. Only on the hub chain; the MessagingAdapter, which
+    /// defines the hub chain, must be set first.
     /// @param _hubWarehouseConductor HubWarehouseConductor address.
     function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
