@@ -9,6 +9,16 @@ import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.sol";
 
+/**
+ * @title HubWarehouseConductor
+ * @notice Hub-side bridge between the spoke Turnstiles' custody and the Depot ledger. Deposits held in a spoke VAULT
+ * are minted into the Depot; withdrawals burn Depot balance so the Turnstile can release tokens from the spoke VAULT.
+ * @dev receiveDeposit and executeWithdrawal are restricted to the Turnstile, so balance is minted only for proven
+ * custody validated by turnstile and tokens are released only by the turnstile after performing a burn using
+ * recieveWithdrawal. requestWithdrawal is open to the owner but only reserves
+ * funds; the withdrawal completes through the Turnstile once the request is effective, or immediately for a
+ * facilitated owner.
+ */
 contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, RequestConductor {
 
     constructor(
