@@ -10,6 +10,6 @@ function dispatchOne(
     uint64 messageGas
 ) {
     ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
-    actions[0] = ITurnstile.Action({ actionType: actionType, data: actionData, fare: 0, messageGas: messageGas });
+    actions[0] = ITurnstile.Action({ actionType: actionType, data: actionData, bridgeFee: 0, messageGas: messageGas });
     turnstile.dispatch(actions);
 }

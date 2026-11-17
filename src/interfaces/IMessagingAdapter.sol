@@ -154,8 +154,8 @@ interface IMessagingAdapter {
     /// @param chainId Destination chainId.
     /// @param gasLimit Gas the message requests on the destination.
     /// @param payload Message payload.
-    /// @return fare Fee in native token.
-    function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view returns (uint256 fare);
+    /// @return bridgeFee Fee in native token.
+    function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view returns (uint256 bridgeFee);
 
     /// @notice Send a message to a remote chain. Only callable by the ENDPOINT; msg.value pays the bridge fee.
     /// @param chainId Destination chainId.

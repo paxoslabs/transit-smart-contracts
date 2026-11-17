@@ -109,7 +109,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
                 IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
             }
             // If leg.owed != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
-            // locked up. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
+            // held in escrow. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
         } else if (leg.collateral != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
         }

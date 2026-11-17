@@ -42,7 +42,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         restricted
     {
         bytes28 assetId = TransitAccountLib.formatAccountId(sourceChainId, asset);
-        // Tokens are already locked on the spoke, so the deposit must be credited somewhere rather than revert. A
+        // Tokens are already held on the spoke, so the deposit must be credited somewhere rather than revert. A
         // frozen sender must not move funds out by depositing to another account, so its deposit stays in its own
         // frozen account, where it cannot move and may be seized with Depot.forceTransferFrom.
         bytes28 mintTo = toAccountId;

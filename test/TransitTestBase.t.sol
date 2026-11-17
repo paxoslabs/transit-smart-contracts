@@ -393,7 +393,7 @@ contract TransitTestBase is Test {
         actions[0] = ITurnstile.Action({
             actionType: ITurnstile.ActionType.Withdrawal,
             data: abi.encode(request),
-            fare: 0,
+            bridgeFee: 0,
             messageGas: _messageGas(hubChainId)
         });
         bytes[] memory signatures = new bytes[](1);

@@ -12,8 +12,6 @@ import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
  * @title Depot
  * @notice The main ledger for the Transit Terminal system. The Depot exists only on a Hub chain and uses a bytes28
  * "account" data type to store data for different address/chainId combinations.
- * @dev This is a bytes28 to save some bytes for extra metadata if ever necessary. 8 bytes should be plenty for a
- * chainId.
  */
 contract Depot is IDepot, AccessManaged, Pausable {
 
@@ -71,9 +69,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             revert InvalidAccount();
         }
         _requireNotFrozen(fromAccountId);
-        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
-            revert InsufficientBalance();
-        }
+        if (freeBalanceOf(fromAccountId, assetId) < amount) revert InsufficientBalance();
         _transfer(fromAccountId, toAccountId, assetId, amount);
     }
 
@@ -109,9 +105,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
                 if (!TransitAccountLib.isValid(delta.fromAccountId)) revert InvalidAccount();
                 _requireNotFrozen(delta.fromAccountId);
                 // Ensure enough balance exists at the account unreserved at this point
-                if (balanceOf[delta.fromAccountId][assetId] < _reserved(delta.fromAccountId, assetId) + delta.amount) {
-                    revert InsufficientBalance();
-                }
+                if (freeBalanceOf(delta.fromAccountId, assetId) < delta.amount) revert InsufficientBalance();
                 // increment debits at the index of this assetId
                 debits[assetIndex] += delta.amount;
             }
@@ -145,9 +139,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
         if (!TransitAccountLib.isValid(fromAccountId)) revert InvalidAccount();
         _requireNotFrozen(fromAccountId);
-        if (balanceOf[fromAccountId][assetId] < _reserved(fromAccountId, assetId) + amount) {
-            revert InsufficientBalance();
-        }
+        if (freeBalanceOf(fromAccountId, assetId) < amount) revert InsufficientBalance();
         _transfer(fromAccountId, bytes28(0), assetId, amount);
     }
 
@@ -190,7 +182,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     }
 
     /// @inheritdoc IDepot
-    function freeBalanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256) {
+    function freeBalanceOf(bytes28 accountId, bytes28 assetId) public view returns (uint256) {
         return FixedPointMathLib.zeroFloorSub(balanceOf[accountId][assetId], _reserved(accountId, assetId));
     }
 

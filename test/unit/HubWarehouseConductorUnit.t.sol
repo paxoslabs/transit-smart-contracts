@@ -27,7 +27,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
     function _withdraw(ITurnstile.WithdrawalAction memory req, bytes memory sig) internal {
         ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
         actions[0] = ITurnstile.Action({
-            actionType: ITurnstile.ActionType.Withdrawal, data: abi.encode(req), fare: 0, messageGas: 0
+            actionType: ITurnstile.ActionType.Withdrawal, data: abi.encode(req), bridgeFee: 0, messageGas: 0
         });
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;

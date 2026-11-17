@@ -28,7 +28,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         external
         view
         override
-        returns (uint256 fare)
+        returns (uint256 bridgeFee)
     {
         PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
         return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));

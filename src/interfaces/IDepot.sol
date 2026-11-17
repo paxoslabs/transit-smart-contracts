@@ -8,9 +8,9 @@ import { AddressFreezeList } from "src/AddressFreezeList.sol";
 /// address).
 interface IDepot {
 
-    /// @notice An account's locked balance of one asset.
-    /// @param effective Amount currently locked.
-    /// @param pending Amount that becomes locked once `pendingEpoch` arrives.
+    /// @notice An account's reserved balance of one asset.
+    /// @param effective Amount currently reserved.
+    /// @param pending Amount that becomes reserved once `pendingEpoch` arrives.
     /// @param pendingEpoch Epoch at which `pending` becomes effective.
     struct Reservation {
         uint256 effective;
@@ -96,13 +96,13 @@ interface IDepot {
     /// @return Balance, including reserved funds.
     function balanceOf(bytes28 accountId, bytes28 assetId) external view returns (uint256);
 
-    /// @notice Balance locked for pending requests (e.g. withdrawals). Reservations take effect one epoch after being
+    /// @notice Balance reserved for pending requests (e.g. withdrawals). Reservations take effect one epoch after being
     /// made so fills settling in the current epoch are not invalidated mid-epoch. Reservations never expire; only
     /// release frees them.
     /// @param accountId Account to query.
     /// @param assetId Asset to query.
-    /// @return effective Amount currently locked.
-    /// @return pending Amount that becomes locked once `pendingEpoch` arrives.
+    /// @return effective Amount currently reserved.
+    /// @return pending Amount that becomes reserved once `pendingEpoch` arrives.
     /// @return pendingEpoch Epoch at which `pending` becomes effective.
     function reservation(
         bytes28 accountId,
@@ -112,7 +112,7 @@ interface IDepot {
         view
         returns (uint256 effective, uint256 pending, uint256 pendingEpoch);
 
-    /// @notice Balance not locked by reservations, floored at 0 since forced transfers can bypass reservations.
+    /// @notice Balance not reserved, floored at 0 since forced transfers can bypass reservations.
     /// @param accountId Account to query.
     /// @param assetId Asset to query.
     /// @return Spendable balance.
@@ -160,7 +160,7 @@ interface IDepot {
     /// @param deltas Movements to apply, in order.
     function transferAmong(TransferDelta[] calldata deltas) external;
 
-    /// @notice Credits a new balance, e.g. on deposit, backed by tokens locked in the asset's spoke warehouse.
+    /// @notice Credits a new balance, e.g. on deposit, backed by tokens held in the asset's spoke warehouse.
     /// @dev Frozen recipients may still receive; freeze only restricts outflows.
     /// @param toAccountId Account credited.
     /// @param assetId Asset minted.
