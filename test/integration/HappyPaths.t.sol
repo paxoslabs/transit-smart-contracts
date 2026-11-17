@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/depot/Depot.sol";
-import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../../src/conductor/ISpotSwapConductor.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
 import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 
@@ -43,8 +43,8 @@ contract HappyPaths is TransitTestBase {
         _depositOnChain(bob, amount, usdg, hubChainId);
         _selectChain(hubChainId);
 
-        SpotSwapConductor.Order[] memory orders = new SpotSwapConductor.Order[](2);
-        orders[0] = SpotSwapConductor.Order(
+        ISpotSwapConductor.Order[] memory orders = new ISpotSwapConductor.Order[](2);
+        orders[0] = ISpotSwapConductor.Order(
             hubChainId,
             alice,
             hubChainId,
@@ -59,7 +59,7 @@ contract HappyPaths is TransitTestBase {
             false,
             bytes32(uint256(1))
         );
-        orders[1] = SpotSwapConductor.Order(
+        orders[1] = ISpotSwapConductor.Order(
             hubChainId,
             bob,
             hubChainId,
@@ -75,16 +75,16 @@ contract HappyPaths is TransitTestBase {
             bytes32(uint256(2))
         );
 
-        bytes[] memory signatures = new bytes[](2);
-        signatures[0] = _signOrder(orders[0], alicePk);
-        signatures[1] = _signOrder(orders[1], bobPk);
-
-        SpotSwapConductor.Fill[] memory fills = new SpotSwapConductor.Fill[](2);
-        fills[0] = SpotSwapConductor.Fill(amount, amount);
-        fills[1] = SpotSwapConductor.Fill(amount, amount);
+        ISpotSwapConductor.OrderFill[] memory orderFills = new ISpotSwapConductor.OrderFill[](2);
+        orderFills[0] = ISpotSwapConductor.OrderFill(
+            orders[0], _signOrder(orders[0], alicePk), ISpotSwapConductor.Fill(amount, amount)
+        );
+        orderFills[1] = ISpotSwapConductor.OrderFill(
+            orders[1], _signOrder(orders[1], bobPk), ISpotSwapConductor.Fill(amount, amount)
+        );
 
         vm.startPrank(solver);
-        spotSwapConductor.settle(depot.settlementEpoch(), orders, signatures, fills, new SpotSwapConductor.Fee[](0));
+        spotSwapConductor.settle(depot.settlementEpoch(), orderFills, new ISpotSwapConductor.Fee[](0));
         vm.stopPrank();
 
         assertEq(_depotBalance(alice, hubChainId, usdg), amount, "settle: alice did not receive usdg");

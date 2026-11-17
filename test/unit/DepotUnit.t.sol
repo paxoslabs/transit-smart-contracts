@@ -12,6 +12,7 @@ import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../../src/conductor/ISpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
 import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
@@ -204,8 +205,8 @@ contract DepotUnitTest is Test {
         });
     }
 
-    function _order(uint256 sellAmount, bool partiallyFillable) internal returns (SpotSwapConductor.Order memory) {
-        return SpotSwapConductor.Order({
+    function _order(uint256 sellAmount, bool partiallyFillable) internal returns (ISpotSwapConductor.Order memory) {
+        return ISpotSwapConductor.Order({
             ownerChainId: HUB_CHAIN_ID,
             owner: alice,
             sellTokenChainId: HUB_CHAIN_ID,
@@ -261,21 +262,19 @@ contract DepotUnitTest is Test {
     }
 
     function _settle(
-        SpotSwapConductor.Order memory order,
+        ISpotSwapConductor.Order memory order,
         bytes memory signature,
         uint256 amount,
         bytes memory revertData
     )
         internal
     {
-        SpotSwapConductor.Order[] memory orders = new SpotSwapConductor.Order[](1);
-        orders[0] = order;
-        SpotSwapConductor.Fill[] memory fills = new SpotSwapConductor.Fill[](1);
-        fills[0] = SpotSwapConductor.Fill(amount, amount);
+        ISpotSwapConductor.OrderFill[] memory orderFills = new ISpotSwapConductor.OrderFill[](1);
+        orderFills[0] = ISpotSwapConductor.OrderFill(order, signature, ISpotSwapConductor.Fill(amount, amount));
         uint256 epoch = depot.settlementEpoch();
         vm.prank(backend);
         if (revertData.length != 0) vm.expectRevert(revertData);
-        spotSwapConductor.settle(epoch, orders, _toArray(signature), fills, new SpotSwapConductor.Fee[](0));
+        spotSwapConductor.settle(epoch, orderFills, new ISpotSwapConductor.Fee[](0));
     }
 
     // ---------------------------------------------------------------- transfer
@@ -399,7 +398,7 @@ contract DepotUnitTest is Test {
 
     function testPreApproveAllowsEmptySignatureFill() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
@@ -419,7 +418,7 @@ contract DepotUnitTest is Test {
 
     function testFillWithoutPreApproveReverts() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         _settle(order, "", 100e6, abi.encodeWithSelector(SwapConductor.NotPreApproved.selector, orderHash));
@@ -427,7 +426,7 @@ contract DepotUnitTest is Test {
 
     function testRequestOrderCancellationTakesEffectNextEpoch() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, true);
+        ISpotSwapConductor.Order memory order = _order(100e6, true);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
@@ -465,7 +464,7 @@ contract DepotUnitTest is Test {
 
     // ---------------------------------------------------------------- facilitated cancel
 
-    function _preApprovedOrder() internal returns (SpotSwapConductor.Order memory order, bytes32 orderHash) {
+    function _preApprovedOrder() internal returns (ISpotSwapConductor.Order memory order, bytes32 orderHash) {
         _deposit(alice, 100e6);
         order = _order(100e6, false);
         orderHash = spotSwapConductor.hashOrder(order);
@@ -480,7 +479,7 @@ contract DepotUnitTest is Test {
     }
 
     function testFacilitatedOrderCancellationIsImmediateAndPaysFee() public {
-        (SpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
+        (ISpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
         ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
 
         _facilitate(message, _signFacilitated(message, alicePk));
@@ -554,7 +553,7 @@ contract DepotUnitTest is Test {
     // ---------------------------------------------------------------- auth
 
     function testPreApproveForAnotherOwnerReverts() public {
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
 
         vm.prank(bob);
         vm.expectRevert(SwapConductor.NotOwner.selector);

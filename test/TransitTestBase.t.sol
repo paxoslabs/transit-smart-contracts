@@ -7,6 +7,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { RequestConductor } from "../src/conductor/RequestConductor.sol";
 import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../src/conductor/ISpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
@@ -435,7 +436,7 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(SpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
+    function _signOrder(ISpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapConductor.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }
