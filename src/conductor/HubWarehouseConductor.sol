@@ -62,7 +62,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
             return 0;
         }
 
-        amount = _fillAmount(accountId, action.assetId, action.amount, action.partiallyFillable);
+        amount = _executableAmount(accountId, action.assetId, action.amount, action.partiallyFillable);
         IDepot(DEPOT).burn(accountId, action.assetId, amount);
 
         emit WithdrawalExecuted(requestId, amount);

@@ -55,7 +55,7 @@ abstract contract RequestConductor is TurnstileGated {
         emit Consumed(ownerAccountId, requestId);
     }
 
-    function _fillAmount(
+    function _executableAmount(
         bytes28 accountId,
         bytes28 assetId,
         uint256 requested,

@@ -46,7 +46,7 @@ contract UserConductor is RequestConductor {
             return;
         }
 
-        uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
+        uint256 amount = _executableAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
             .transferFrom(
                 accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
