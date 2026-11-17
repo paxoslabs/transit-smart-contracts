@@ -2,13 +2,15 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
+import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "src/SpokeWarehouse.sol";
 import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
 import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
@@ -17,7 +19,7 @@ import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
-    address public immutable SPOKE_WAREHOUSE;
+    address public immutable VAULT;
 
     /// @inheritdoc ITurnstile
     address public messagingAdapter;
@@ -28,9 +30,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     /// @inheritdoc ITurnstile
     mapping(address target => mapping(bytes4 selector => bool)) public genericMessageWhitelist;
+    /// @inheritdoc ITurnstile
+    mapping(address asset => bool) public assetWhitelisted;
 
-    constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
-        SPOKE_WAREHOUSE = _spokeWarehouse;
+    constructor(address _authority, address _vault) AccessManaged(_authority) {
+        if (_vault == address(0)) revert VaultUnset();
+        VAULT = _vault;
         /// NOTE: messagingAdapter is not set here because MessagingAdapter takes this Turnstile as its immutable
         /// ENDPOINT, making constructor wiring circular. We could instead check !=0 on every call as was done before
         /// but this only provides a more convinient error. And the window between deploy and setting still reverts.
@@ -62,6 +67,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             genericMessageWhitelist[target][selectors[i]] = allowed;
         }
         emit GenericMessageWhitelistUpdated(target, selectors, allowed);
+    }
+
+    /// @inheritdoc ITurnstile
+    function setAssetWhitelisted(address[] calldata assets, bool allowed) external restricted {
+        for (uint256 i; i < assets.length; i++) {
+            assetWhitelisted[assets[i]] = allowed;
+        }
+        emit AssetWhitelistUpdated(assets, allowed);
     }
 
     /// @inheritdoc ITurnstile
@@ -276,10 +289,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (block.timestamp > action.deadline) revert Expired();
         bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
         if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
-        if (action.permit.deadline != 0) {
-            SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit);
-        }
-        SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
+        if (action.amount == 0) revert ZeroAssets();
+        if (!assetWhitelisted[action.asset]) revert AssetNotWhitelisted();
+        if (action.permit.deadline != 0) _permit(from, action.asset, action.amount, action.permit);
+        SafeTransferLib.safeTransferFrom(action.asset, from, VAULT, action.amount);
         bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
@@ -411,6 +424,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address target;
         bytes memory data;
         bytes memory result;
+        uint256 gasBefore;
 
         if (actionType == ActionType.Deposit) {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
@@ -425,13 +439,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             );
         } else if (actionType == ActionType.Withdrawal) {
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
-            target = SPOKE_WAREHOUSE;
-            // WithdrawalMessage carries no sender; an invalid zero account is appended.
-            data = _buildTurnstileCallData(
-                abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to)),
-                bytes28(0),
-                false
-            );
+            // Released directly from the VAULT, which has approved this Turnstile. A failed transfer falls through to
+            // the shared failure handling below as a WithdrawalFailed result.
+            gasBefore = gasleft();
+            if (SafeTransferLib.trySafeTransferFrom(message.asset, VAULT, message.to, message.amount)) {
+                emit WithdrawalReleased(message.to, message.asset, message.amount);
+                return;
+            }
+            result = abi.encodeWithSelector(WithdrawalFailed.selector);
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
 
@@ -447,8 +462,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             }
         }
-
-        uint256 gasBefore;
 
         // If result is set, it's an encoded pre-call error, so skip the call.
         if (result.length == 0) {
@@ -476,9 +489,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         emit MessageFailed(chainId, actionType, messageHash, body);
     }
 
+    /// @dev Applies an EIP-2612 permit for this Turnstile. If the permit fails (e.g. front-run), succeeds as long as
+    /// the existing allowance covers the amount.
+    function _permit(address from, address asset, uint256 amount, Permit memory permit_) private {
+        try IERC20Permit(asset)
+            .permit(from, address(this), amount, permit_.deadline, permit_.v, permit_.r, permit_.s) { }
+        catch {
+            if (IERC20(asset).allowance(from, address(this)) < amount) revert PermitFailedAndAllowanceTooLow();
+        }
+    }
+
     /// @dev Every message-execution or conductor call must build its calldata here. TurnstileGated reads the sender
     /// from the last 32 bytes whenever msg.sender is the Turnstile, so a call without this suffix would have its
-    /// trailing arguments misread as the sender. Typed calls to the SpokeWarehouse and MessagingAdapter (not
+    /// trailing arguments misread as the sender. Token calls and typed calls to the MessagingAdapter (not
     /// TurnstileGated) are exempt.
     function _buildTurnstileCallData(
         bytes memory data,

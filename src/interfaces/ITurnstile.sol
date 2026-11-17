@@ -5,7 +5,7 @@ import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
 /// @title Transit Terminal Turnstile
 /// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for
-/// Conductor contracts.
+/// Conductor contracts, and custodies deposits into and releases withdrawals from the chain's VAULT.
 interface ITurnstile is IMessagingReceiver {
 
     /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and
@@ -153,6 +153,17 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset deposited, denominated in native units.
     event Deposit(address indexed asset, address indexed from, bytes28 indexed toAccountId, uint256 amount);
 
+    /// @notice Withdrawn tokens were released from the VAULT.
+    /// @param to Recipient.
+    /// @param asset Asset withdrawn.
+    /// @param amount Amount withdrawn.
+    event WithdrawalReleased(address indexed to, address indexed asset, uint256 amount);
+
+    /// @notice Asset whitelist entries have been updated.
+    /// @param assets Assets updated.
+    /// @param allowed Whether the assets may be deposited.
+    event AssetWhitelistUpdated(address[] assets, bool allowed);
+
     /// @notice The MessagingAdapter contract address has been updated.
     /// @param adapter New MessagingAdapter address.
     event MessagingAdapterUpdated(address indexed adapter);
@@ -186,6 +197,21 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The address has no code.
     error NoCode();
 
+    /// @notice The VAULT address is zero.
+    error VaultUnset();
+
+    /// @notice A deposit amount is zero.
+    error ZeroAssets();
+
+    /// @notice The asset is not whitelisted for deposit.
+    error AssetNotWhitelisted();
+
+    /// @notice A permit failed and the existing allowance does not cover the amount.
+    error PermitFailedAndAllowanceTooLow();
+
+    /// @notice Releasing a withdrawal from the VAULT failed.
+    error WithdrawalFailed();
+
     /// @notice An encoded call ran out of gas.
     error OutOfGas();
 
@@ -213,9 +239,15 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An account id is not a valid chainId and address pair.
     error InvalidAccount();
 
-    /// @notice Query the SpokeWarehouse contract address.
-    /// @return SpokeWarehouse contract address.
-    function SPOKE_WAREHOUSE() external view returns (address);
+    /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so
+    /// withdrawals can be released.
+    /// @return Vault address.
+    function VAULT() external view returns (address);
+
+    /// @notice Whether an asset may be deposited.
+    /// @param asset Asset to query.
+    /// @return Whether whitelisted.
+    function assetWhitelisted(address asset) external view returns (bool);
 
     /// @notice Query the MessagingAdapter contract address.
     /// @return MessagingAdapter contract address.
@@ -251,6 +283,11 @@ interface ITurnstile is IMessagingReceiver {
     /// @param selectors Call function selectors.
     /// @param allowed Whether calldata is whitelisted.
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
+
+    /// @notice Set whether assets may be deposited.
+    /// @param assets Assets to update.
+    /// @param allowed Whether the assets may be deposited.
+    function setAssetWhitelisted(address[] calldata assets, bool allowed) external;
 
     /// @notice Disable sensitive functions in an emergency, including inbound message handling.
     function pause() external;

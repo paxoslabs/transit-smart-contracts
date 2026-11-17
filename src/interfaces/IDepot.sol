@@ -160,15 +160,15 @@ interface IDepot {
     /// @param deltas Movements to apply, in order.
     function transferAmong(TransferDelta[] calldata deltas) external;
 
-    /// @notice Credits a new balance, e.g. on deposit, backed by tokens held in the asset's spoke warehouse.
+    /// @notice Credits a new balance, e.g. on deposit, backed by tokens held in the asset's chain VAULT.
     /// @dev Frozen recipients may still receive; freeze only restricts outflows.
     /// @param toAccountId Account credited.
     /// @param assetId Asset minted.
     /// @param amount Amount minted.
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    /// @notice Removes a balance, e.g. on withdrawal, before the asset's spoke warehouse releases the tokens.
-    /// Respects pause, freeze and reservations.
+    /// @notice Removes a balance, e.g. on withdrawal, before the asset's chain Turnstile releases the tokens from its
+    /// VAULT. Respects pause, freeze and reservations.
     /// @param fromAccountId Account debited.
     /// @param assetId Asset burned.
     /// @param amount Amount burned.

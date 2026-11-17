@@ -8,7 +8,6 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
@@ -24,7 +23,6 @@ abstract contract WarehouseConductorUnitBase is Test {
     uint64 constant SPOKE_CHAIN_ID = 4663;
 
     TransitAuthority authority;
-    SpokeWarehouse warehouse;
     ERC20 usdc;
     Depot depot;
     UserConductor userConductor;
@@ -46,8 +44,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         (, alicePk) = makeAddrAndKey("alice");
 
         authority = new TransitAuthority(admin);
-        warehouse = new SpokeWarehouse(address(authority), vault);
-        turnstile = new Turnstile(address(authority), address(warehouse));
+        turnstile = new Turnstile(address(authority), vault);
         depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
@@ -55,22 +52,22 @@ abstract contract WarehouseConductorUnitBase is Test {
         usdc = _asset("USD Coin", "USDC", 6);
 
         bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
+        adminSels[0] = Turnstile.setAssetWhitelisted.selector;
 
         bytes4[] memory facilitateSels = new bytes4[](1);
         facilitateSels[0] = Turnstile.facilitate.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstile), adminSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
         authority.grantRole(Roles.SOLVER, backend);
-        warehouse.setAssetWhitelisted(_list(address(usdc)), true);
+        turnstile.setAssetWhitelisted(_list(address(usdc)), true);
         vm.stopPrank();
 
         _authorizeDepot();
 
         vm.prank(vault);
-        SafeTransferLib.safeApprove(address(usdc), address(warehouse), type(uint256).max);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), type(uint256).max);
     }
 
     function _asset(string memory name_, string memory symbol_, uint8 decimals_) internal returns (ERC20) {
@@ -91,16 +88,10 @@ abstract contract WarehouseConductorUnitBase is Test {
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
 
-        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
-        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
-        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
-
         bytes4[] memory routedSels = new bytes4[](1);
         routedSels[0] = UserConductor.requestTransfer.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
         authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
         authority.grantRole(Roles.TURNSTILE, address(turnstile));
@@ -129,7 +120,7 @@ abstract contract WarehouseConductorUnitBase is Test {
     function _deposit(address user, uint256 amount) internal {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), amount);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Deposit,

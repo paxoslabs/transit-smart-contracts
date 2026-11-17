@@ -11,7 +11,6 @@ import { ISpotSwapConductor } from "../src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { AddressFreezeList } from "../src/AddressFreezeList.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
@@ -60,7 +59,6 @@ contract TransitTestBase is Test {
     HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => SpokeWarehouse) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -106,8 +104,7 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
-        Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
+        Turnstile chainTurnstile = new Turnstile(address(authority), vault);
         if (chain == hubChainId) {
             depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
             turnstile = chainTurnstile;
@@ -120,7 +117,6 @@ contract TransitTestBase is Test {
         }
 
         authorities[chain] = authority;
-        warehouses[chain] = warehouse;
         turnstiles[chain] = chainTurnstile;
         adapters[chain] = adapter;
 
@@ -146,19 +142,9 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        SpokeWarehouse warehouse = warehouses[chain];
-
-        bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
-
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
-
-        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
-        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
-        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -168,9 +154,7 @@ contract TransitTestBase is Test {
         peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, Roles.PAUSER);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, Roles.ADMIN);
 
         authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]));
@@ -202,10 +186,11 @@ contract TransitTestBase is Test {
         receiveSels[0] = Turnstile.receiveMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, Roles.MESSAGING_ADAPTER);
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](3);
+        bytes4[] memory turnstileAdminSels = new bytes4[](4);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
+        turnstileAdminSels[3] = Turnstile.setAssetWhitelisted.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, Roles.ADMIN);
 
         authority.grantRole(Roles.TURNSTILE, address(chainTurnstile));
@@ -277,7 +262,7 @@ contract TransitTestBase is Test {
         vm.startPrank(vault);
         for (uint256 i; i < assets.length; i++) {
             if (address(assets[i]) == address(0)) continue;
-            SafeTransferLib.safeApprove(address(assets[i]), address(warehouses[chain]), type(uint256).max);
+            SafeTransferLib.safeApprove(address(assets[i]), address(turnstiles[chain]), type(uint256).max);
         }
         vm.stopPrank();
 
@@ -286,7 +271,7 @@ contract TransitTestBase is Test {
             if (address(assets[i]) == address(0)) continue;
             address[] memory list = new address[](1);
             list[0] = address(assets[i]);
-            warehouses[chain].setAssetWhitelisted(list, true);
+            turnstiles[chain].setAssetWhitelisted(list, true);
         }
         vm.stopPrank();
     }
@@ -347,7 +332,7 @@ contract TransitTestBase is Test {
         _selectChain(chain);
         deal(address(asset), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
+        SafeTransferLib.safeApprove(address(asset), address(turnstiles[chain]), amount);
         dispatchOne(
             turnstiles[chain],
             ITurnstile.ActionType.Deposit,

@@ -4,7 +4,6 @@ pragma solidity 0.8.37;
 import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
@@ -13,7 +12,7 @@ import { Roles } from "../../src/helpers/Roles.sol";
 import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
-contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
+contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
 
     // ---------------------------------------------------------------- deposit
 
@@ -30,16 +29,16 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         );
         assertEq(usdc.balanceOf(vault), 100e6, "deposit: vault did not receive usdc");
         assertEq(usdc.balanceOf(alice), 0, "deposit: alice usdc not taken");
-        assertEq(usdc.balanceOf(address(warehouse)), 0, "deposit: warehouse must never hold funds");
+        assertEq(usdc.balanceOf(address(turnstile)), 0, "deposit: turnstile must never hold funds");
     }
 
     function testDepositWhitelistedAssetCreditsDepot() public {
         ERC20 other = _asset("Other", "OTH", 18);
         vm.prank(admin);
-        warehouse.setAssetWhitelisted(_list(address(other)), true);
+        turnstile.setAssetWhitelisted(_list(address(other)), true);
         deal(address(other), alice, 1e18);
         vm.startPrank(alice);
-        SafeTransferLib.safeApprove(address(other), address(warehouse), 1e18);
+        SafeTransferLib.safeApprove(address(other), address(turnstile), 1e18);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Deposit,
@@ -71,8 +70,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
 
     function testSpokeDepositCreditsDepot() public {
         vm.chainId(SPOKE_CHAIN_ID);
-        SpokeWarehouse spokeWarehouse = new SpokeWarehouse(address(authority), vault);
-        Turnstile spokeTurnstile = new Turnstile(address(authority), address(spokeWarehouse));
+        Turnstile spokeTurnstile = new Turnstile(address(authority), vault);
         MockMessagingAdapter spokeAdapter =
             new MockMessagingAdapter(address(authority), address(spokeTurnstile), HUB_CHAIN_ID);
         ERC20 usdg = _asset("Global Dollar", "USDG", 6);
@@ -80,15 +78,9 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         vm.chainId(HUB_CHAIN_ID);
         MockMessagingAdapter hubAdapter = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
 
-        bytes4[] memory warehouseSels = new bytes4[](1);
-        warehouseSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
-
-        bytes4[] memory turnstileAdminSels = new bytes4[](1);
+        bytes4[] memory turnstileAdminSels = new bytes4[](2);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
-
-        bytes4[] memory custodySels = new bytes4[](2);
-        custodySels[0] = SpokeWarehouse.custody.selector;
-        custodySels[1] = SpokeWarehouse.permit.selector;
+        turnstileAdminSels[1] = Turnstile.setAssetWhitelisted.selector;
 
         bytes4[] memory peerSels = new bytes4[](1);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -97,18 +89,14 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         receiveSels[0] = Turnstile.receiveMessage.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(spokeWarehouse), warehouseSels, Roles.ADMIN);
-        authority.setTargetFunctionRole(address(warehouse), warehouseSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, Roles.ADMIN);
-        authority.setTargetFunctionRole(address(spokeWarehouse), custodySels, Roles.TURNSTILE);
-        authority.grantRole(Roles.TURNSTILE, address(spokeTurnstile));
         authority.setTargetFunctionRole(address(spokeAdapter), peerSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(hubAdapter), peerSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
         authority.grantRole(Roles.MESSAGING_ADAPTER, address(hubAdapter));
 
         spokeTurnstile.setMessagingAdapter(address(spokeAdapter));
-        spokeWarehouse.setAssetWhitelisted(_list(address(usdg)), true);
+        spokeTurnstile.setAssetWhitelisted(_list(address(usdg)), true);
         spokeAdapter.setPeer(
             HUB_CHAIN_ID, bytes32(uint256(uint160(address(hubAdapter)))), HUB_CHAIN_ID, 200_000, 0, true, true
         );
@@ -121,7 +109,7 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         vm.chainId(SPOKE_CHAIN_ID);
         deal(address(usdg), alice, 100e6);
         vm.startPrank(alice);
-        SafeTransferLib.safeApprove(address(usdg), address(spokeWarehouse), 100e6);
+        SafeTransferLib.safeApprove(address(usdg), address(spokeTurnstile), 100e6);
         dispatchOne(
             spokeTurnstile,
             ITurnstile.ActionType.Deposit,
@@ -168,10 +156,6 @@ contract SpokeWarehouseUnitTest is WarehouseConductorUnitBase {
         vm.prank(mallory);
         vm.expectRevert();
         turnstile.receiveMessage(SPOKE_CHAIN_ID, payload);
-
-        vm.prank(mallory);
-        vm.expectRevert();
-        warehouse.receiveWithdrawal(m.asset, m.amount, m.to);
     }
 
 }
