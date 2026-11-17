@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
-import { ECDSA } from "solady/utils/ECDSA.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { SwapConductor } from "./SwapConductor.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { SwapConductor } from "src/conductor/SwapConductor.sol";
+import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 
 /**
  * @title DelayedSettlementSwapConductor
@@ -15,70 +15,28 @@ import { SwapConductor } from "./SwapConductor.sol";
  * penalty of amount/FILL_RATIO is applied if the payment is not made within this time
  * @custom:security-contact security@paxoslabs.com
  */
-contract DelayedSettlementSwapConductor is SwapConductor {
+contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor {
 
-    /// @dev Order object signed by user
-    struct DelayedSettlementOrder {
-        uint64 ownerChainId;
-        address owner;
-        bytes32 sellTokenId;
-        bytes32 buyTokenId;
-        uint256 sellAmount;
-        uint256 buyAmount;
-        uint64 receiverChainId;
-        address receiver;
-        uint256 expiresAt;
-        bool partiallyFillable;
-        bool delayedSettlement;
-        uint256 settlementPeriod;
-        bytes32 salt;
-    }
-
-    /// @dev Settlement bot provided fill data. Fills are per pair of orders matched. A single order that is filling
-    /// several others may have several PairedFills mentioning that order by orderIndex
-    struct PairedFill {
-        uint256[2] orderIndexes;
-        uint256[2] amounts;
-        uint256[2] fees;
-    }
-
-    /// @dev An escrow leg, they are saved in a mapping in pairs tied to an escrowId. This is the onchain log of a
-    /// delayed settlements status
-    struct Leg {
-        bytes32 accountId;
-        bytes32 receiverAccountId;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 owed;
-        uint256 collateral;
-        uint256 fee;
-    }
-
+    /// @inheritdoc IDelayedSettlementSwapConductor
     uint256 public constant FILL_RATIO = 100;
+    /// @inheritdoc IDelayedSettlementSwapConductor
     uint256 public constant MAX_SETTLEMENT_PERIOD = 1 days;
 
-    bytes32 public immutable PENALTY_RECIPIENT_ACCOUNT_ID;
+    /// @inheritdoc IDelayedSettlementSwapConductor
+    bytes28 public immutable PENALTY_RECIPIENT_ACCOUNT_ID;
 
+    /// @inheritdoc IDelayedSettlementSwapConductor
     uint256 public escrowCount;
+    /// @inheritdoc IDelayedSettlementSwapConductor
     mapping(uint256 escrowId => Leg[2]) public escrowLegs;
+    /// @inheritdoc IDelayedSettlementSwapConductor
     mapping(uint256 escrowId => uint256) public escrowDeadline;
-
-    event PreApproved(bytes32 indexed ownerAccountId, bytes32 indexed orderHash, DelayedSettlementOrder order);
-    event Escrowed(uint256 indexed escrowId, bytes32 indexed firstOrderHash, bytes32 indexed secondOrderHash);
-    event Repaid(uint256 indexed escrowId, uint256 side);
-    event Released(uint256 indexed escrowId);
-    event Reclaimed(uint256 indexed escrowId);
-
-    error BadPair(uint256 index);
-    error SettlementPeriodOver();
-    error SettlementPeriodActive();
-    error NothingOwed();
 
     constructor(
         address _authority,
         address _depot,
-        bytes32 _surplusRecipientAccountId,
-        bytes32 _penaltyRecipientAccountId,
+        bytes28 _surplusRecipientAccountId,
+        bytes28 _penaltyRecipientAccountId,
         address _turnstile
     )
         SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
@@ -92,17 +50,16 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     // ========================================= USER =========================================
 
-    /// @notice preApprove an order hash as  _senderAccountId to bypass need for offchain signatures
+    /// @inheritdoc IDelayedSettlementSwapConductor
     function preApprove(DelayedSettlementOrder calldata order) external {
-        bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false)) revert NotOwner();
+        bytes28 accountId = _senderAccountId();
+        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
     }
 
-    /// @notice repay a leg of an escrow. Must repay in full. If both sides have fully repaid upon this call _release()
-    /// is called to distribute funds
+    /// @inheritdoc IDelayedSettlementSwapConductor
     function repay(uint256 escrowId, uint256 side) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
         // side will revert with out of bounds if > 1
@@ -120,7 +77,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         if (counterparty.owed == 0) _release(escrowId);
     }
 
-    /// @notice reclaim an array of escrowIds that have expired without recieving repayment
+    /// @inheritdoc IDelayedSettlementSwapConductor
     function reclaim(uint256[] calldata escrowIds) external {
         for (uint256 i; i < escrowIds.length; i++) {
             _reclaim(escrowIds[i]);
@@ -144,7 +101,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
     function _reclaimLeg(Leg memory leg) internal {
-        bytes32 conductorAccountId = _conductorAccountId();
+        bytes28 conductorAccountId = _conductorAccountId();
         // If leg.owed == 0 then this leg was paid or was never a Delayed Settlement order to begin with. The funds must
         // be returned to the legs accountId.
         if (leg.owed == 0) {
@@ -152,7 +109,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
                 IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
             }
             // If leg.owed != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
-            // locked up. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
+            // held in escrow. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
         } else if (leg.collateral != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
         }
@@ -160,7 +117,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     // ========================================= SOLVER =========================================
 
-    /// @notice Callable by the settlement bot to match orders with paired fills specified
+    /// @inheritdoc IDelayedSettlementSwapConductor
     function settle(
         uint256 epoch,
         DelayedSettlementOrder[] calldata orders,
@@ -170,9 +127,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         external
         restricted
     {
+        if (epoch != IDepot(DEPOT).settlementEpoch()) revert BadEpoch(epoch);
         // Signatures must be provided for each order
         if (orders.length != signatures.length) revert LengthMismatch();
-        (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures);
+        (bytes28[] memory ownerAccountIds, bytes32[] memory orderHashes) = _checkOrders(orders, signatures);
 
         IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](fills.length * 2); // deltas come in 2 * fills
         // as they come in pairs
@@ -195,7 +153,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
         IDepot(DEPOT).transferAmong(deltas);
 
-        IDepot(DEPOT).advanceEpoch(epoch);
+        IDepot(DEPOT).advanceEpoch();
     }
 
     /// @dev Helper to check order expirations and signatures
@@ -205,25 +163,20 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     )
         internal
         view
-        returns (bytes32[] memory ownerAccountIds, bytes32[] memory orderHashes)
+        returns (bytes28[] memory ownerAccountIds, bytes32[] memory orderHashes)
     {
-        ownerAccountIds = new bytes32[](orders.length);
+        ownerAccountIds = new bytes28[](orders.length);
         orderHashes = new bytes32[](orders.length);
         uint256 lastEpochAdvancedAt = IDepot(DEPOT).lastEpochAdvancedAt();
         for (uint256 i; i < orders.length; i++) {
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitTokenLib.formatAccountId(order.ownerChainId, order.owner, false);
+            ownerAccountIds[i] = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
-            // Empty signature: pre-approved order. Otherwise ECDSA.
-            if (signatures[i].length == 0) {
-                if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
-            } else if (ECDSA.recoverCalldata(orderHash, signatures[i]) != order.owner) {
-                revert BadSignature();
-            }
+            _verifySignature(orderHash, order.owner, signatures[i]);
         }
     }
 
@@ -231,7 +184,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     function _escrowFill(
         DelayedSettlementOrder[] calldata orders,
         PairedFill calldata fill,
-        bytes32[] memory ownerAccountIds,
+        bytes28[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
         uint256 index,
         IDepot.TransferDelta[] memory deltas
@@ -247,7 +200,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         // - fill an amount of 0 on either order
         if (
             fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
-                || first.sellTokenId != second.buyTokenId || first.buyTokenId != second.sellTokenId
+                || first.sellTokenChainId != second.buyTokenChainId || first.sellToken != second.buyToken
+                || first.buyTokenChainId != second.sellTokenChainId || first.buyToken != second.sellToken
                 || fill.amounts[0] == 0 || fill.amounts[1] == 0
         ) {
             revert BadPair(index);
@@ -266,7 +220,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     function _escrowLeg(
         DelayedSettlementOrder[] calldata orders,
         PairedFill calldata fill,
-        bytes32[] memory ownerAccountIds,
+        bytes28[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
         uint256 escrowId,
         uint256 side
@@ -277,6 +231,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 orderIndex = fill.orderIndexes[side];
         DelayedSettlementOrder calldata order = orders[orderIndex];
         uint256 amount = fill.amounts[side];
+        bytes28 sellTokenId = TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken);
         uint256 counterpartySide = 1 - side;
         // If the amount the counterparty will provide - fees is < the required amount scaled to the size of the fill
         if (
@@ -291,8 +246,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         // Publish the Leg onchain to track the escrow
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
-            receiverAccountId: TransitTokenLib.formatAccountId(order.receiverChainId, order.receiver, false),
-            assetId: order.sellTokenId,
+            receiverAccountId: TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
+            assetId: sellTokenId,
             amount: amount,
             owed: order.delayedSettlement ? amount : 0,
             collateral: collateral,
@@ -303,7 +258,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         return IDepot.TransferDelta(
             ownerAccountIds[orderIndex],
             _conductorAccountId(),
-            order.sellTokenId,
+            sellTokenId,
             order.delayedSettlement ? collateral : amount
         );
     }
@@ -347,7 +302,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     function _releaseLeg(Leg[2] memory legs, uint256 side) internal {
         Leg memory leg = legs[side];
         Leg memory counterparty = legs[1 - side];
-        bytes32 conductorAccountId = _conductorAccountId();
+        bytes28 conductorAccountId = _conductorAccountId();
 
         // The depot must transfer from the escrow account to the counterparty - fees
         IDepot(DEPOT)
@@ -367,7 +322,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     /// @dev Helper to track fills as shown in parent SwapConductor according to this contract's Fill system
     function _fillOrders(
         DelayedSettlementOrder[] calldata orders,
-        bytes32[] memory ownerAccountIds,
+        bytes28[] memory ownerAccountIds,
         bytes32[] memory orderHashes,
         uint256[] memory sellFilled,
         uint256[] memory buyFilled
@@ -384,34 +339,15 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     }
 
     /// @dev The escrow account is an account for this contract on this chain
-    function _conductorAccountId() internal view returns (bytes32) {
-        return TransitTokenLib.formatAccountId(uint64(block.chainid), address(this), false);
+    function _conductorAccountId() internal view returns (bytes28) {
+        return TransitAccountLib.formatAccountId(uint64(block.chainid), address(this));
     }
 
     // ========================================= VIEWS =========================================
 
-    /// @dev Helper to hash an order
+    /// @inheritdoc IDelayedSettlementSwapConductor
     function hashOrder(DelayedSettlementOrder memory order) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    Typehashes.DELAYED_SETTLEMENT_ORDER,
-                    order.ownerChainId,
-                    order.owner,
-                    order.sellTokenId,
-                    order.buyTokenId,
-                    order.sellAmount,
-                    order.buyAmount,
-                    order.receiverChainId,
-                    order.receiver,
-                    order.expiresAt,
-                    order.partiallyFillable,
-                    order.delayedSettlement,
-                    order.settlementPeriod,
-                    order.salt
-                )
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(Typehashes.DELAYED_SETTLEMENT_ORDER, order)));
     }
 
 }

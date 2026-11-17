@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
-import { IMessagingReceiver } from "../messaging/IMessagingReceiver.sol";
+import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
 /// @title Transit Terminal Turnstile
 /// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for
-/// Conductor contracts.
+/// Conductor contracts, and custodies deposits into and releases withdrawals from the chain's VAULT.
 interface ITurnstile is IMessagingReceiver {
 
     /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and
@@ -33,8 +33,8 @@ interface ITurnstile is IMessagingReceiver {
     struct DepositMessage {
         address asset;
         uint256 amount;
-        bytes32 fromAccountId;
-        bytes32 toAccountId;
+        bytes28 fromAccountId;
+        bytes28 toAccountId;
         bytes32 salt;
     }
 
@@ -87,7 +87,7 @@ interface ITurnstile is IMessagingReceiver {
         Permit permit;
     }
 
-    /// @notice ERC-2612 or Uniswap Permit2 fields.
+    /// @notice ERC-2612 permit fields.
     /// @param deadline Permit deadline.
     /// @param v Permit `v` value.
     /// @param r Permit `r` value.
@@ -103,7 +103,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param ownerChainId Owner's account chainId.
     /// @param owner Owner's account address.
     /// @param to Recipient address.
-    /// @param assetId Composite id of asset to withdraw.
+    /// @param assetChainId Chain of the asset to withdraw; the withdrawal is paid out there.
+    /// @param asset Address of the asset to withdraw.
     /// @param amount Amount of asset being withdrawn, denominated in native units.
     /// @param deadline Withdrawal request submission deadline.
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
@@ -113,7 +114,8 @@ interface ITurnstile is IMessagingReceiver {
         uint64 ownerChainId;
         address owner;
         address to;
-        bytes32 assetId;
+        uint64 assetChainId;
+        address asset;
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
@@ -135,12 +137,12 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice A single action to execute within a batch.
     /// @param actionType Type of the action.
     /// @param data ABI-encoded DepositAction, WithdrawalAction, or GenericAction.
-    /// @param fare Cross-chain bridge fee (ignored by `quote`).
+    /// @param bridgeFee Cross-chain bridge fee (ignored by `quote`).
     /// @param messageGas Cross-chain destination message execution gas limit.
     struct Action {
         ActionType actionType;
         bytes data;
-        uint256 fare;
+        uint256 bridgeFee;
         uint64 messageGas;
     }
 
@@ -149,7 +151,18 @@ interface ITurnstile is IMessagingReceiver {
     /// @param from Address of the depositor.
     /// @param toAccountId Account id of deposit recipient.
     /// @param amount Amount of asset deposited, denominated in native units.
-    event Deposit(address indexed asset, address indexed from, bytes32 indexed toAccountId, uint256 amount);
+    event Deposit(address indexed asset, address indexed from, bytes28 indexed toAccountId, uint256 amount);
+
+    /// @notice Withdrawn tokens were released from the VAULT.
+    /// @param to Recipient.
+    /// @param asset Asset withdrawn.
+    /// @param amount Amount withdrawn.
+    event WithdrawalReleased(address indexed to, address indexed asset, uint256 amount);
+
+    /// @notice Asset whitelist entries have been updated.
+    /// @param assets Assets updated.
+    /// @param allowed Whether the assets may be deposited.
+    event AssetWhitelistUpdated(address[] assets, bool allowed);
 
     /// @notice The MessagingAdapter contract address has been updated.
     /// @param adapter New MessagingAdapter address.
@@ -158,6 +171,12 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The HubWarehouseConductor contract address has been updated.
     /// @param hubWarehouseConductor New HubWarehouseConductor address.
     event HubWarehouseConductorUpdated(address indexed hubWarehouseConductor);
+
+    /// @notice Generic message whitelist entries have been updated.
+    /// @param target Call target.
+    /// @param selectors Call function selectors.
+    /// @param allowed Whether calldata is whitelisted.
+    event GenericMessageWhitelistUpdated(address indexed target, bytes4[] selectors, bool allowed);
 
     /// @notice Message execution failed.
     /// @param sourceChainId Message's source EVM chainId.
@@ -178,6 +197,24 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The address has no code.
     error NoCode();
 
+    /// @notice The function may only be used on the hub chain.
+    error NotHubChain();
+
+    /// @notice The VAULT address is zero.
+    error VaultUnset();
+
+    /// @notice A deposit amount is zero.
+    error ZeroAssets();
+
+    /// @notice The asset is not whitelisted for deposit.
+    error AssetNotWhitelisted();
+
+    /// @notice A permit failed and the existing allowance does not cover the amount.
+    error PermitFailedAndAllowanceTooLow();
+
+    /// @notice Releasing a withdrawal from the VAULT failed.
+    error WithdrawalFailed();
+
     /// @notice An encoded call ran out of gas.
     error OutOfGas();
 
@@ -191,20 +228,29 @@ interface ITurnstile is IMessagingReceiver {
     error NoHandler();
 
     /// @notice Cross-chain fee was included for a same-chain action.
-    error NoFare();
+    error NoBridgeFee();
 
     /// @notice Lengths of parallel arrays do not match.
     error LengthMismatch();
 
     /// @notice Incorrect cross-chain fee amount was sent.
-    error FareMismatch();
+    error BridgeFeeMismatch();
 
     /// @notice An action's deadline has already passed.
     error Expired();
 
-    /// @notice Query the SpokeWarehouse contract address.
-    /// @return SpokeWarehouse contract address.
-    function SPOKE_WAREHOUSE() external view returns (address);
+    /// @notice An account id is not a valid chainId and address pair.
+    error InvalidAccount();
+
+    /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so
+    /// withdrawals can be released.
+    /// @return Vault address.
+    function VAULT() external view returns (address);
+
+    /// @notice Whether an asset may be deposited.
+    /// @param asset Asset to query.
+    /// @return Whether whitelisted.
+    function assetWhitelisted(address asset) external view returns (bool);
 
     /// @notice Query the MessagingAdapter contract address.
     /// @return MessagingAdapter contract address.
@@ -229,7 +275,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param adapter MessagingAdapter contract address.
     function setMessagingAdapter(address adapter) external;
 
-    /// @notice Set the HubWarehouseConductor contract address.
+    /// @notice Set the HubWarehouseConductor contract address. Only on the hub chain; the MessagingAdapter, which
+    /// defines the hub chain, must be set first.
     /// @param _hubWarehouseConductor HubWarehouseConductor address.
     function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
@@ -241,6 +288,11 @@ interface ITurnstile is IMessagingReceiver {
     /// @param allowed Whether calldata is whitelisted.
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external;
 
+    /// @notice Set whether assets may be deposited.
+    /// @param assets Assets to update.
+    /// @param allowed Whether the assets may be deposited.
+    function setAssetWhitelisted(address[] calldata assets, bool allowed) external;
+
     /// @notice Disable sensitive functions in an emergency, including inbound message handling.
     function pause() external;
 
@@ -248,18 +300,25 @@ interface ITurnstile is IMessagingReceiver {
     function unpause() external;
 
     /// @notice Execute a batch of actions.
-    /// @dev `msg.value` must exactly equal the sum of action `fare`s.
-    /// Same-chain actions must have a fare of 0.
+    /// @dev `msg.value` must exactly equal the sum of action `bridgeFee`s.
+    /// Same-chain actions must have a bridgeFee of 0.
     /// @param actions List of actions.
     /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
     function dispatch(Action[] calldata actions) external payable returns (bytes32[] memory messageHashes);
 
     /// @notice Execute a batch of actions on behalf of users using ECDSA signature authorization.
-    /// @dev `msg.value` must exactly equal the sum of action `fare`s.
-    /// Same-chain actions must have a fare of 0.
+    /// @dev `msg.value` must exactly equal the sum of action `bridgeFee`s.
+    /// Same-chain actions must have a bridgeFee of 0.
     /// @param actions List of actions.
     /// @param signatures List of signatures for action sender authentication.
-    function facilitate(Action[] calldata actions, bytes[] calldata signatures) external payable;
+    /// @return messageHashes List of hashes of dispatched messages (zero hash if no message is sent).
+    function facilitate(
+        Action[] calldata actions,
+        bytes[] calldata signatures
+    )
+        external
+        payable
+        returns (bytes32[] memory messageHashes);
 
     /// @notice Generate EIP-712 hash for Deposit action.
     /// @param action DepositAction to hash.
@@ -284,9 +343,9 @@ interface ITurnstile is IMessagingReceiver {
     function digestMessage(uint64 chainId, ActionType actionType, bytes memory body) external pure returns (bytes32);
 
     /// @notice Quote cross-chain bridge fees for a batch of actions.
-    /// @param actions List of actions (`fare` is ignored).
-    /// @return fares List of cross-chain bridge fees.
-    function quote(Action[] calldata actions) external view returns (uint256[] memory fares);
+    /// @param actions List of actions (`bridgeFee` is ignored).
+    /// @return bridgeFees List of cross-chain bridge fees.
+    function quote(Action[] calldata actions) external view returns (uint256[] memory bridgeFees);
 
     /// @notice Retry a previously failed message.
     /// @param sourceChainId Message's source EVM chainId.

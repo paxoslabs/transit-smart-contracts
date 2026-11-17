@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
-import { MessagingAdapter } from "./MessagingAdapter.sol";
+import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
+import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
@@ -18,6 +19,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         CCIPReceiver(_router)
     { }
 
+    /// @inheritdoc IMessagingAdapter
     function quote(
         uint64 chainId,
         uint64 gasLimit,
@@ -26,7 +28,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         external
         view
         override
-        returns (uint256 fare)
+        returns (uint256 bridgeFee)
     {
         PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
         return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));

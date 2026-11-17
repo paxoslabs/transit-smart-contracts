@@ -1,54 +1,28 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
-import { IMessagingAdapter } from "./IMessagingAdapter.sol";
-import { IMessagingReceiver } from "./IMessagingReceiver.sol";
+import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
+import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
 abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
-    struct PeerConfig {
-        bytes32 peer;
-        uint256 remoteId;
-        uint64 messageGasLimit;
-        uint64 minimumMessageGas;
-        bool allowMessagesFrom;
-        bool allowMessagesTo;
-    }
-
+    /// @inheritdoc IMessagingAdapter
     address public immutable ENDPOINT;
+    /// @inheritdoc IMessagingAdapter
     uint64 public immutable HUB_CHAIN_ID;
 
+    /// @inheritdoc IMessagingAdapter
     mapping(uint64 chainId => PeerConfig) public peers;
+    /// @inheritdoc IMessagingAdapter
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
-
-    event PeerSet(
-        uint64 indexed chainId,
-        bytes32 peer,
-        uint256 remoteId,
-        uint64 messageGasLimit,
-        uint64 minimumMessageGas,
-        bool allowMessagesFrom,
-        bool allowMessagesTo
-    );
-    event PeerRemoved(uint64 indexed chainId);
-    event MessageSent(uint64 indexed chainId, bytes32 indexed messageId, bytes payload);
-    event MessageReceived(uint64 indexed chainId, bytes32 sender, bytes payload);
-
-    error OnlyEndpoint();
-    error PeerNotSet(uint64 chainId);
-    error UnauthorizedPeer(uint64 chainId, bytes32 sender);
-    error ZeroMessageGasLimit();
-    error GasLimitExceeded();
-    error GasTooLow();
-    error MessagesNotAllowedFrom(uint64 chainId);
-    error MessagesNotAllowedTo(uint64 chainId);
 
     constructor(address _authority, address _endpoint, uint64 _hubChainId) AccessManaged(_authority) {
         ENDPOINT = _endpoint;
         HUB_CHAIN_ID = _hubChainId;
     }
 
+    /// @inheritdoc IMessagingAdapter
     function setPeer(
         uint64 chainId,
         bytes32 peer,
@@ -68,25 +42,30 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         emit PeerSet(chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
     }
 
+    /// @inheritdoc IMessagingAdapter
     function removePeer(uint64 chainId) external restricted {
         delete chainIdForRemoteId[peers[chainId].remoteId];
         delete peers[chainId];
         emit PeerRemoved(chainId);
     }
 
+    /// @inheritdoc IMessagingAdapter
     function setAllowMessagesFromChain(uint64 chainId, bool allowed) external restricted {
         peers[chainId].allowMessagesFrom = allowed;
     }
 
+    /// @inheritdoc IMessagingAdapter
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
         peers[chainId].allowMessagesTo = allowed;
     }
 
+    /// @inheritdoc IMessagingAdapter
     function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
         if (messageGasLimit == 0) revert ZeroMessageGasLimit();
         peers[chainId].messageGasLimit = messageGasLimit;
     }
 
+    /// @inheritdoc IMessagingAdapter
     function send(uint64 chainId, uint64 gasLimit, bytes calldata payload)
         external
         payable

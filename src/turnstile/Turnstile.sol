@@ -1,21 +1,35 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { ITurnstile } from "./ITurnstile.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { HubWarehouseConductor } from "../conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../SpokeWarehouse.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { IMessagingAdapter } from "../messaging/IMessagingAdapter.sol";
+import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { ITurnstile } from "src/interfaces/ITurnstile.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
+import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
+import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
 
+/**
+ * @title Turnstile
+ * @notice The single entrypoint for Transit on each chain. Users dispatch actions (deposit, withdrawal, generic call)
+ * directly or through a facilitator with signatures. It takes deposits into the chain's VAULT, releases withdrawals
+ * from it, and routes messages: same-chain messages execute locally, cross-chain ones go through the MessagingAdapter.
+ * @dev Inbound messages are replay-protected by hash. A failed same-chain message reverts its action; a failed
+ * cross-chain message is recorded as Failed for an admin retry, except out-of-gas, which reverts for a bridge retry.
+ * Calls into conductors carry the sender and facilitated flag as a calldata suffix (see _buildTurnstileCallData).
+ * The VAULT approves this contract, so the generic message whitelist must never include token contracts.
+ */
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
-    address public immutable SPOKE_WAREHOUSE;
+    address public immutable VAULT;
 
     /// @inheritdoc ITurnstile
     address public messagingAdapter;
@@ -26,14 +40,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     /// @inheritdoc ITurnstile
     mapping(address target => mapping(bytes4 selector => bool)) public genericMessageWhitelist;
+    /// @inheritdoc ITurnstile
+    mapping(address asset => bool) public assetWhitelisted;
 
-    constructor(address _authority, address _spokeWarehouse) AccessManaged(_authority) {
-        SPOKE_WAREHOUSE = _spokeWarehouse;
+    constructor(address _authority, address _vault) AccessManaged(_authority) {
+        if (_vault == address(0)) revert VaultUnset();
+        VAULT = _vault;
         /// NOTE: messagingAdapter is not set here because MessagingAdapter takes this Turnstile as its immutable
-        /// ENDPOINT, making constructor wiring circular. We could instead check !=0 on ever call as was done before.
-        /// But this saves the check for only on set. And the window between deploy and setting still reverts, just with
-        /// a less convinient error. This is an efficiency gain for no less security but slightly less verbosity that
-        /// should never occur anyways with a deployment script
+        /// ENDPOINT, making constructor wiring circular. We could instead check !=0 on every call as was done before
+        /// but this only provides a more convinient error. And the window between deploy and setting still reverts.
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -52,6 +67,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @inheritdoc ITurnstile
     function setHubWarehouseConductor(address _hubWarehouseConductor) external restricted {
         if (_hubWarehouseConductor.code.length == 0) revert NoCode();
+        if (block.chainid != IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID()) revert NotHubChain();
         hubWarehouseConductor = _hubWarehouseConductor;
         emit HubWarehouseConductorUpdated(_hubWarehouseConductor);
     }
@@ -61,6 +77,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         for (uint256 i; i < selectors.length; i++) {
             genericMessageWhitelist[target][selectors[i]] = allowed;
         }
+        emit GenericMessageWhitelistUpdated(target, selectors, allowed);
+    }
+
+    /// @inheritdoc ITurnstile
+    function setAssetWhitelisted(address[] calldata assets, bool allowed) external restricted {
+        for (uint256 i; i < assets.length; i++) {
+            assetWhitelisted[assets[i]] = allowed;
+        }
+        emit AssetWhitelistUpdated(assets, allowed);
     }
 
     /// @inheritdoc ITurnstile
@@ -82,8 +107,16 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
     /// facilitator.
     /// @inheritdoc ITurnstile
-    function facilitate(Action[] calldata actions, bytes[] calldata signatures) external payable restricted {
-        _dispatch(actions, signatures, true);
+    function facilitate(
+        Action[] calldata actions,
+        bytes[] calldata signatures
+    )
+        external
+        payable
+        restricted
+        returns (bytes32[] memory messageHashes)
+    {
+        messageHashes = _dispatch(actions, signatures, true);
     }
 
     /// @inheritdoc ITurnstile
@@ -110,21 +143,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function hashWithdrawalAction(WithdrawalAction memory action) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    Typehashes.WITHDRAWAL_ACTION,
-                    action.ownerChainId,
-                    action.owner,
-                    action.to,
-                    action.assetId,
-                    action.amount,
-                    action.deadline,
-                    action.partiallyFillable,
-                    action.salt
-                )
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action)));
     }
 
     /// @inheritdoc ITurnstile
@@ -144,12 +163,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     /// @inheritdoc ITurnstile
-    function quote(Action[] calldata actions) external view returns (uint256[] memory fares) {
-        fares = new uint256[](actions.length);
+    function quote(Action[] calldata actions) external view returns (uint256[] memory bridgeFees) {
+        bridgeFees = new uint256[](actions.length);
         for (uint256 i; i < actions.length; i++) {
             if (actions[i].actionType == ActionType.Deposit) {
                 DepositAction memory action = abi.decode(actions[i].data, (DepositAction));
-                fares[i] = _quote(
+                bridgeFees[i] = _quote(
                     IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Deposit,
@@ -157,28 +176,30 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            fromAccountId: TransitTokenLib.formatAccountId(uint64(block.chainid), msg.sender, false),
-                            toAccountId: TransitTokenLib.formatAccountId(action.toChainId, action.to, false),
+                            fromAccountId: TransitAccountLib.formatAccountId(uint64(block.chainid), msg.sender),
+                            toAccountId: TransitAccountLib.formatAccountId(action.toChainId, action.to),
                             salt: action.salt
                         })
                     )
                 );
             } else if (actions[i].actionType == ActionType.Withdrawal) {
                 WithdrawalAction memory action = abi.decode(actions[i].data, (WithdrawalAction));
-                (uint64 assetChainId, address asset) = TransitTokenLib.parseAssetId(action.assetId);
-                fares[i] = _quote(
-                    assetChainId,
+                bridgeFees[i] = _quote(
+                    action.assetChainId,
                     actions[i].messageGas,
                     ActionType.Withdrawal,
                     abi.encode(
                         WithdrawalMessage({
-                            asset: asset, amount: action.amount, to: action.to, salt: hashWithdrawalAction(action)
+                            asset: action.asset,
+                            amount: action.amount,
+                            to: action.to,
+                            salt: hashWithdrawalAction(action)
                         })
                     )
                 );
             } else {
                 GenericAction memory action = abi.decode(actions[i].data, (GenericAction));
-                fares[i] = _quote(
+                bridgeFees[i] = _quote(
                     IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Generic,
@@ -202,15 +223,19 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
         if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
         delete messageStatus[messageHash];
+
+        // _handleMessage will attempt to _execute locally if destChainId == block.chainid which this ensures, so this
+        // will never send another crosschain message
+        _handleMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0);
         emit MessageRetried(sourceChainId, actionType, messageHash);
-        _sendMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0);
     }
 
     // ========================================= ADAPTER ========================================
 
+    /// @inheritdoc IMessagingReceiver
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
-        _sendMessage(chainId, uint64(block.chainid), 0, actionType, body, 0);
+        _handleMessage(chainId, uint64(block.chainid), 0, actionType, body, 0);
     }
 
     function _dispatch(
@@ -219,17 +244,20 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bool facilitated
     )
         internal
+        whenNotPaused
         returns (bytes32[] memory messageHashes)
     {
-        _requireNotPaused();
+        // facilitated: a trusted facilitator submits actions signed by users. Each action's actor is then the
+        // signature's signer rather than msg.sender, and downstream conductors may grant it privileges (e.g. skipping
+        // the one epoch request delay). Unfacilitated actions carry no signatures.
         if (facilitated && actions.length != signatures.length) revert LengthMismatch();
         messageHashes = new bytes32[](actions.length);
-        uint256 totalFare;
+        uint256 totalBridgeFee;
         for (uint256 i; i < actions.length; i++) {
-            totalFare += actions[i].fare;
+            totalBridgeFee += actions[i].bridgeFee;
             messageHashes[i] = _dispatchAction(actions[i], facilitated ? signatures[i] : bytes(""), facilitated);
         }
-        if (totalFare != msg.value) revert FareMismatch();
+        if (totalBridgeFee != msg.value) revert BridgeFeeMismatch();
     }
 
     function _dispatchAction(
@@ -250,10 +278,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
-        /// in Turnstile.
+        /// TODO: Decide what happens to bridgeFee when an expired or empty withdrawal sends no message. Currently it
+        /// stays in Turnstile.
         if (body.length != 0) {
-            messageHash = _sendMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare);
+            messageHash =
+                _handleMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee);
         }
     }
 
@@ -266,18 +295,16 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint64 chainId, bytes memory body)
     {
         DepositAction memory action = abi.decode(actionData, (DepositAction));
+        // For deposits, facilitation only determines who `from` is. It is not propagated in the message.
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
         if (block.timestamp > action.deadline) revert Expired();
-        if (action.permit.deadline != 0) {
-            try SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit) { }
-                catch {
-                // Ignored: a front-run permit fails here but still grants the allowance. No allowance check,
-                // since custody may pull via token allowance or Permit2; it reverts if neither covers amount.
-            }
-        }
-        SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
-        bytes32 fromAccountId = TransitTokenLib.formatAccountId(uint64(block.chainid), from, false);
-        bytes32 toAccountId = TransitTokenLib.formatAccountId(action.toChainId, action.to, false);
+        bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
+        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
+        if (action.amount == 0) revert ZeroAssets();
+        if (!assetWhitelisted[action.asset]) revert AssetNotWhitelisted();
+        if (action.permit.deadline != 0) _permit(from, action.asset, action.amount, action.permit);
+        SafeTransferLib.safeTransferFrom(action.asset, from, VAULT, action.amount);
+        bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             DepositMessage({
@@ -300,17 +327,21 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint64 chainId, bytes memory body)
     {
         WithdrawalAction memory action = abi.decode(actionData, (WithdrawalAction));
-        bytes32 accountId;
+        bytes28 accountId;
         {
+            // Withdrawals are dispatched on the hub, so the owner is always an account on this chain.
             address owner = facilitated ? ECDSA.recover(hashWithdrawalAction(action), signature) : msg.sender;
-            accountId = TransitTokenLib.formatAccountId(uint64(block.chainid), owner, facilitated);
+            accountId = TransitAccountLib.formatAccountId(uint64(block.chainid), owner);
         }
         uint256 amount;
         {
             address handler = hubWarehouseConductor;
             if (handler == address(0)) revert NoHandler();
+            // A facilitated owner may withdraw without a prior request; otherwise the request must be effective.
             (bool ok, bytes memory result) = handler.call(
-                abi.encodePacked(abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), accountId)
+                _buildTurnstileCallData(
+                    abi.encodeCall(HubWarehouseConductor.executeWithdrawal, (action)), accountId, facilitated
+                )
             );
             if (!ok) {
                 assembly {
@@ -320,10 +351,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             amount = abi.decode(result, (uint256));
         }
         if (amount == 0) return (0, "");
-        address asset;
-        (chainId, asset) = TransitTokenLib.parseAssetId(action.assetId);
+        chainId = action.assetChainId;
         body = abi.encode(
-            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action) })
+            WithdrawalMessage({
+                asset: action.asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action)
+            })
         );
     }
 
@@ -338,6 +370,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
+        // The facilitated flag travels in the message body so the hub can forward it to the target.
         body = abi.encode(
             GenericMessage({
                 sender: sender,
@@ -350,13 +383,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    function _sendMessage(
+    function _handleMessage(
         uint64 sourceChainId,
         uint64 destinationChainId,
         uint64 messageGas,
         ActionType actionType,
         bytes memory body,
-        uint256 fare
+        uint256 bridgeFee
     )
         internal
         returns (bytes32 messageHash)
@@ -368,11 +401,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
         if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
-            if (fare != 0) revert NoFare();
-            _executeMessage(sourceChainId, actionType, body);
+            if (bridgeFee != 0) revert NoBridgeFee();
+            _executeMessageLocally(sourceChainId, actionType, body);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
-            IMessagingAdapter(messagingAdapter).send{ value: fare }(
+            IMessagingAdapter(messagingAdapter).send{ value: bridgeFee }(
                 destinationChainId, messageGas, abi.encode(actionType, body)
             );
         }
@@ -396,26 +429,35 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @param chainId Message's source chainId.
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
-    function _executeMessage(uint64 chainId, ActionType actionType, bytes memory body) internal {
-        _requireNotPaused();
-
+    function _executeMessageLocally(uint64 chainId, ActionType actionType, bytes memory body) internal whenNotPaused {
         bytes32 messageHash = digestMessage(chainId, actionType, body);
 
         address target;
         bytes memory data;
         bytes memory result;
+        uint256 gasBefore;
 
         if (actionType == ActionType.Deposit) {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
             target = hubWarehouseConductor;
-            data = abi.encodeCall(
-                HubWarehouseConductor.receiveDeposit,
-                (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
+            data = _buildTurnstileCallData(
+                abi.encodeCall(
+                    HubWarehouseConductor.receiveDeposit,
+                    (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
+                ),
+                message.fromAccountId,
+                false
             );
         } else if (actionType == ActionType.Withdrawal) {
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
-            target = SPOKE_WAREHOUSE;
-            data = abi.encodeCall(SpokeWarehouse.receiveWithdrawal, (message.asset, message.amount, message.to));
+            // Released directly from the VAULT, which has approved this Turnstile. A failed transfer falls through to
+            // the shared failure handling below as a WithdrawalFailed result.
+            gasBefore = gasleft();
+            if (SafeTransferLib.trySafeTransferFrom(message.asset, VAULT, message.to, message.amount)) {
+                emit WithdrawalReleased(message.to, message.asset, message.amount);
+                return;
+            }
+            result = abi.encodeWithSelector(WithdrawalFailed.selector);
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
 
@@ -425,14 +467,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 result = abi.encodeWithSelector(NotWhitelisted.selector);
             } else {
                 target = message.target;
-                // Append accountId to calldata so that it may be used as meta-transaction sender.
-                data = abi.encodePacked(
-                    message.data, TransitTokenLib.formatAccountId(chainId, message.sender, message.facilitated)
+                // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
+                data = _buildTurnstileCallData(
+                    message.data, TransitAccountLib.formatAccountId(chainId, message.sender), message.facilitated
                 );
             }
         }
-
-        uint256 gasBefore;
 
         // If result is set, it's an encoded pre-call error, so skip the call.
         if (result.length == 0) {
@@ -458,6 +498,32 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         // Cross-chain internal errors are tracked internally to allow contract-level retries.
         messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(chainId, actionType, messageHash, body);
+    }
+
+    /// @dev Applies an EIP-2612 permit for this Turnstile. If the permit fails (e.g. front-run), succeeds as long as
+    /// the existing allowance covers the amount.
+    function _permit(address from, address asset, uint256 amount, Permit memory permit_) private {
+        try IERC20Permit(asset)
+            .permit(from, address(this), amount, permit_.deadline, permit_.v, permit_.r, permit_.s) { }
+        catch {
+            if (IERC20(asset).allowance(from, address(this)) < amount) revert PermitFailedAndAllowanceTooLow();
+        }
+    }
+
+    /// @dev Every message-execution or conductor call must build its calldata here. TurnstileGated reads the sender
+    /// from the last 32 bytes whenever msg.sender is the Turnstile, so a call without this suffix would have its
+    /// trailing arguments misread as the sender. Token calls and typed calls to the MessagingAdapter (not
+    /// TurnstileGated) are exempt.
+    function _buildTurnstileCallData(
+        bytes memory data,
+        bytes28 accountId,
+        bool facilitated
+    )
+        private
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(data, accountId, facilitated ? FACILITATED_FLAG : bytes4(0));
     }
 
 }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 
 contract MockMessagingAdapter is MessagingAdapter {
 
     bytes[] public sent;
-    uint256 public fare;
+    uint256 public bridgeFee;
 
     constructor(
         address _authority,
@@ -17,11 +17,11 @@ contract MockMessagingAdapter is MessagingAdapter {
     { }
 
     function quote(uint64, uint64, bytes calldata) external view override returns (uint256) {
-        return fare;
+        return bridgeFee;
     }
 
-    function setFare(uint256 _fare) external {
-        fare = _fare;
+    function setBridgeFee(uint256 _bridgeFee) external {
+        bridgeFee = _bridgeFee;
     }
 
     function pending() external view returns (bytes[] memory) {

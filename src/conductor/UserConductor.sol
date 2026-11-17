@@ -1,72 +1,56 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
-import { IDepot } from "../depot/IDepot.sol";
-import { Typehashes } from "../helpers/Typehashes.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { RequestConductor } from "./RequestConductor.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { Typehashes } from "src/helpers/Typehashes.sol";
+import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { RequestConductor } from "src/conductor/RequestConductor.sol";
+import { IUserConductor } from "src/interfaces/IUserConductor.sol";
 
-contract UserConductor is RequestConductor {
-
-    struct TransferRequest {
-        uint64 ownerChainId;
-        address owner;
-        uint64 toChainId;
-        address to;
-        bytes32 assetId;
-        uint256 amount;
-        uint256 deadline;
-        bool partiallyFillable;
-        bytes32 salt;
-    }
-
-    event TransferExecuted(bytes32 indexed requestId, uint256 amount);
-
-    error ZeroAddress();
+/**
+ * @title UserConductor
+ * @notice Lets users move their own Depot balances between accounts, including to accounts on other chains, without
+ * leaving the ledger. A transfer is requested, waits one epoch, then may be executed by anyone.
+ * @dev Built on RequestConductor: the request reserves the funds, and execution transfers up to the executable
+ * amount. Expired requests are consumed without moving funds.
+ */
+contract UserConductor is IUserConductor, RequestConductor {
 
     constructor(address _depot, address _turnstile) RequestConductor(_depot, _turnstile) { }
 
+    /// @inheritdoc IUserConductor
     function requestTransfer(TransferRequest calldata request) external {
-        _request(request.ownerChainId, request.owner, digestTransferRequest(request), request.assetId, request.amount);
+        _request(
+            TransitAccountLib.formatAccountId(request.ownerChainId, request.owner),
+            digestTransferRequest(request),
+            TransitAccountLib.formatAccountId(request.assetChainId, request.asset),
+            request.amount
+        );
     }
 
+    /// @inheritdoc IUserConductor
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
-        bytes32 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
+        bytes28 accountId = TransitAccountLib.formatAccountId(request.ownerChainId, request.owner);
+        bytes28 assetId = TransitAccountLib.formatAccountId(request.assetChainId, request.asset);
+        _consume(accountId, requestId, assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
             emit RequestExpired(requestId);
             return;
         }
 
-        uint256 amount = _fillAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
+        uint256 amount = _executableAmount(accountId, assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
-            .transferFrom(
-                accountId,
-                TransitTokenLib.formatAccountId(request.toChainId, request.to, false),
-                request.assetId,
-                amount
-            );
+            .transferFrom(accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), assetId, amount);
 
         emit TransferExecuted(requestId, amount);
     }
 
+    /// @inheritdoc IUserConductor
     function digestTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                Typehashes.TRANSFER_REQUEST,
-                request.ownerChainId,
-                request.owner,
-                request.toChainId,
-                request.to,
-                request.assetId,
-                request.amount,
-                request.deadline,
-                request.partiallyFillable,
-                request.salt
-            )
-        );
+        return keccak256(abi.encode(Typehashes.TRANSFER_REQUEST, request));
     }
 
 }

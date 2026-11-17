@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { dispatchOne } from "./helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
@@ -7,15 +7,16 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { RequestConductor } from "../src/conductor/RequestConductor.sol";
 import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
 import { TransitAuthority } from "../src/TransitAuthority.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
 import { Depot } from "../src/depot/Depot.sol";
+import { AddressFreezeList } from "../src/AddressFreezeList.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
-import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
-import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
-import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
+import { TransitAccountLib } from "../src/helpers/TransitAccountLib.sol";
+import { IMessagingAdapter } from "../src/interfaces/IMessagingAdapter.sol";
+import { ITurnstile } from "../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../src/turnstile/Turnstile.sol";
 import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
 import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
@@ -58,7 +59,6 @@ contract TransitTestBase is Test {
     HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => SpokeWarehouse) warehouses;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -91,7 +91,7 @@ contract TransitTestBase is Test {
         spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
-            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient, false),
+            TransitAccountLib.formatAccountId(hubChainId, surplusRecipient),
             address(turnstile)
         );
         _grantSpotSwapConductorRole();
@@ -104,10 +104,9 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
-        Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
+        Turnstile chainTurnstile = new Turnstile(address(authority), vault);
         if (chain == hubChainId) {
-            depot = new Depot(address(authority));
+            depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
             turnstile = chainTurnstile;
         }
         MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
@@ -118,7 +117,6 @@ contract TransitTestBase is Test {
         }
 
         authorities[chain] = authority;
-        warehouses[chain] = warehouse;
         turnstiles[chain] = chainTurnstile;
         adapters[chain] = adapter;
 
@@ -144,19 +142,9 @@ contract TransitTestBase is Test {
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        SpokeWarehouse warehouse = warehouses[chain];
-
-        bytes4[] memory adminSels = new bytes4[](1);
-        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
-
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
-
-        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
-        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
-        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
@@ -166,9 +154,7 @@ contract TransitTestBase is Test {
         peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, Roles.PAUSER);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, Roles.ADMIN);
 
         authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]));
@@ -200,10 +186,11 @@ contract TransitTestBase is Test {
         receiveSels[0] = Turnstile.receiveMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, Roles.MESSAGING_ADAPTER);
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](3);
+        bytes4[] memory turnstileAdminSels = new bytes4[](4);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
+        turnstileAdminSels[3] = Turnstile.setAssetWhitelisted.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, Roles.ADMIN);
 
         authority.grantRole(Roles.TURNSTILE, address(chainTurnstile));
@@ -211,13 +198,12 @@ contract TransitTestBase is Test {
     }
 
     function _wireDepot(TransitAuthority authority) internal {
-        bytes4[] memory userConductorSels = new bytes4[](6);
+        bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
-        userConductorSels[5] = Depot.priorityTransferFrom.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
         authority.grantRole(Roles.CONDUCTOR, address(userConductor));
         authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
@@ -276,7 +262,7 @@ contract TransitTestBase is Test {
         vm.startPrank(vault);
         for (uint256 i; i < assets.length; i++) {
             if (address(assets[i]) == address(0)) continue;
-            SafeTransferLib.safeApprove(address(assets[i]), address(warehouses[chain]), type(uint256).max);
+            SafeTransferLib.safeApprove(address(assets[i]), address(turnstiles[chain]), type(uint256).max);
         }
         vm.stopPrank();
 
@@ -285,7 +271,7 @@ contract TransitTestBase is Test {
             if (address(assets[i]) == address(0)) continue;
             address[] memory list = new address[](1);
             list[0] = address(assets[i]);
-            warehouses[chain].setAssetWhitelisted(list, true);
+            turnstiles[chain].setAssetWhitelisted(list, true);
         }
         vm.stopPrank();
     }
@@ -337,8 +323,8 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitTokenLib.formatAccountId(hubChainId, user, false),
-            TransitTokenLib.formatAssetId(assetChain, address(asset))
+            TransitAccountLib.formatAccountId(hubChainId, user),
+            TransitAccountLib.formatAccountId(assetChain, address(asset))
         );
     }
 
@@ -346,7 +332,7 @@ contract TransitTestBase is Test {
         _selectChain(chain);
         deal(address(asset), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
+        SafeTransferLib.safeApprove(address(asset), address(turnstiles[chain]), amount);
         dispatchOne(
             turnstiles[chain],
             ITurnstile.ActionType.Deposit,
@@ -392,7 +378,7 @@ contract TransitTestBase is Test {
         actions[0] = ITurnstile.Action({
             actionType: ITurnstile.ActionType.Withdrawal,
             data: abi.encode(request),
-            fare: 0,
+            bridgeFee: 0,
             messageGas: _messageGas(hubChainId)
         });
         bytes[] memory signatures = new bytes[](1);
@@ -416,7 +402,8 @@ contract TransitTestBase is Test {
             ownerChainId: hubChainId,
             owner: user,
             to: user,
-            assetId: TransitTokenLib.formatAssetId(chain, address(asset)),
+            assetChainId: chain,
+            asset: address(asset),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
@@ -434,7 +421,7 @@ contract TransitTestBase is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(SpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
+    function _signOrder(ISpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapConductor.hashOrder(order));
         return abi.encodePacked(r, s, v);
     }

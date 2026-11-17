@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
-import { IDepot } from "./IDepot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { IDepotTimelock } from "src/interfaces/IDepotTimelock.sol";
 
-contract DepotTimelock is TimelockController {
+/**
+ * @title DepotTimelock
+ * @notice Timelock intended to hold admin power over the Depot system (e.g. the AccessManager admin), proposed and
+ * executed by the admin multisig. Delayed execution gives users a window to exit before governance changes apply.
+ * @dev Every execution advances the settlement epoch, so an in-flight settle tx reverts BadEpoch and the solver must
+ * observe the change before resubmitting. Signed orders are unaffected and remain valid under the new rules; users who
+ * object must cancel during the delay. Requires a role permitting advanceEpoch. Side effect: actions waiting on the
+ * next epoch (reservations, requests, cancellations) take effect one batch early.
+ */
+contract DepotTimelock is IDepotTimelock, TimelockController {
 
+    /// @inheritdoc IDepotTimelock
     address public immutable DEPOT;
 
     constructor(
@@ -20,6 +31,7 @@ contract DepotTimelock is TimelockController {
         DEPOT = _depot;
     }
 
+    /// @notice Executes a ready operation, then advances the Depot epoch.
     function execute(
         address target,
         uint256 value,
@@ -32,9 +44,10 @@ contract DepotTimelock is TimelockController {
         override
     {
         super.execute(target, value, payload, predecessor, salt);
-        IDepot(DEPOT).advanceEpoch(IDepot(DEPOT).settlementEpoch());
+        IDepot(DEPOT).advanceEpoch();
     }
 
+    /// @notice Executes a ready batch operation, then advances the Depot epoch.
     function executeBatch(
         address[] calldata targets,
         uint256[] calldata values,
@@ -47,7 +60,7 @@ contract DepotTimelock is TimelockController {
         override
     {
         super.executeBatch(targets, values, payloads, predecessor, salt);
-        IDepot(DEPOT).advanceEpoch(IDepot(DEPOT).settlementEpoch());
+        IDepot(DEPOT).advanceEpoch();
     }
 
 }
