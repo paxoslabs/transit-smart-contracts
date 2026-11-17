@@ -3,11 +3,15 @@ pragma solidity ^0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { ADMIN_ROLE } from "../helpers/Constants.sol";
+import { Roles } from "./helpers/Roles.sol";
 
 contract TransitAuthority is AccessControlEnumerable {
 
     using Address for address;
+
+    // Predicate's freeze manager on all EVM chains, granted Roles.FREEZE_MANAGER to enforce Asset Compliance
+    // freezes on TransitPolice. See https://docs.predicate.io/v2/assets/get-started
+    address constant PREDICATE_FREEZE_MANAGER = 0x363c256D368277BBFaf6EaF65beE123a7AdbA464;
 
     mapping(address target => mapping(bytes4 selector => bytes32 role)) public roleOf;
 
@@ -16,7 +20,8 @@ contract TransitAuthority is AccessControlEnumerable {
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(ADMIN_ROLE, admin);
+        _grantRole(Roles.ADMIN, admin);
+        _grantRole(Roles.FREEZE_MANAGER, PREDICATE_FREEZE_MANAGER);
     }
 
     function canCall(address caller, address target, bytes4 selector) external view returns (bool) {

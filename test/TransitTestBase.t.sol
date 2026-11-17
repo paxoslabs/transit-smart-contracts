@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
+import { dispatchOne } from "./helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { Terminal } from "../src/Terminal.sol";
-import { TransitAuthority } from "../src/warehouse/TransitAuthority.sol";
-import { Warehouse } from "../src/warehouse/Warehouse.sol";
-import { WarehouseToken } from "../src/warehouse/WarehouseToken.sol";
-import { WarehouseCrosschainModule } from "../src/warehouse/crosschain/WarehouseCrosschainModule.sol";
-import { MockCrosschainModule } from "./mocks/MockCrosschainModule.sol";
-import {
-    ADMIN_ROLE,
-    PAUSER_ROLE,
-    WAREHOUSE_ROLE,
-    CROSSCHAIN_MODULE_ROLE,
-    SOLVER_ROLE
-} from "../src/helpers/Constants.sol";
+import { RequestConductor } from "../src/conductor/RequestConductor.sol";
+import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
+import { SwapConductor } from "../src/conductor/SwapConductor.sol";
+import { TransitAuthority } from "../src/TransitAuthority.sol";
+import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
+import { SpokeWarehouse } from "../src/SpokeWarehouse.sol";
+import { Depot } from "../src/depot/Depot.sol";
+import { UserConductor } from "../src/conductor/UserConductor.sol";
+import { TransitTokenLib } from "../src/helpers/TransitTokenLib.sol";
+import { IMessagingAdapter } from "../src/messaging/IMessagingAdapter.sol";
+import { ITurnstile } from "../src/turnstile/ITurnstile.sol";
+import { Turnstile } from "../src/turnstile/Turnstile.sol";
+import { MessagingAdapter } from "../src/messaging/MessagingAdapter.sol";
+import { MockMessagingAdapter } from "./mocks/MockMessagingAdapter.sol";
+import { Roles } from "../src/helpers/Roles.sol";
 
 contract TransitTestBase is Test {
 
@@ -37,24 +40,27 @@ contract TransitTestBase is Test {
     uint256 alicePk;
     address bob;
     uint256 bobPk;
-    address withdrawSigner;
-    uint256 withdrawSignerPk;
     address admin;
     uint256 adminPk;
     address solver;
     uint256 solverPk;
     address vault;
     uint256 vaultPk;
+    address surplusRecipient;
 
     uint64[] spokeIDs;
-    uint64 hubID;
-    uint256 withdrawNonce;
+    uint64 hubChainId;
+    uint256 withdrawSalt;
 
-    Terminal terminal;
+    SpotSwapConductor spotSwapConductor;
+    Depot depot;
+    UserConductor userConductor;
+    HubWarehouseConductor hubWarehouseConductor;
+    Turnstile turnstile;
     mapping(uint64 => TransitAuthority) authorities;
-    mapping(uint64 => Warehouse) warehouses;
-    mapping(uint64 => MockCrosschainModule) modules;
-    mapping(uint64 onChain => mapping(uint64 assetChain => mapping(ERC20 => WarehouseToken))) tokenOf;
+    mapping(uint64 => SpokeWarehouse) warehouses;
+    mapping(uint64 => Turnstile) turnstiles;
+    mapping(uint64 => MockMessagingAdapter) adapters;
 
     mapping(uint64 => uint256) forkOf;
 
@@ -65,27 +71,32 @@ contract TransitTestBase is Test {
     }
 
     function _initTransit(uint64 _hubID, uint64[] memory _spokeIDs) internal {
-        hubID = _hubID;
+        hubChainId = _hubID;
         spokeIDs = _spokeIDs;
 
         _initChainConfigs();
         _initUsers();
 
-        _createFork(hubID);
+        _createFork(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _createFork(spokeIDs[i]);
         }
 
-        _deployCore(hubID);
+        _deployCore(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _deployCore(spokeIDs[i]);
         }
 
-        _selectChain(hubID);
-        terminal = new Terminal();
+        _selectChain(hubChainId);
+        spotSwapConductor = new SpotSwapConductor(
+            address(authorities[hubChainId]),
+            address(depot),
+            TransitTokenLib.formatAccountId(hubChainId, surplusRecipient, false),
+            address(turnstile)
+        );
+        _grantSpotSwapConductorRole();
 
         _wireChains();
-        _launchTransitTokens();
         _approveVault();
     }
 
@@ -93,12 +104,23 @@ contract TransitTestBase is Test {
         _selectChain(chain);
 
         TransitAuthority authority = new TransitAuthority(admin);
-        Warehouse warehouse = new Warehouse(address(authority), hubID, vault);
-        MockCrosschainModule module = new MockCrosschainModule(address(authority), address(warehouse));
+        SpokeWarehouse warehouse = new SpokeWarehouse(address(authority), vault);
+        Turnstile chainTurnstile = new Turnstile(address(authority), address(warehouse));
+        if (chain == hubChainId) {
+            depot = new Depot(address(authority));
+            turnstile = chainTurnstile;
+        }
+        MockMessagingAdapter adapter = new MockMessagingAdapter(address(authority), address(chainTurnstile), hubChainId);
+        if (chain == hubChainId) {
+            userConductor = new UserConductor(address(depot), address(chainTurnstile));
+            hubWarehouseConductor =
+                new HubWarehouseConductor(address(authority), address(depot), address(chainTurnstile));
+        }
 
         authorities[chain] = authority;
         warehouses[chain] = warehouse;
-        modules[chain] = module;
+        turnstiles[chain] = chainTurnstile;
+        adapters[chain] = adapter;
 
         _grantRoles(chain);
     }
@@ -106,97 +128,141 @@ contract TransitTestBase is Test {
     function _wireChains() internal {
         for (uint256 i; i < spokeIDs.length; i++) {
             uint64 spoke = spokeIDs[i];
-            _addRoute(spoke, hubID, address(modules[hubID]));
-            _addRoute(hubID, spoke, address(modules[spoke]));
+            _addRoute(spoke, hubChainId, address(adapters[hubChainId]));
+            _addRoute(hubChainId, spoke, address(adapters[spoke]));
         }
     }
 
-    function _addRoute(uint64 onChain, uint64 remoteChain, address remoteModule) internal {
+    function _addRoute(uint64 onChain, uint64 remoteChain, address remoteAdapter) internal {
         _selectChain(onChain);
         vm.startPrank(admin);
-        warehouses[onChain].addChain(remoteChain, true, true, 200_000, 0);
-        modules[onChain].setPeer(remoteChain, bytes32(uint256(uint160(remoteModule))), remoteChain);
+        adapters[onChain].setPeer(
+            remoteChain, bytes32(uint256(uint160(remoteAdapter))), remoteChain, 200_000, 0, true, true
+        );
         vm.stopPrank();
     }
 
     function _grantRoles(uint64 chain) internal {
         TransitAuthority authority = authorities[chain];
-        Warehouse warehouse = warehouses[chain];
+        SpokeWarehouse warehouse = warehouses[chain];
 
-        bytes4[] memory adminSels = new bytes4[](8);
-        adminSels[0] = Warehouse.launchToken.selector;
-        adminSels[1] = Warehouse.setTokenConfig.selector;
-        adminSels[2] = Warehouse.setWithdrawSigner.selector;
-        adminSels[3] = Warehouse.setSendModule.selector;
-        adminSels[4] = Warehouse.addChain.selector;
-        adminSels[5] = Warehouse.setChainGasLimit.selector;
-        adminSels[6] = Warehouse.setAllowMessagesFromChain.selector;
-        adminSels[7] = Warehouse.setAllowMessagesToChain.selector;
+        bytes4[] memory adminSels = new bytes4[](1);
+        adminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
 
-        bytes4[] memory pauseSels = new bytes4[](1);
-        pauseSels[0] = Warehouse.setPaused.selector;
+        bytes4[] memory pauseSels = new bytes4[](2);
+        pauseSels[0] = Turnstile.pause.selector;
+        pauseSels[1] = Turnstile.unpause.selector;
 
-        bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Warehouse.receiveMessage.selector;
+        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
+        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
+        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
+        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
 
-        bytes4[] memory peerSels = new bytes4[](1);
-        peerSels[0] = WarehouseCrosschainModule.setPeer.selector;
+        bytes4[] memory peerSels = new bytes4[](5);
+        peerSels[0] = MessagingAdapter.setPeer.selector;
+        peerSels[1] = MessagingAdapter.setChainGasLimit.selector;
+        peerSels[2] = MessagingAdapter.removePeer.selector;
+        peerSels[3] = MessagingAdapter.setAllowMessagesFromChain.selector;
+        peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), adminSels, ADMIN_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), pauseSels, PAUSER_ROLE);
-        authority.setTargetFunctionRole(address(warehouse), receiveSels, CROSSCHAIN_MODULE_ROLE);
-        authority.setTargetFunctionRole(address(modules[chain]), peerSels, ADMIN_ROLE);
+        authority.setTargetFunctionRole(address(warehouse), adminSels, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, Roles.PAUSER);
+        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
+        authority.setTargetFunctionRole(address(adapters[chain]), peerSels, Roles.ADMIN);
 
-        authority.grantRole(WAREHOUSE_ROLE, address(warehouse));
-        authority.grantRole(CROSSCHAIN_MODULE_ROLE, address(modules[chain]));
-        authority.grantRole(PAUSER_ROLE, admin);
-        authority.grantRole(SOLVER_ROLE, solver);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]));
+        authority.grantRole(Roles.PAUSER, admin);
+        authority.grantRole(Roles.SOLVER, solver);
 
-        warehouse.setSendModule(modules[chain]);
-        warehouse.setWithdrawSigner(withdrawSigner);
+        _wireTurnstile(chain);
+
+        if (chain == hubChainId) {
+            _wireDepot(authority);
+
+            bytes4[] memory facilitateSels = new bytes4[](1);
+            facilitateSels[0] = Turnstile.facilitate.selector;
+            authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
+
+            bytes4[] memory depotPauseSels = new bytes4[](2);
+            depotPauseSels[0] = Depot.pause.selector;
+            depotPauseSels[1] = Depot.unpause.selector;
+            authority.setTargetFunctionRole(address(depot), depotPauseSels, Roles.PAUSER);
+        }
         vm.stopPrank();
     }
 
-    function _launchTransitTokens() internal {
-        _launchTokensFor(hubID);
-        for (uint256 i; i < spokeIDs.length; i++) {
-            _launchTokensFor(spokeIDs[i]);
-        }
+    function _wireTurnstile(uint64 chain) internal {
+        TransitAuthority authority = authorities[chain];
+        Turnstile chainTurnstile = turnstiles[chain];
+
+        bytes4[] memory receiveSels = new bytes4[](1);
+        receiveSels[0] = Turnstile.receiveMessage.selector;
+        authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, Roles.MESSAGING_ADAPTER);
+
+        bytes4[] memory turnstileAdminSels = new bytes4[](3);
+        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
+        turnstileAdminSels[1] = Turnstile.setRoutable.selector;
+        turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
+        authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, Roles.ADMIN);
+
+        authority.grantRole(Roles.TURNSTILE, address(chainTurnstile));
+        chainTurnstile.setMessagingAdapter(address(adapters[chain]));
     }
 
-    function _launchTokensFor(uint64 chain) internal {
-        ChainConfig storage config = chainConfig[chain];
-        _launchToken(chain, config.usdc);
-        _launchToken(chain, config.usdg);
-        _launchToken(chain, config.usdt);
+    function _wireDepot(TransitAuthority authority) internal {
+        bytes4[] memory userConductorSels = new bytes4[](6);
+        userConductorSels[0] = Depot.reserve.selector;
+        userConductorSels[1] = Depot.release.selector;
+        userConductorSels[2] = Depot.transferFrom.selector;
+        userConductorSels[3] = Depot.burn.selector;
+        userConductorSels[4] = Depot.mint.selector;
+        userConductorSels[5] = Depot.priorityTransferFrom.selector;
+        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
+        bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
+        hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
+        turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
+
+        bytes4[] memory routedSels = new bytes4[](1);
+        routedSels[0] = UserConductor.requestTransfer.selector;
+        turnstile.setRoutable(address(userConductor), routedSels, true);
+
+        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
+        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
+        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
     }
 
-    function _launchToken(uint64 chain, ERC20 asset) internal {
-        if (address(asset) == address(0)) return;
+    function _grantSpotSwapConductorRole() internal {
+        bytes4[] memory moveSels = new bytes4[](2);
+        moveSels[0] = Depot.transferFrom.selector;
+        moveSels[1] = Depot.transferAmong.selector;
 
-        _selectChain(chain);
-        string memory symbol = asset.symbol();
-        uint8 decimals = asset.decimals();
+        bytes4[] memory epochSels = new bytes4[](1);
+        epochSels[0] = Depot.advanceEpoch.selector;
 
-        Warehouse.BridgeData memory data = chain == hubID
-            ? Warehouse.BridgeData(0, address(0), ERC20(address(0)), 0, "")
-            : Warehouse.BridgeData(hubID, address(0), ERC20(address(0)), 200_000, "");
+        vm.startPrank(admin);
+        authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, Roles.CONDUCTOR);
+        authorities[hubChainId].grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
+        authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
+        authorities[hubChainId].grantRole(Roles.EPOCH, address(spotSwapConductor));
 
-        vm.prank(admin);
-        WarehouseToken token = warehouses[chain].launchToken(asset, symbol, decimals, data);
-        tokenOf[chain][chain][asset] = token;
+        bytes4[] memory settleSels = new bytes4[](1);
+        settleSels[0] = SpotSwapConductor.settle.selector;
+        authorities[hubChainId].setTargetFunctionRole(address(spotSwapConductor), settleSels, Roles.SOLVER);
 
-        bytes4[] memory sels = new bytes4[](2);
-        sels[0] = WarehouseToken.enter.selector;
-        sels[1] = WarehouseToken.exit.selector;
-
-        vm.prank(admin);
-        authorities[chain].setTargetFunctionRole(address(token), sels, WAREHOUSE_ROLE);
+        bytes4[] memory routedSels = new bytes4[](2);
+        routedSels[0] = SpotSwapConductor.preApprove.selector;
+        routedSels[1] = SwapConductor.requestOrderCancellation.selector;
+        turnstile.setRoutable(address(spotSwapConductor), routedSels, true);
+        vm.stopPrank();
     }
 
     function _approveVault() internal {
-        _approveVaultOn(hubID);
+        _approveVaultOn(hubChainId);
         for (uint256 i; i < spokeIDs.length; i++) {
             _approveVaultOn(spokeIDs[i]);
         }
@@ -210,9 +276,16 @@ contract TransitTestBase is Test {
         vm.startPrank(vault);
         for (uint256 i; i < assets.length; i++) {
             if (address(assets[i]) == address(0)) continue;
-            WarehouseToken token = tokenOf[chain][chain][assets[i]];
-            if (address(token) == address(0)) continue;
-            SafeTransferLib.safeApprove(address(assets[i]), address(token), type(uint256).max);
+            SafeTransferLib.safeApprove(address(assets[i]), address(warehouses[chain]), type(uint256).max);
+        }
+        vm.stopPrank();
+
+        vm.startPrank(admin);
+        for (uint256 i; i < assets.length; i++) {
+            if (address(assets[i]) == address(0)) continue;
+            address[] memory list = new address[](1);
+            list[0] = address(assets[i]);
+            warehouses[chain].setAssetWhitelisted(list, true);
         }
         vm.stopPrank();
     }
@@ -252,35 +325,54 @@ contract TransitTestBase is Test {
     function _initUsers() internal {
         (alice, alicePk) = makeAddrAndKey("alice");
         (bob, bobPk) = makeAddrAndKey("bob");
-        (withdrawSigner, withdrawSignerPk) = makeAddrAndKey("withdrawSigner");
         (admin, adminPk) = makeAddrAndKey("admin");
         (solver, solverPk) = makeAddrAndKey("solver");
         (vault, vaultPk) = makeAddrAndKey("vault");
+        surplusRecipient = makeAddr("surplusRecipient");
     }
 
     function _vaultOf(uint64) internal view returns (address) {
         return vault;
     }
 
-    function _hubToken(uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
-        return tokenOf[hubID][assetChain][asset];
-    }
-
-    function _tokenOn(uint64 onChain, uint64 assetChain, ERC20 asset) internal view returns (ERC20) {
-        return tokenOf[onChain][assetChain][asset];
+    function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
+        return depot.balanceOf(
+            TransitTokenLib.formatAccountId(hubChainId, user, false),
+            TransitTokenLib.formatAssetId(assetChain, address(asset))
+        );
     }
 
     function _depositOnChain(address user, uint256 amount, ERC20 asset, uint64 chain) internal {
         _selectChain(chain);
         deal(address(asset), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(asset), address(tokenOf[chain][chain][asset]), amount);
-        warehouses[chain].deposit(asset, amount, user);
+        SafeTransferLib.safeApprove(address(asset), address(warehouses[chain]), amount);
+        dispatchOne(
+            turnstiles[chain],
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    asset: address(asset),
+                    amount: amount,
+                    toChainId: hubChainId,
+                    to: user,
+                    deadline: type(uint256).max,
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            _messageGas(chain)
+        );
         vm.stopPrank();
+    }
+
+    function _messageGas(uint64 chain) internal view returns (uint64) {
+        return chain == hubChainId ? 0 : 200_000;
     }
 
     function _withdrawOnChain(
         address user,
+        uint256 userPk,
         uint256 amount,
         ERC20 asset,
         uint64 chain,
@@ -290,56 +382,61 @@ contract TransitTestBase is Test {
         returns (bytes32 withdrawId)
     {
         require(shouldBeAtomic, "only signed withdraws are supported");
-        require(chain == hubID, "can only atomically withdraw on Hub");
+        require(chain == hubChainId, "can only atomically withdraw on Depot");
 
-        _selectChain(hubID);
-        Warehouse.WithdrawRequest memory request = _withdrawRequestFor(user, amount, asset, chain);
-        bytes memory validSignature = _signWithdraw(request, withdrawSignerPk);
+        _selectChain(hubChainId);
+        ITurnstile.WithdrawalAction memory request = _withdrawalActionFor(user, amount, asset, chain);
+        bytes memory validSignature = _signWithdraw(request, userPk);
 
-        vm.prank(user);
-        withdrawId = warehouses[hubID].withdrawWithSignature(request, validSignature);
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Withdrawal,
+            data: abi.encode(request),
+            fare: 0,
+            messageGas: _messageGas(hubChainId)
+        });
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = validSignature;
+
+        vm.prank(solver);
+        turnstile.facilitate(actions, signatures);
+        withdrawId = hubWarehouseConductor.hashWithdrawalAction(request);
     }
 
-    function _withdrawRequestFor(
+    function _withdrawalActionFor(
         address user,
         uint256 amount,
         ERC20 asset,
         uint64 chain
     )
         internal
-        returns (Warehouse.WithdrawRequest memory)
+        returns (ITurnstile.WithdrawalAction memory)
     {
-        return Warehouse.WithdrawRequest({
+        return ITurnstile.WithdrawalAction({
+            ownerChainId: hubChainId,
             owner: user,
-            asset: asset,
-            assetChainId: chain,
-            amount: amount,
             to: user,
-            nonce: ++withdrawNonce,
-            deadline: block.timestamp + 1 days
+            assetId: TransitTokenLib.formatAssetId(chain, address(asset)),
+            amount: amount,
+            deadline: type(uint256).max,
+            partiallyFillable: true,
+            salt: bytes32(++withdrawSalt)
         });
     }
 
-    function _signWithdraw(Warehouse.WithdrawRequest memory request, uint256 pk) internal view returns (bytes memory) {
-        bytes32 digest = warehouses[hubID].hashWithdrawRequest(request);
+    function _signWithdraw(ITurnstile.WithdrawalAction memory request, uint256 pk)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 digest = turnstile.hashWithdrawalAction(request);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function _signOrder(Terminal.Order memory order, uint256 pk) internal view returns (Terminal.SignedOrder memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                terminal.ORDER_TYPEHASH(),
-                order.sellToken,
-                order.buyToken,
-                order.sellAmount,
-                order.buyAmount,
-                order.receiver
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", terminal.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
-        return Terminal.SignedOrder(order, abi.encodePacked(r, s, v));
+    function _signOrder(SpotSwapConductor.Order memory order, uint256 pk) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, spotSwapConductor.hashOrder(order));
+        return abi.encodePacked(r, s, v);
     }
 
 }

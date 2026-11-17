@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.37;
 
-import { WarehouseCrosschainModule } from "../../src/warehouse/crosschain/WarehouseCrosschainModule.sol";
+import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 
-contract MockCrosschainModule is WarehouseCrosschainModule {
+contract MockMessagingAdapter is MessagingAdapter {
 
     bytes[] public sent;
-    uint256 public fee;
+    uint256 public fare;
 
-    constructor(address _authority, address _warehouse) WarehouseCrosschainModule(_authority, _warehouse) { }
+    constructor(
+        address _authority,
+        address _endpoint,
+        uint64 _hubChainId
+    )
+        MessagingAdapter(_authority, _endpoint, _hubChainId)
+    { }
 
     function quote(uint64, uint64, bytes calldata) external view override returns (uint256) {
-        return fee;
+        return fare;
     }
 
-    function setFee(uint256 _fee) external {
-        fee = _fee;
+    function setFare(uint256 _fare) external {
+        fare = _fare;
     }
 
     function pending() external view returns (bytes[] memory) {
