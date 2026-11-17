@@ -28,7 +28,7 @@ library Typehashes {
     );
     /// @dev EIP-712 type hash for a DelayedSettlementSwapConductor order.
     bytes32 internal constant DELAYED_SETTLEMENT_ORDER = keccak256(
-        "DelayedSettlementOrder(uint64 ownerChainId,address owner,uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool delayedSettlement,uint256 settlementPeriod,bytes32 salt)"
+        "DelayedSettlementOrder(uint64 ownerChainId,address owner,uint64 sellTokenChainId,address sellToken,uint64 buyTokenChainId,address buyToken,uint256 sellAmount,uint256 buyAmount,uint64 receiverChainId,address receiver,uint256 expiresAt,bool partiallyFillable,bool collateralized,uint256 settlementPeriod,bytes32 salt)"
     );
 
 }

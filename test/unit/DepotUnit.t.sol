@@ -20,7 +20,7 @@ import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
 import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
 import { ISwapConductor } from "../../src/interfaces/ISwapConductor.sol";
 import { IUserConductor } from "../../src/interfaces/IUserConductor.sol";
@@ -557,11 +557,11 @@ contract DepotUnitTest is Test {
     }
 
     function _depotBalance(address user) internal view returns (uint256) {
-        return depot.balanceOf(_account(user), TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc)));
+        return depot.balanceOf(_account(user), TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc)));
     }
 
     function _account(address user) internal pure returns (bytes28) {
-        return TransitAccountLib.formatAccountId(HUB_CHAIN_ID, user);
+        return TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, user);
     }
 
 }

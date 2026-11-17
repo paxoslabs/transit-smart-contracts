@@ -21,8 +21,10 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
     /// @param receiver Receiver's account address.
     /// @param expiresAt Timestamp; the order cannot be filled in an epoch that started at or after it.
     /// @param partiallyFillable Whether the order may be filled in parts.
-    /// @param delayedSettlement Whether the owner pays later, posting amount / FILL_RATIO as collateral now.
-    /// @param settlementPeriod Time the owner has to pay a delayed settlement, at most MAX_SETTLEMENT_PERIOD.
+    /// @param collateralized Whether the owner posts only amount / FILL_RATIO as collateral now and pays the rest
+    /// within settlementPeriod. False means the full amount is escrowed at fill.
+    /// @param settlementPeriod Time the owner of a collateralized order has to pay the rest, at most
+    /// MAX_SETTLEMENT_PERIOD.
     /// @param salt User-set salt to disambiguate otherwise identical orders.
     struct DelayedSettlementOrder {
         uint64 ownerChainId;
@@ -37,7 +39,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
         address receiver;
         uint256 expiresAt;
         bool partiallyFillable;
-        bool delayedSettlement;
+        bool collateralized;
         uint256 settlementPeriod;
         bytes32 salt;
     }

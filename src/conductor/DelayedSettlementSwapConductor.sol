@@ -11,8 +11,9 @@ import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettleme
 /**
  * @title DelayedSettlementSwapConductor
  * @notice A conductor to support delayed settlement swaps. Orders may be matched as normal in the transit orderbook.
- * However, orders marked delayedSettlement may have some settlementPeriod amount of time to come up with the money. A
- * penalty of amount/FILL_RATIO is applied if the payment is not made within this time
+ * However, orders marked collateralized post only amount/FILL_RATIO as collateral and have some settlementPeriod
+ * amount of time to come up with the rest. The collateral is forfeited as a penalty if the payment is not made within
+ * this time
  * @custom:security-contact security@paxoslabs.com
  */
 contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor {
@@ -102,7 +103,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
     function _reclaimLeg(Leg memory leg) internal {
         bytes28 conductorAccountId = _conductorAccountId();
-        // If leg.owed == 0 then this leg was paid or was never a Delayed Settlement order to begin with. The funds must
+        // If leg.owed == 0 then this leg was paid or was never a collateralized order to begin with. The funds must
         // be returned to the legs accountId.
         if (leg.owed == 0) {
             if (leg.amount != 0) {
@@ -195,11 +196,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         DelayedSettlementOrder calldata second = orders[fill.orderIndexes[1]];
         // A pair may not:
         // - reference the same order for both pairs
-        // - contain 0 delayed settlement orders. Spot trades belong in the SpotSwapConductor
+        // - contain 0 collateralized orders. Spot trades belong in the SpotSwapConductor
         // - contain missmatched buy/sell tokens
         // - fill an amount of 0 on either order
         if (
-            fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
+            fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.collateralized && !second.collateralized)
                 || first.sellTokenChainId != second.buyTokenChainId || first.sellToken != second.buyToken
                 || first.buyTokenChainId != second.sellTokenChainId || first.buyToken != second.sellToken
                 || fill.amounts[0] == 0 || fill.amounts[1] == 0
@@ -242,14 +243,14 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         }
 
         // If the order is a DS order then the collateral required is equal to the amount / FILL_RATIO (rounded up)
-        uint256 collateral = order.delayedSettlement ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
+        uint256 collateral = order.collateralized ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
         // Publish the Leg onchain to track the escrow
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
             receiverAccountId: TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
             assetId: sellTokenId,
             amount: amount,
-            owed: order.delayedSettlement ? amount : 0,
+            owed: order.collateralized ? amount : 0,
             collateral: collateral,
             fee: fill.fees[side]
         });
@@ -259,14 +260,14 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
             ownerAccountIds[orderIndex],
             _conductorAccountId(),
             sellTokenId,
-            order.delayedSettlement ? collateral : amount
+            order.collateralized ? collateral : amount
         );
     }
 
     /// @dev helper to determine 2 orders ideal settlement period
-    /// This is determined by the Delayed Settlment order in the event that a DS & non-DS order are matched, and
-    /// rejected if the non-DS order requested a shorter settlement period. If both are DS orders, they must have the
-    /// same settlementPeriod specified
+    /// This is determined by the collateralized order in the event that a collateralized & non-collateralized order are
+    /// matched, and rejected if the non-collateralized order requested a shorter settlement period. If both are
+    /// collateralized, they must have the same settlementPeriod specified
     function _settlementPeriod(
         DelayedSettlementOrder calldata first,
         DelayedSettlementOrder calldata second,
@@ -276,11 +277,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         pure
         returns (uint256 settlementPeriod)
     {
-        settlementPeriod = first.delayedSettlement ? first.settlementPeriod : second.settlementPeriod;
+        settlementPeriod = first.collateralized ? first.settlementPeriod : second.settlementPeriod;
         if (
             settlementPeriod > MAX_SETTLEMENT_PERIOD
-                || (first.delayedSettlement && first.settlementPeriod > second.settlementPeriod)
-                || (second.delayedSettlement && second.settlementPeriod > first.settlementPeriod)
+                || (first.collateralized && first.settlementPeriod > second.settlementPeriod)
+                || (second.collateralized && second.settlementPeriod > first.settlementPeriod)
         ) {
             revert BadPair(index);
         }

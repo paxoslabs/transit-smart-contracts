@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
-import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
 
@@ -45,8 +45,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
             asset: address(usdc),
             amount: 1e6,
-            fromAccountId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, mallory),
-            toAccountId: TransitAccountLib.formatAccountId(HUB_CHAIN_ID, mallory),
+            fromAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
+            toAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
             salt: bytes32(uint256(1))
         });
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
@@ -74,8 +74,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc))
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc))
             ),
             0,
             "withdraw: depot balance not burned"
