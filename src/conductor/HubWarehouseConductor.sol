@@ -25,7 +25,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         _request(
             TransitAccountLib.formatAccountId(action.ownerChainId, action.owner),
             hashWithdrawalAction(action),
-            action.assetId,
+            TransitAccountLib.formatAccountId(action.assetChainId, action.asset),
             action.amount
         );
     }
@@ -55,33 +55,22 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
     {
         bytes32 requestId = hashWithdrawalAction(action);
         bytes28 accountId = TransitAccountLib.formatAccountId(action.ownerChainId, action.owner);
-        _consume(accountId, requestId, action.assetId, action.amount);
+        bytes28 assetId = TransitAccountLib.formatAccountId(action.assetChainId, action.asset);
+        _consume(accountId, requestId, assetId, action.amount);
 
         if (block.timestamp > action.deadline) {
             emit RequestExpired(requestId);
             return 0;
         }
 
-        amount = _executableAmount(accountId, action.assetId, action.amount, action.partiallyFillable);
-        IDepot(DEPOT).burn(accountId, action.assetId, amount);
+        amount = _executableAmount(accountId, assetId, action.amount, action.partiallyFillable);
+        IDepot(DEPOT).burn(accountId, assetId, amount);
 
         emit WithdrawalExecuted(requestId, amount);
     }
 
     function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                Typehashes.WITHDRAWAL_ACTION,
-                action.ownerChainId,
-                action.owner,
-                action.to,
-                action.assetId,
-                action.amount,
-                action.deadline,
-                action.partiallyFillable,
-                action.salt
-            )
-        );
+        return keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action));
     }
 
 }

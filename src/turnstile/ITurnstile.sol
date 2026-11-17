@@ -103,7 +103,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param ownerChainId Owner's account chainId.
     /// @param owner Owner's account address.
     /// @param to Recipient address.
-    /// @param assetId Composite id of asset to withdraw.
+    /// @param assetChainId Chain of the asset to withdraw; the withdrawal is paid out there.
+    /// @param asset Address of the asset to withdraw.
     /// @param amount Amount of asset being withdrawn, denominated in native units.
     /// @param deadline Withdrawal request submission deadline.
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
@@ -113,7 +114,8 @@ interface ITurnstile is IMessagingReceiver {
         uint64 ownerChainId;
         address owner;
         address to;
-        bytes28 assetId;
+        uint64 assetChainId;
+        address asset;
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;

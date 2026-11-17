@@ -13,7 +13,8 @@ contract UserConductor is RequestConductor {
         address owner;
         uint64 toChainId;
         address to;
-        bytes28 assetId;
+        uint64 assetChainId;
+        address asset;
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
@@ -30,7 +31,7 @@ contract UserConductor is RequestConductor {
         _request(
             TransitAccountLib.formatAccountId(request.ownerChainId, request.owner),
             digestTransferRequest(request),
-            request.assetId,
+            TransitAccountLib.formatAccountId(request.assetChainId, request.asset),
             request.amount
         );
     }
@@ -39,37 +40,23 @@ contract UserConductor is RequestConductor {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
         bytes28 accountId = TransitAccountLib.formatAccountId(request.ownerChainId, request.owner);
-        _consume(accountId, requestId, request.assetId, request.amount);
+        bytes28 assetId = TransitAccountLib.formatAccountId(request.assetChainId, request.asset);
+        _consume(accountId, requestId, assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
             emit RequestExpired(requestId);
             return;
         }
 
-        uint256 amount = _executableAmount(accountId, request.assetId, request.amount, request.partiallyFillable);
+        uint256 amount = _executableAmount(accountId, assetId, request.amount, request.partiallyFillable);
         IDepot(DEPOT)
-            .transferFrom(
-                accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), request.assetId, amount
-            );
+            .transferFrom(accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), assetId, amount);
 
         emit TransferExecuted(requestId, amount);
     }
 
     function digestTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                Typehashes.TRANSFER_REQUEST,
-                request.ownerChainId,
-                request.owner,
-                request.toChainId,
-                request.to,
-                request.assetId,
-                request.amount,
-                request.deadline,
-                request.partiallyFillable,
-                request.salt
-            )
-        );
+        return keccak256(abi.encode(Typehashes.TRANSFER_REQUEST, request));
     }
 
 }

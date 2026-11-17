@@ -21,8 +21,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
     struct DelayedSettlementOrder {
         uint64 ownerChainId;
         address owner;
-        bytes28 sellTokenId;
-        bytes28 buyTokenId;
+        uint64 sellTokenChainId;
+        address sellToken;
+        uint64 buyTokenChainId;
+        address buyToken;
         uint256 sellAmount;
         uint256 buyAmount;
         uint64 receiverChainId;
@@ -248,7 +250,8 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         // - fill an amount of 0 on either order
         if (
             fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
-                || first.sellTokenId != second.buyTokenId || first.buyTokenId != second.sellTokenId
+                || first.sellTokenChainId != second.buyTokenChainId || first.sellToken != second.buyToken
+                || first.buyTokenChainId != second.sellTokenChainId || first.buyToken != second.sellToken
                 || fill.amounts[0] == 0 || fill.amounts[1] == 0
         ) {
             revert BadPair(index);
@@ -278,6 +281,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         uint256 orderIndex = fill.orderIndexes[side];
         DelayedSettlementOrder calldata order = orders[orderIndex];
         uint256 amount = fill.amounts[side];
+        bytes28 sellTokenId = TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken);
         uint256 counterpartySide = 1 - side;
         // If the amount the counterparty will provide - fees is < the required amount scaled to the size of the fill
         if (
@@ -293,7 +297,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
             receiverAccountId: TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
-            assetId: order.sellTokenId,
+            assetId: sellTokenId,
             amount: amount,
             owed: order.delayedSettlement ? amount : 0,
             collateral: collateral,
@@ -304,7 +308,7 @@ contract DelayedSettlementSwapConductor is SwapConductor {
         return IDepot.TransferDelta(
             ownerAccountIds[orderIndex],
             _conductorAccountId(),
-            order.sellTokenId,
+            sellTokenId,
             order.delayedSettlement ? collateral : amount
         );
     }
@@ -391,28 +395,10 @@ contract DelayedSettlementSwapConductor is SwapConductor {
 
     // ========================================= VIEWS =========================================
 
-    /// @dev Helper to hash an order
+    /// @dev Helper to hash an order. Every field is static, so encoding the struct whole is identical to encoding its
+    /// fields in order (as EIP-712 requires).
     function hashOrder(DelayedSettlementOrder memory order) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    Typehashes.DELAYED_SETTLEMENT_ORDER,
-                    order.ownerChainId,
-                    order.owner,
-                    order.sellTokenId,
-                    order.buyTokenId,
-                    order.sellAmount,
-                    order.buyAmount,
-                    order.receiverChainId,
-                    order.receiver,
-                    order.expiresAt,
-                    order.partiallyFillable,
-                    order.delayedSettlement,
-                    order.settlementPeriod,
-                    order.salt
-                )
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(Typehashes.DELAYED_SETTLEMENT_ORDER, order)));
     }
 
 }

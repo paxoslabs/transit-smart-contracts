@@ -13,8 +13,10 @@ contract SpotSwapConductor is SwapConductor {
     struct Order {
         uint64 ownerChainId;
         address owner;
-        bytes28 sellTokenId;
-        bytes28 buyTokenId;
+        uint64 sellTokenChainId;
+        address sellToken;
+        uint64 buyTokenChainId;
+        address buyToken;
         uint256 sellAmount;
         uint256 buyAmount;
         uint64 receiverChainId;
@@ -126,11 +128,16 @@ contract SpotSwapConductor is SwapConductor {
             ) {
                 revert LimitPrice(orderHash);
             }
-            deltas[i] = IDepot.TransferDelta(ownerAccountId, bytes28(0), order.sellTokenId, fills[i].sellFilled);
+            deltas[i] = IDepot.TransferDelta(
+                ownerAccountId,
+                bytes28(0),
+                TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken),
+                fills[i].sellFilled
+            );
             deltas[orders.length + i] = IDepot.TransferDelta(
                 bytes28(0),
                 TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
-                order.buyTokenId,
+                TransitAccountLib.formatAccountId(order.buyTokenChainId, order.buyToken),
                 fills[i].buyFilled
             );
         }
@@ -139,24 +146,7 @@ contract SpotSwapConductor is SwapConductor {
     // ========================================= VIEWS =========================================
 
     function hashOrder(Order memory order) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    Typehashes.ORDER,
-                    order.ownerChainId,
-                    order.owner,
-                    order.sellTokenId,
-                    order.buyTokenId,
-                    order.sellAmount,
-                    order.buyAmount,
-                    order.receiverChainId,
-                    order.receiver,
-                    order.expiresAt,
-                    order.partiallyFillable,
-                    order.salt
-                )
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(Typehashes.ORDER, order)));
     }
 
 }

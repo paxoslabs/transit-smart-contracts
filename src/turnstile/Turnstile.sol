@@ -111,21 +111,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function hashWithdrawalAction(WithdrawalAction memory action) public view returns (bytes32) {
-        return _hashTypedData(
-            keccak256(
-                abi.encode(
-                    Typehashes.WITHDRAWAL_ACTION,
-                    action.ownerChainId,
-                    action.owner,
-                    action.to,
-                    action.assetId,
-                    action.amount,
-                    action.deadline,
-                    action.partiallyFillable,
-                    action.salt
-                )
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action)));
     }
 
     /// @inheritdoc ITurnstile
@@ -166,14 +152,16 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             } else if (actions[i].actionType == ActionType.Withdrawal) {
                 WithdrawalAction memory action = abi.decode(actions[i].data, (WithdrawalAction));
-                (uint64 assetChainId, address asset) = TransitAccountLib.parseAccountId(action.assetId);
                 fares[i] = _quote(
-                    assetChainId,
+                    action.assetChainId,
                     actions[i].messageGas,
                     ActionType.Withdrawal,
                     abi.encode(
                         WithdrawalMessage({
-                            asset: asset, amount: action.amount, to: action.to, salt: hashWithdrawalAction(action)
+                            asset: action.asset,
+                            amount: action.amount,
+                            to: action.to,
+                            salt: hashWithdrawalAction(action)
                         })
                     )
                 );
@@ -330,10 +318,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             amount = abi.decode(result, (uint256));
         }
         if (amount == 0) return (0, "");
-        address asset;
-        (chainId, asset) = TransitAccountLib.parseAccountId(action.assetId);
+        chainId = action.assetChainId;
         body = abi.encode(
-            WithdrawalMessage({ asset: asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action) })
+            WithdrawalMessage({
+                asset: action.asset, amount: amount, to: action.to, salt: hashWithdrawalAction(action)
+            })
         );
     }
 
