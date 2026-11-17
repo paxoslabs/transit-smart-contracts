@@ -5,7 +5,7 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.sol";
 
@@ -33,9 +33,9 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     /// @inheritdoc IHubWarehouseConductor
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
         _request(
-            TransitAccountLib.formatAccountId(action.ownerChainId, action.owner),
+            TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
             hashWithdrawalAction(action),
-            TransitAccountLib.formatAccountId(action.assetChainId, action.asset),
+            TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
             action.amount
         );
     }
@@ -51,7 +51,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         external
         restricted
     {
-        bytes28 assetId = TransitAccountLib.formatAccountId(sourceChainId, asset);
+        bytes28 assetId = TransitAddressLib.formatTransitAddress(sourceChainId, asset);
         // Tokens are already held on the spoke, so the deposit must be credited somewhere rather than revert. A
         // frozen sender must not move funds out by depositing to another account, so its deposit stays in its own
         // frozen account, where it cannot move and may be seized with Depot.forceTransferFrom.
@@ -67,8 +67,8 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         returns (uint256 amount)
     {
         bytes32 requestId = hashWithdrawalAction(action);
-        bytes28 accountId = TransitAccountLib.formatAccountId(action.ownerChainId, action.owner);
-        bytes28 assetId = TransitAccountLib.formatAccountId(action.assetChainId, action.asset);
+        bytes28 accountId = TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner);
+        bytes28 assetId = TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset);
         _consume(accountId, requestId, assetId, action.amount);
 
         if (block.timestamp > action.deadline) {

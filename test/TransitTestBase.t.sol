@@ -14,7 +14,7 @@ import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.so
 import { Depot } from "../src/depot/Depot.sol";
 import { AddressFreezeList } from "../src/AddressFreezeList.sol";
 import { UserConductor } from "../src/conductor/UserConductor.sol";
-import { TransitAccountLib } from "../src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "../src/helpers/TransitAddressLib.sol";
 import { IMessagingAdapter } from "../src/interfaces/IMessagingAdapter.sol";
 import { ITurnstile } from "../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../src/turnstile/Turnstile.sol";
@@ -91,7 +91,7 @@ contract TransitTestBase is Test {
         spotSwapConductor = new SpotSwapConductor(
             address(authorities[hubChainId]),
             address(depot),
-            TransitAccountLib.formatAccountId(hubChainId, surplusRecipient),
+            TransitAddressLib.formatTransitAddress(hubChainId, surplusRecipient),
             address(turnstile)
         );
         _grantSpotSwapConductorRole();
@@ -323,8 +323,8 @@ contract TransitTestBase is Test {
 
     function _depotBalance(address user, uint64 assetChain, ERC20 asset) internal view returns (uint256) {
         return depot.balanceOf(
-            TransitAccountLib.formatAccountId(hubChainId, user),
-            TransitAccountLib.formatAccountId(assetChain, address(asset))
+            TransitAddressLib.formatTransitAddress(hubChainId, user),
+            TransitAddressLib.formatTransitAddress(assetChain, address(asset))
         );
     }
 

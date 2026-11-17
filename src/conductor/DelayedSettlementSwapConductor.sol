@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 
@@ -53,7 +53,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     /// @inheritdoc IDelayedSettlementSwapConductor
     function preApprove(DelayedSettlementOrder calldata order) external {
         bytes28 accountId = _senderAccountId();
-        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
@@ -172,7 +172,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
+            ownerAccountIds[i] = TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
@@ -231,7 +231,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         uint256 orderIndex = fill.orderIndexes[side];
         DelayedSettlementOrder calldata order = orders[orderIndex];
         uint256 amount = fill.amounts[side];
-        bytes28 sellTokenId = TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken);
+        bytes28 sellTokenId = TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken);
         uint256 counterpartySide = 1 - side;
         // If the amount the counterparty will provide - fees is < the required amount scaled to the size of the fill
         if (
@@ -246,7 +246,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // Publish the Leg onchain to track the escrow
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
-            receiverAccountId: TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
+            receiverAccountId: TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
             assetId: sellTokenId,
             amount: amount,
             owed: order.delayedSettlement ? amount : 0,
@@ -340,7 +340,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
     /// @dev The escrow account is an account for this contract on this chain
     function _conductorAccountId() internal view returns (bytes28) {
-        return TransitAccountLib.formatAccountId(uint64(block.chainid), address(this));
+        return TransitAddressLib.formatTransitAddress(uint64(block.chainid), address(this));
     }
 
     // ========================================= VIEWS =========================================

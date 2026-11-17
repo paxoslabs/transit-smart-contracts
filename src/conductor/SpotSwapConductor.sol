@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 
@@ -35,7 +35,7 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
     /// @inheritdoc ISpotSwapConductor
     function preApprove(Order calldata order) external {
         bytes28 accountId = _senderAccountId();
-        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
@@ -78,7 +78,7 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
             Order calldata order = orderFills[i].order;
             Fill calldata fill = orderFills[i].fill;
             bytes32 orderHash = hashOrder(order);
-            bytes28 ownerAccountId = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
+            bytes28 ownerAccountId = TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
@@ -94,13 +94,13 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
             deltas[i * 2] = IDepot.TransferDelta(
                 ownerAccountId,
                 bytes28(0),
-                TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken),
+                TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken),
                 fill.sellFilled
             );
             deltas[i * 2 + 1] = IDepot.TransferDelta(
                 bytes28(0),
-                TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
-                TransitAccountLib.formatAccountId(order.buyTokenChainId, order.buyToken),
+                TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
+                TransitAddressLib.formatTransitAddress(order.buyTokenChainId, order.buyToken),
                 fill.buyFilled
             );
         }
