@@ -7,6 +7,13 @@ import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/turnstile/ITurnstile.sol";
 
+/**
+ * @title SpokeWarehouse
+ * @notice Handles custody of real tokens backing Depot balances on its chain. On deposit the Turnstile pulls whitelisted
+ * tokens from the user into the VAULT; on withdrawal it releases them from the VAULT to the recipient.
+ * @dev Only the local Turnstile calls it. Tokens sit in VAULT, not this contract, so VAULT must approve this contract
+ * for every whitelisted asset. Supports native EIP-2612 permits only.
+ */
 contract SpokeWarehouse is AccessManaged {
 
     address public immutable VAULT;
