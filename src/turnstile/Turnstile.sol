@@ -83,8 +83,16 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
     /// facilitator.
     /// @inheritdoc ITurnstile
-    function facilitate(Action[] calldata actions, bytes[] calldata signatures) external payable restricted {
-        _dispatch(actions, signatures, true);
+    function facilitate(
+        Action[] calldata actions,
+        bytes[] calldata signatures
+    )
+        external
+        payable
+        restricted
+        returns (bytes32[] memory messageHashes)
+    {
+        messageHashes = _dispatch(actions, signatures, true);
     }
 
     /// @inheritdoc ITurnstile
@@ -131,12 +139,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     /// @inheritdoc ITurnstile
-    function quote(Action[] calldata actions) external view returns (uint256[] memory fares) {
-        fares = new uint256[](actions.length);
+    function quote(Action[] calldata actions) external view returns (uint256[] memory bridgeFees) {
+        bridgeFees = new uint256[](actions.length);
         for (uint256 i; i < actions.length; i++) {
             if (actions[i].actionType == ActionType.Deposit) {
                 DepositAction memory action = abi.decode(actions[i].data, (DepositAction));
-                fares[i] = _quote(
+                bridgeFees[i] = _quote(
                     IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Deposit,
@@ -152,7 +160,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             } else if (actions[i].actionType == ActionType.Withdrawal) {
                 WithdrawalAction memory action = abi.decode(actions[i].data, (WithdrawalAction));
-                fares[i] = _quote(
+                bridgeFees[i] = _quote(
                     action.assetChainId,
                     actions[i].messageGas,
                     ActionType.Withdrawal,
@@ -167,7 +175,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             } else {
                 GenericAction memory action = abi.decode(actions[i].data, (GenericAction));
-                fares[i] = _quote(
+                bridgeFees[i] = _quote(
                     IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID(),
                     actions[i].messageGas,
                     ActionType.Generic,
@@ -220,12 +228,12 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         // the one epoch request delay). Unfacilitated actions carry no signatures.
         if (facilitated && actions.length != signatures.length) revert LengthMismatch();
         messageHashes = new bytes32[](actions.length);
-        uint256 totalFare;
+        uint256 totalBridgeFee;
         for (uint256 i; i < actions.length; i++) {
-            totalFare += actions[i].fare;
+            totalBridgeFee += actions[i].bridgeFee;
             messageHashes[i] = _dispatchAction(actions[i], facilitated ? signatures[i] : bytes(""), facilitated);
         }
-        if (totalFare != msg.value) revert FareMismatch();
+        if (totalBridgeFee != msg.value) revert BridgeFeeMismatch();
     }
 
     function _dispatchAction(
@@ -246,11 +254,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        /// TODO: Decide what happens to fare when an expired or empty withdrawal sends no message. Currently it stays
-        /// in Turnstile.
+        /// TODO: Decide what happens to bridgeFee when an expired or empty withdrawal sends no message. Currently it
+        /// stays in Turnstile.
         if (body.length != 0) {
             messageHash =
-                _handleMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.fare);
+                _handleMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee);
         }
     }
 
@@ -357,7 +365,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint64 messageGas,
         ActionType actionType,
         bytes memory body,
-        uint256 fare
+        uint256 bridgeFee
     )
         internal
         returns (bytes32 messageHash)
@@ -369,11 +377,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
         if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
-            if (fare != 0) revert NoFare();
+            if (bridgeFee != 0) revert NoBridgeFee();
             _executeMessageLocally(sourceChainId, actionType, body);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
-            IMessagingAdapter(messagingAdapter).send{ value: fare }(
+            IMessagingAdapter(messagingAdapter).send{ value: bridgeFee }(
                 destinationChainId, messageGas, abi.encode(actionType, body)
             );
         }
