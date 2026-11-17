@@ -42,9 +42,7 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
     {
         bytes28 assetId = TransitAccountLib.formatAccountId(sourceChainId, asset);
         bytes28 mintTo = toAccountId;
-        if (!TransitAccountLib.isValid(toAccountId) || IDepot(DEPOT).addressFreezeList().isFrozen(fromAccountId)) {
-            mintTo = fromAccountId;
-        }
+        if (IDepot(DEPOT).addressFreezeList().isFrozen(fromAccountId)) mintTo = fromAccountId;
         IDepot(DEPOT).mint(mintTo, assetId, amount);
     }
 

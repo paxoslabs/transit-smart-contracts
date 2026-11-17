@@ -266,12 +266,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         // For deposits, facilitation only determines who `from` is. It is not propagated in the message.
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
         if (block.timestamp > action.deadline) revert Expired();
+        bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
+        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
         if (action.permit.deadline != 0) {
             SpokeWarehouse(SPOKE_WAREHOUSE).permit(from, action.asset, action.amount, action.permit);
         }
         SpokeWarehouse(SPOKE_WAREHOUSE).custody(from, action.asset, action.amount);
         bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
-        bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             DepositMessage({

@@ -210,6 +210,9 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An action's deadline has already passed.
     error Expired();
 
+    /// @notice An account id is not a valid chainId and address pair.
+    error InvalidAccount();
+
     /// @notice Query the SpokeWarehouse contract address.
     /// @return SpokeWarehouse contract address.
     function SPOKE_WAREHOUSE() external view returns (address);
