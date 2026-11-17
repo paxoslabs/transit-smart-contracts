@@ -125,6 +125,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             keccak256(
                 abi.encode(
                     Typehashes.DEPOSIT_ACTION,
+                    action.ownerChainId,
+                    action.owner,
                     action.asset,
                     action.amount,
                     action.toChainId,
@@ -151,7 +153,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    Typehashes.GENERIC_ACTION, action.target, keccak256(action.data), action.deadline, action.salt
+                    Typehashes.GENERIC_ACTION,
+                    action.ownerChainId,
+                    action.owner,
+                    action.target,
+                    keccak256(action.data),
+                    action.deadline,
+                    action.salt
                 )
             )
         );
@@ -297,6 +305,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         DepositAction memory action = abi.decode(actionData, (DepositAction));
         // For deposits, facilitation only determines who `from` is. It is not propagated in the message.
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
+        if (action.ownerChainId != block.chainid || from != action.owner) revert NotOwner();
         if (block.timestamp > action.deadline) revert Expired();
         bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
         if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
@@ -369,6 +378,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
+        if (action.ownerChainId != block.chainid || sender != action.owner) revert NotOwner();
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         // The facilitated flag travels in the message body so the hub can forward it to the target.
         body = abi.encode(

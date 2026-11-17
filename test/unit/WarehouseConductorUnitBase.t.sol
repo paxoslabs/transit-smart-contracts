@@ -126,6 +126,8 @@ abstract contract WarehouseConductorUnitBase is Test {
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: user,
                     asset: address(usdc),
                     amount: amount,
                     toChainId: HUB_CHAIN_ID,

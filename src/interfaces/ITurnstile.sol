@@ -70,6 +70,8 @@ interface ITurnstile is IMessagingReceiver {
     }
 
     /// @notice Deposit request encoded as an action.
+    /// @param ownerChainId Owner's account chainId. Must be this chain.
+    /// @param owner Owner's account address. Must be the sender, or the signer when facilitated.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param toChainId ChainId element of accountId of deposit recipient.
@@ -78,6 +80,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
+        uint64 ownerChainId;
+        address owner;
         address asset;
         uint256 amount;
         uint64 toChainId;
@@ -123,11 +127,15 @@ interface ITurnstile is IMessagingReceiver {
     }
 
     /// @notice Generic contract call encoded as an action.
+    /// @param ownerChainId Owner's account chainId. Must be this chain.
+    /// @param owner Owner's account address. Must be the sender, or the signer when facilitated.
     /// @param target Action call target address.
     /// @param data Action calldata.
     /// @param deadline Action execution deadline.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct GenericAction {
+        uint64 ownerChainId;
+        address owner;
         address target;
         bytes data;
         uint256 deadline;
@@ -241,6 +249,9 @@ interface ITurnstile is IMessagingReceiver {
 
     /// @notice An account id is not a valid chainId and address pair.
     error InvalidAccount();
+
+    /// @notice An action's owner is not its sender or signer.
+    error NotOwner();
 
     /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so
     /// withdrawals can be released.

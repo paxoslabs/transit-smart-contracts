@@ -141,6 +141,8 @@ contract DepotUnitTest is Test {
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: user,
                     asset: address(usdc),
                     amount: amount,
                     toChainId: HUB_CHAIN_ID,
@@ -215,13 +217,31 @@ contract DepotUnitTest is Test {
     }
 
     function _generic(address target, bytes memory data) internal returns (ITurnstile.GenericAction memory) {
+        return _generic(alice, target, data);
+    }
+
+    function _generic(
+        address owner,
+        address target,
+        bytes memory data
+    )
+        internal
+        returns (ITurnstile.GenericAction memory)
+    {
         return ITurnstile.GenericAction({
-            target: target, data: data, deadline: block.timestamp, salt: bytes32(++requestSalt)
+            ownerChainId: HUB_CHAIN_ID,
+            owner: owner,
+            target: target,
+            data: data,
+            deadline: block.timestamp,
+            salt: bytes32(++requestSalt)
         });
     }
 
     function _facilitatedCancellation(bytes32 orderHash) internal returns (ITurnstile.GenericAction memory) {
         return ITurnstile.GenericAction({
+            ownerChainId: HUB_CHAIN_ID,
+            owner: alice,
             target: address(spotSwapConductor),
             data: abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
             deadline: type(uint256).max,
@@ -527,18 +547,14 @@ contract DepotUnitTest is Test {
         );
     }
 
-    /// TODO: Decide test name; a wrong signer no longer reverts, it acts as its own account.
     function testFacilitatedOrderCancellationBadSignatureReverts() public {
         (, bytes32 orderHash) = _preApprovedOrder();
         ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _signFacilitated(message, wrongPk);
 
+        vm.expectRevert(ITurnstile.NotOwner.selector);
         _facilitate(message, sig);
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash), 0, "bad sig: cancellation recorded for alice"
-        );
     }
 
     // ---------------------------------------------------------------- auth
@@ -551,7 +567,9 @@ contract DepotUnitTest is Test {
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            abi.encode(
+                _generic(bob, address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))
+            ),
             0
         );
     }
