@@ -122,7 +122,7 @@ interface IDepot {
     /// @dev Actions that could invalidate a batch in progress (reservations, requests, non-facilitated cancellations)
     /// take effect at `settlementEpoch + 1`, after the current batch settles, so solvers build against stable state.
     /// If no batch settles for 24h anyone may advance, so pending actions cannot stall. Starts at 1 so 0 can mean
-    /// "unset" in epoch-valued mappings (e.g. requestStatus, cancelledFrom).
+    /// "unset" in epoch-valued mappings (e.g. requestEffectiveAtEpoch, cancelledFrom).
     /// @return Current settlement epoch.
     function settlementEpoch() external view returns (uint256);
 

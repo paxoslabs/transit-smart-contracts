@@ -27,13 +27,19 @@ contract UserConductor is RequestConductor {
     constructor(address _depot, address _turnstile) RequestConductor(_depot, _turnstile) { }
 
     function requestTransfer(TransferRequest calldata request) external {
-        _request(request.ownerChainId, request.owner, digestTransferRequest(request), request.assetId, request.amount);
+        _request(
+            TransitAccountLib.formatAccountId(request.ownerChainId, request.owner),
+            digestTransferRequest(request),
+            request.assetId,
+            request.amount
+        );
     }
 
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
-        bytes28 accountId = _consume(request.ownerChainId, request.owner, requestId, request.assetId, request.amount);
+        bytes28 accountId = TransitAccountLib.formatAccountId(request.ownerChainId, request.owner);
+        _consume(accountId, requestId, request.assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
             emit RequestExpired(requestId);

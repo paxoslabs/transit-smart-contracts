@@ -290,9 +290,9 @@ contract DepotUnitTest is Test {
         );
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             depot.settlementEpoch() + 1,
-            "request: status not pending next epoch"
+            "request: effectiveAtEpoch not pending next epoch"
         );
         assertEq(_depotBalance(alice), 100e6, "request: balance moved early");
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
@@ -307,9 +307,9 @@ contract DepotUnitTest is Test {
         userConductor.executeTransfer(request);
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             userConductor.EXECUTED(),
-            "execute: status not executed"
+            "execute: effectiveAtEpoch not executed"
         );
         assertEq(_depotBalance(alice), 40e6, "execute: alice not debited");
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
@@ -353,9 +353,9 @@ contract DepotUnitTest is Test {
         );
 
         assertEq(
-            hubWarehouseConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             depot.settlementEpoch() + 1,
-            "request: status not pending next epoch"
+            "request: effectiveAtEpoch not pending next epoch"
         );
         assertEq(usdc.balanceOf(alice), 0, "request: alice received usdc early");
 
@@ -365,9 +365,9 @@ contract DepotUnitTest is Test {
         dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(request), 0);
 
         assertEq(
-            hubWarehouseConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             hubWarehouseConductor.EXECUTED(),
-            "execute: status not executed"
+            "execute: effectiveAtEpoch not executed"
         );
         assertEq(_depotBalance(alice), 60e6, "execute: alice depot balance not burned");
         assertEq(usdc.balanceOf(alice), 40e6, "execute: alice did not receive usdc");

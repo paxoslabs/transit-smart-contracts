@@ -22,7 +22,12 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
     { }
 
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
-        _request(action.ownerChainId, action.owner, hashWithdrawalAction(action), action.assetId, action.amount);
+        _request(
+            TransitAccountLib.formatAccountId(action.ownerChainId, action.owner),
+            hashWithdrawalAction(action),
+            action.assetId,
+            action.amount
+        );
     }
 
     function receiveDeposit(
@@ -49,7 +54,8 @@ contract HubWarehouseConductor is AccessManaged, RequestConductor {
         returns (uint256 amount)
     {
         bytes32 requestId = hashWithdrawalAction(action);
-        bytes28 accountId = _consume(action.ownerChainId, action.owner, requestId, action.assetId, action.amount);
+        bytes28 accountId = TransitAccountLib.formatAccountId(action.ownerChainId, action.owner);
+        _consume(accountId, requestId, action.assetId, action.amount);
 
         if (block.timestamp > action.deadline) {
             emit RequestExpired(requestId);
