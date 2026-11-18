@@ -13,7 +13,7 @@ import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettleme
  * @notice A conductor to support delayed settlement swaps. Orders may be matched as normal in the transit orderbook.
  * However, orders marked collateralized post only amount/FILL_RATIO as collateral and have some settlementPeriod
  * amount of time to come up with the rest. The collateral is forfeited as a penalty if the payment is not made within
- * this time
+ * this time. A pair with no collateralized order is fully funded at fill and is released in the same settle.
  * @custom:security-contact security@paxoslabs.com
  */
 contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor {
@@ -137,6 +137,8 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // as they come in pairs
         uint256[] memory sellFilled = new uint256[](orders.length);
         uint256[] memory buyFilled = new uint256[](orders.length);
+        // Escrow ids are assigned sequentially per fill, so fill i gets firstEscrowId + i
+        uint256 firstEscrowId = escrowCount + 1;
         for (uint256 i; i < fills.length; i++) {
             PairedFill calldata fill = fills[i];
             // Populate the deltas in _escrowFill. These deltas applied in the Depot will preform the escrows
@@ -153,6 +155,14 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         _fillOrders(orders, ownerAccountIds, orderHashes, sellFilled, buyFilled);
 
         IDepot(DEPOT).transferAmong(deltas);
+
+        // A pair with no collateralized order owes nothing, so it is released now that its funds are escrowed. This
+        // can't happen in the fill loop above: the escrow deltas only land in the conductor account at transferAmong.
+        for (uint256 i; i < fills.length; i++) {
+            if (!orders[fills[i].orderIndexes[0]].collateralized && !orders[fills[i].orderIndexes[1]].collateralized) {
+                _release(firstEscrowId + i);
+            }
+        }
 
         IDepot(DEPOT).advanceEpoch();
     }
@@ -196,14 +206,12 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         DelayedSettlementOrder calldata second = orders[fill.orderIndexes[1]];
         // A pair may not:
         // - reference the same order for both pairs
-        // - contain 0 collateralized orders. Spot trades belong in the SpotSwapConductor
         // - contain missmatched buy/sell tokens
         // - fill an amount of 0 on either order
         if (
-            fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.collateralized && !second.collateralized)
-                || first.sellTokenChainId != second.buyTokenChainId || first.sellToken != second.buyToken
-                || first.buyTokenChainId != second.sellTokenChainId || first.buyToken != second.sellToken
-                || fill.amounts[0] == 0 || fill.amounts[1] == 0
+            fill.orderIndexes[0] == fill.orderIndexes[1] || first.sellTokenChainId != second.buyTokenChainId
+                || first.sellToken != second.buyToken || first.buyTokenChainId != second.sellTokenChainId
+                || first.buyToken != second.sellToken || fill.amounts[0] == 0 || fill.amounts[1] == 0
         ) {
             revert BadPair(index);
         }
@@ -257,10 +265,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
         // Return the delta to transfer tokens in the Depot
         return IDepot.TransferDelta(
-            ownerAccountIds[orderIndex],
-            _conductorAccountId(),
-            sellTokenId,
-            order.collateralized ? collateral : amount
+            ownerAccountIds[orderIndex], _conductorAccountId(), sellTokenId, order.collateralized ? collateral : amount
         );
     }
 
