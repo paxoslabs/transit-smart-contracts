@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import { AccessControlEnumerable } from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
+import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { ITransitAuthority } from "src/interfaces/ITransitAuthority.sol";
 
@@ -48,6 +49,11 @@ contract TransitAuthority is ITransitAuthority, AccessControlEnumerable {
             roleOf[target][selectors[i]] = role;
             emit TargetFunctionRoleSet(target, selectors[i], role);
         }
+    }
+
+    /// @inheritdoc ITransitAuthority
+    function updateAuthority(address target, address newAuthority) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        IAccessManaged(target).setAuthority(newAuthority);
     }
 
 }

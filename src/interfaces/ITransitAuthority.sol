@@ -30,4 +30,10 @@ interface ITransitAuthority {
     /// @param role Role required.
     function setTargetFunctionRole(address target, bytes4[] calldata selectors, bytes32 role) external;
 
+    /// @notice Move an AccessManaged target to a new authority. Not expected to be used; kept so contracts are not
+    /// bound to this authority forever, since AccessManaged.setAuthority only accepts calls from the current authority.
+    /// @param target AccessManaged contract.
+    /// @param newAuthority New authority; must have code.
+    function updateAuthority(address target, address newAuthority) external;
+
 }
