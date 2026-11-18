@@ -16,7 +16,7 @@ contract MockMessagingAdapter is MessagingAdapter {
         MessagingAdapter(_authority, _localTurnstile, _hubChainId)
     { }
 
-    function quote(uint64, uint64, bytes calldata) external view override returns (uint256) {
+    function _quote(uint64, uint64, PeerConfig memory, bytes calldata) internal view override returns (uint256) {
         return bridgeFee;
     }
 

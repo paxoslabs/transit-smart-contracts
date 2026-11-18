@@ -85,6 +85,13 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         emit MessageSent(chainId, messageId, payload);
     }
 
+    /// @inheritdoc IMessagingAdapter
+    function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view returns (uint256 bridgeFee) {
+        PeerConfig memory peer = _validateOutboundAndGetPeer(chainId, gasLimit);
+        bridgeFee = _quote(chainId, gasLimit, peer, payload);
+    }
+
+    /// @dev Bridge-specific send, called by send after the peer and gas checks. msg.value is the bridge fee.
     function _send(
         uint64 chainId,
         uint64 gasLimit,
@@ -94,6 +101,18 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         internal
         virtual
         returns (bytes32 messageId);
+
+    /// @dev Bridge-specific fee quote, called by quote after the same peer and gas checks as send.
+    function _quote(
+        uint64 chainId,
+        uint64 gasLimit,
+        PeerConfig memory peer,
+        bytes calldata payload
+    )
+        internal
+        view
+        virtual
+        returns (uint256 bridgeFee);
 
     function _receive(uint64 chainId, bytes32 sender, bytes memory payload) internal {
         PeerConfig memory peer = _peerOf(chainId);

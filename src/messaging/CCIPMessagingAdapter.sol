@@ -4,8 +4,9 @@ pragma solidity 0.8.37;
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
+import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCodec.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
-import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
@@ -19,18 +20,17 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         CCIPReceiver(_router)
     { }
 
-    /// @inheritdoc IMessagingAdapter
-    function quote(
-        uint64 chainId,
+    function _quote(
+        uint64,
         uint64 gasLimit,
+        PeerConfig memory peer,
         bytes calldata payload
     )
-        external
+        internal
         view
         override
         returns (uint256 bridgeFee)
     {
-        PeerConfig memory peer = _validateOutboundAndGetPeer(chainId, gasLimit);
         return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
     }
 
@@ -55,8 +55,12 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         _receive(chainIdForRemoteId[message.sourceChainSelector], bytes32(message.sender), message.data);
     }
 
-    /// TODO: Decide extraArgs. Currently legacy GenericExtraArgsV2 with allowOutOfOrderExecution = true (Warehouse
-    /// nonces don't need ordering). CCIP v2.0 lanes also accept GenericExtraArgsV3 (finality config, custom CCVs).
+    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the Fast Confirmation
+    /// Rule: the message is sent once the source block reaches the `safe` head rather than full finality. V2 extraArgs
+    /// cannot request finality. V3 has no ordering flag; messages don't need ordering. Each lane must allow this
+    /// finality or the send reverts. V3's gasLimit is uint32, so a larger gasLimit reverts.
+    /// NOTE: a reorg past an FCR-confirmed block (requires FCR's assumptions to fail) after a deposit or withdrawal
+    /// message is sent would leave the hub balance or the spoke release unbacked.
     function _buildMessage(
         PeerConfig memory peer,
         uint64 gasLimit,
@@ -71,9 +75,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             data: payload,
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: Client._argsToBytes(
-                Client.GenericExtraArgsV2({ gasLimit: gasLimit, allowOutOfOrderExecution: true })
-            )
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(SafeCastLib.toUint32(gasLimit))
         });
     }
 
