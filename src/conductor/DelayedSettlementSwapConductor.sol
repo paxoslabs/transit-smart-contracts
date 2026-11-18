@@ -66,16 +66,16 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // side will revert with out of bounds if > 1
         Leg storage leg = escrowLegs[escrowId][side];
         if (_senderAccountId() != leg.accountId) revert NotOwner();
-        uint256 amount = leg.owed;
+        uint256 amount = leg.debt;
         if (amount == 0) revert NothingOwed();
-        leg.owed = 0;
+        leg.debt = 0;
 
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side);
 
         // since side must be 0 or 1: 1 - side results in whichever number side is not
         Leg storage counterparty = escrowLegs[escrowId][1 - side];
-        if (counterparty.owed == 0) _release(escrowId);
+        if (counterparty.debt == 0) _release(escrowId);
     }
 
     /// @inheritdoc IDelayedSettlementSwapConductor
@@ -103,13 +103,13 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
     function _reclaimLeg(Leg memory leg) internal {
         bytes28 conductorAccountId = _conductorAccountId();
-        // If leg.owed == 0 then this leg was paid or was never a collateralized order to begin with. The funds must
+        // If leg.debt == 0 then this leg was paid or was never a collateralized order to begin with. The funds must
         // be returned to the legs accountId.
-        if (leg.owed == 0) {
+        if (leg.debt == 0) {
             if (leg.amount != 0) {
                 IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
             }
-            // If leg.owed != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
+            // If leg.debt != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
             // held in escrow. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
         } else if (leg.collateral != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
@@ -258,7 +258,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
             receiverAccountId: TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
             assetId: sellTokenId,
             amount: amount,
-            owed: order.collateralized ? amount : 0,
+            debt: order.collateralized ? amount : 0,
             collateral: collateral,
             fee: fill.fees[side]
         });
