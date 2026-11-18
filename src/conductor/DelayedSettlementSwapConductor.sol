@@ -4,15 +4,16 @@ pragma solidity 0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 
 /**
  * @title DelayedSettlementSwapConductor
  * @notice A conductor to support delayed settlement swaps. Orders may be matched as normal in the transit orderbook.
- * However, orders marked delayedSettlement may have some settlementPeriod amount of time to come up with the money. A
- * penalty of amount/FILL_RATIO is applied if the payment is not made within this time
+ * However, orders marked collateralized post only amount/FILL_RATIO as collateral and have some settlementPeriod
+ * amount of time to come up with the rest. The collateral is forfeited as a penalty if the payment is not made within
+ * this time. A pair with no collateralized order is fully funded at fill and is released in the same settle.
  * @custom:security-contact security@paxoslabs.com
  */
 contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor {
@@ -53,7 +54,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     /// @inheritdoc IDelayedSettlementSwapConductor
     function preApprove(DelayedSettlementOrder calldata order) external {
         bytes28 accountId = _senderAccountId();
-        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
@@ -65,16 +66,16 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // side will revert with out of bounds if > 1
         Leg storage leg = escrowLegs[escrowId][side];
         if (_senderAccountId() != leg.accountId) revert NotOwner();
-        uint256 amount = leg.owed;
+        uint256 amount = leg.debt;
         if (amount == 0) revert NothingOwed();
-        leg.owed = 0;
+        leg.debt = 0;
 
         IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
         emit Repaid(escrowId, side);
 
         // since side must be 0 or 1: 1 - side results in whichever number side is not
         Leg storage counterparty = escrowLegs[escrowId][1 - side];
-        if (counterparty.owed == 0) _release(escrowId);
+        if (counterparty.debt == 0) _release(escrowId);
     }
 
     /// @inheritdoc IDelayedSettlementSwapConductor
@@ -102,13 +103,13 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
     function _reclaimLeg(Leg memory leg) internal {
         bytes28 conductorAccountId = _conductorAccountId();
-        // If leg.owed == 0 then this leg was paid or was never a Delayed Settlement order to begin with. The funds must
+        // If leg.debt == 0 then this leg was paid or was never a collateralized order to begin with. The funds must
         // be returned to the legs accountId.
-        if (leg.owed == 0) {
+        if (leg.debt == 0) {
             if (leg.amount != 0) {
                 IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
             }
-            // If leg.owed != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
+            // If leg.debt != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
             // held in escrow. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
         } else if (leg.collateral != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, PENALTY_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.collateral);
@@ -136,6 +137,8 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // as they come in pairs
         uint256[] memory sellFilled = new uint256[](orders.length);
         uint256[] memory buyFilled = new uint256[](orders.length);
+        // Escrow ids are assigned sequentially per fill, so fill i gets firstEscrowId + i
+        uint256 firstEscrowId = escrowCount + 1;
         for (uint256 i; i < fills.length; i++) {
             PairedFill calldata fill = fills[i];
             // Populate the deltas in _escrowFill. These deltas applied in the Depot will preform the escrows
@@ -152,6 +155,14 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         _fillOrders(orders, ownerAccountIds, orderHashes, sellFilled, buyFilled);
 
         IDepot(DEPOT).transferAmong(deltas);
+
+        // A pair with no collateralized order owes nothing, so it is released now that its funds are escrowed. This
+        // can't happen in the fill loop above: the escrow deltas only land in the conductor account at transferAmong.
+        for (uint256 i; i < fills.length; i++) {
+            if (!orders[fills[i].orderIndexes[0]].collateralized && !orders[fills[i].orderIndexes[1]].collateralized) {
+                _release(firstEscrowId + i);
+            }
+        }
 
         IDepot(DEPOT).advanceEpoch();
     }
@@ -172,7 +183,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
             DelayedSettlementOrder calldata order = orders[i];
             bytes32 orderHash = hashOrder(order);
             orderHashes[i] = orderHash;
-            ownerAccountIds[i] = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
+            ownerAccountIds[i] = TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
 
@@ -195,14 +206,12 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         DelayedSettlementOrder calldata second = orders[fill.orderIndexes[1]];
         // A pair may not:
         // - reference the same order for both pairs
-        // - contain 0 delayed settlement orders. Spot trades belong in the SpotSwapConductor
         // - contain missmatched buy/sell tokens
         // - fill an amount of 0 on either order
         if (
-            fill.orderIndexes[0] == fill.orderIndexes[1] || (!first.delayedSettlement && !second.delayedSettlement)
-                || first.sellTokenChainId != second.buyTokenChainId || first.sellToken != second.buyToken
-                || first.buyTokenChainId != second.sellTokenChainId || first.buyToken != second.sellToken
-                || fill.amounts[0] == 0 || fill.amounts[1] == 0
+            fill.orderIndexes[0] == fill.orderIndexes[1] || first.sellTokenChainId != second.buyTokenChainId
+                || first.sellToken != second.buyToken || first.buyTokenChainId != second.sellTokenChainId
+                || first.buyToken != second.sellToken || fill.amounts[0] == 0 || fill.amounts[1] == 0
         ) {
             revert BadPair(index);
         }
@@ -231,7 +240,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         uint256 orderIndex = fill.orderIndexes[side];
         DelayedSettlementOrder calldata order = orders[orderIndex];
         uint256 amount = fill.amounts[side];
-        bytes28 sellTokenId = TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken);
+        bytes28 sellTokenId = TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken);
         uint256 counterpartySide = 1 - side;
         // If the amount the counterparty will provide - fees is < the required amount scaled to the size of the fill
         if (
@@ -242,31 +251,28 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         }
 
         // If the order is a DS order then the collateral required is equal to the amount / FILL_RATIO (rounded up)
-        uint256 collateral = order.delayedSettlement ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
+        uint256 collateral = order.collateralized ? FixedPointMathLib.divUp(amount, FILL_RATIO) : 0;
         // Publish the Leg onchain to track the escrow
         escrowLegs[escrowId][side] = Leg({
             accountId: ownerAccountIds[orderIndex],
-            receiverAccountId: TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
+            receiverAccountId: TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
             assetId: sellTokenId,
             amount: amount,
-            owed: order.delayedSettlement ? amount : 0,
+            debt: order.collateralized ? amount : 0,
             collateral: collateral,
             fee: fill.fees[side]
         });
 
         // Return the delta to transfer tokens in the Depot
         return IDepot.TransferDelta(
-            ownerAccountIds[orderIndex],
-            _conductorAccountId(),
-            sellTokenId,
-            order.delayedSettlement ? collateral : amount
+            ownerAccountIds[orderIndex], _conductorAccountId(), sellTokenId, order.collateralized ? collateral : amount
         );
     }
 
     /// @dev helper to determine 2 orders ideal settlement period
-    /// This is determined by the Delayed Settlment order in the event that a DS & non-DS order are matched, and
-    /// rejected if the non-DS order requested a shorter settlement period. If both are DS orders, they must have the
-    /// same settlementPeriod specified
+    /// This is determined by the collateralized order in the event that a collateralized & non-collateralized order are
+    /// matched, and rejected if the non-collateralized order requested a shorter settlement period. If both are
+    /// collateralized, they must have the same settlementPeriod specified
     function _settlementPeriod(
         DelayedSettlementOrder calldata first,
         DelayedSettlementOrder calldata second,
@@ -276,11 +282,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         pure
         returns (uint256 settlementPeriod)
     {
-        settlementPeriod = first.delayedSettlement ? first.settlementPeriod : second.settlementPeriod;
+        settlementPeriod = first.collateralized ? first.settlementPeriod : second.settlementPeriod;
         if (
             settlementPeriod > MAX_SETTLEMENT_PERIOD
-                || (first.delayedSettlement && first.settlementPeriod > second.settlementPeriod)
-                || (second.delayedSettlement && second.settlementPeriod > first.settlementPeriod)
+                || (first.collateralized && first.settlementPeriod > second.settlementPeriod)
+                || (second.collateralized && second.settlementPeriod > first.settlementPeriod)
         ) {
             revert BadPair(index);
         }
@@ -340,7 +346,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
     /// @dev The escrow account is an account for this contract on this chain
     function _conductorAccountId() internal view returns (bytes28) {
-        return TransitAccountLib.formatAccountId(uint64(block.chainid), address(this));
+        return TransitAddressLib.formatTransitAddress(uint64(block.chainid), address(this));
     }
 
     // ========================================= VIEWS =========================================

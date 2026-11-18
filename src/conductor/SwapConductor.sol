@@ -55,8 +55,8 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         bytes28 accountId = _senderAccountId();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();
         if (!_facilitated()) effectiveAtEpoch++;
-        uint256 cancelled = cancelledFrom[accountId][orderHash];
-        if (cancelled != 0 && cancelled <= effectiveAtEpoch) return;
+        uint256 cancelledFromEpoch = cancelledFrom[accountId][orderHash];
+        if (cancelledFromEpoch != 0 && cancelledFromEpoch <= effectiveAtEpoch) return;
         cancelledFrom[accountId][orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(accountId, orderHash, effectiveAtEpoch);
     }
@@ -86,8 +86,8 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         uint256 filled = filledAmount[orderHash] + sellFilled;
         if (filled > sellAmount) revert Overfill(orderHash);
         filledAmount[orderHash] = filled;
-        uint256 cancelled = cancelledFrom[ownerAccountId][orderHash];
-        if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
+        uint256 cancelledFromEpoch = cancelledFrom[ownerAccountId][orderHash];
+        if (cancelledFromEpoch != 0 && settlementEpoch >= cancelledFromEpoch) revert Cancelled(orderHash);
 
         emit Filled(orderHash, ownerAccountId, sellFilled, buyFilled);
     }

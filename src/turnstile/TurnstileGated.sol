@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 bytes4 constant FACILITATED_FLAG = 0x00000001;
 
@@ -22,7 +22,7 @@ abstract contract TurnstileGated {
     }
 
     function _senderAccountId() internal view returns (bytes28 accountId) {
-        if (msg.sender != TURNSTILE) return TransitAccountLib.formatAccountId(uint64(block.chainid), msg.sender);
+        if (msg.sender != TURNSTILE) return TransitAddressLib.formatTransitAddress(uint64(block.chainid), msg.sender);
         (accountId,) = _appended();
     }
 

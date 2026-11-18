@@ -5,7 +5,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Depot } from "../../src/depot/Depot.sol";
 import { ISpotSwapConductor } from "../../src/interfaces/ISpotSwapConductor.sol";
 import { TransitTestBase } from "../TransitTestBase.t.sol";
-import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
 
 contract HappyPaths is TransitTestBase {
 

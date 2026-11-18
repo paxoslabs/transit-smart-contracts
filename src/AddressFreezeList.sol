@@ -5,7 +5,7 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { IAddressFreezeList } from "src/interfaces/IAddressFreezeList.sol";
 import { Roles } from "src/helpers/Roles.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 /**
  * @title AddressFreezeList
@@ -47,7 +47,7 @@ contract AddressFreezeList is IAddressFreezeList, AccessManaged {
 
     /// @inheritdoc IAddressFreezeList
     function isFrozen(bytes28 accountId) external view returns (bool) {
-        (, address account) = TransitAccountLib.parseAccountId(accountId);
+        (, address account) = TransitAddressLib.parseTransitAddress(accountId);
         return _isFrozen[account];
     }
 

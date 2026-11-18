@@ -11,7 +11,7 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
@@ -182,8 +182,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         DepositMessage({
                             asset: action.asset,
                             amount: action.amount,
-                            fromAccountId: TransitAccountLib.formatAccountId(uint64(block.chainid), msg.sender),
-                            toAccountId: TransitAccountLib.formatAccountId(action.toChainId, action.to),
+                            fromAccountId: TransitAddressLib.formatTransitAddress(uint64(block.chainid), msg.sender),
+                            toAccountId: TransitAddressLib.formatTransitAddress(action.toChainId, action.to),
                             salt: action.salt
                         })
                     )
@@ -307,13 +307,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
         if (action.ownerChainId != block.chainid || from != action.owner) revert NotOwner();
         if (block.timestamp > action.deadline) revert Expired();
-        bytes28 toAccountId = TransitAccountLib.formatAccountId(action.toChainId, action.to);
-        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(action.toChainId, action.to);
+        if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
         if (action.amount == 0) revert ZeroAssets();
         if (!assetWhitelisted[action.asset]) revert AssetNotWhitelisted();
         if (action.permit.deadline != 0) _permit(from, action.asset, action.amount, action.permit);
         SafeTransferLib.safeTransferFrom(action.asset, from, VAULT, action.amount);
-        bytes28 fromAccountId = TransitAccountLib.formatAccountId(uint64(block.chainid), from);
+        bytes28 fromAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), from);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             DepositMessage({
@@ -340,7 +340,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         {
             // Withdrawals are dispatched on the hub, so the owner is always an account on this chain.
             address owner = facilitated ? ECDSA.recover(hashWithdrawalAction(action), signature) : msg.sender;
-            accountId = TransitAccountLib.formatAccountId(uint64(block.chainid), owner);
+            accountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), owner);
         }
         uint256 amount;
         {
@@ -489,7 +489,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 target = message.target;
                 // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
                 data = _buildTurnstileCallData(
-                    message.data, TransitAccountLib.formatAccountId(chainId, message.sender), facilitated
+                    message.data, TransitAddressLib.formatTransitAddress(chainId, message.sender), facilitated
                 );
             }
         }

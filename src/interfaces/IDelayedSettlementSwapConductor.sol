@@ -21,8 +21,10 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
     /// @param receiver Receiver's account address.
     /// @param expiresAt Timestamp; the order cannot be filled in an epoch that started at or after it.
     /// @param partiallyFillable Whether the order may be filled in parts.
-    /// @param delayedSettlement Whether the owner pays later, posting amount / FILL_RATIO as collateral now.
-    /// @param settlementPeriod Time the owner has to pay a delayed settlement, at most MAX_SETTLEMENT_PERIOD.
+    /// @param collateralized Whether the owner posts only amount / FILL_RATIO as collateral now and pays the rest
+    /// within settlementPeriod. False means the full amount is escrowed at fill.
+    /// @param settlementPeriod Time the owner of a collateralized order has to pay the rest, at most
+    /// MAX_SETTLEMENT_PERIOD.
     /// @param salt User-set salt to disambiguate otherwise identical orders.
     struct DelayedSettlementOrder {
         uint64 ownerChainId;
@@ -37,7 +39,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
         address receiver;
         uint256 expiresAt;
         bool partiallyFillable;
-        bool delayedSettlement;
+        bool collateralized;
         uint256 settlementPeriod;
         bytes32 salt;
     }
@@ -58,7 +60,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
     /// @param receiverAccountId Account receiving the counterparty's side.
     /// @param assetId Asset this side provides.
     /// @param amount Amount this side provides.
-    /// @param owed Amount still to be repaid; 0 once paid or for a non-delayed side.
+    /// @param debt Amount this side still has to repay; 0 once paid or for a non-collateralized side.
     /// @param collateral Collateral posted for a delayed side.
     /// @param fee Fee taken from this side.
     struct Leg {
@@ -66,7 +68,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
         bytes28 receiverAccountId;
         bytes28 assetId;
         uint256 amount;
-        uint256 owed;
+        uint256 debt;
         uint256 collateral;
         uint256 fee;
     }
@@ -132,7 +134,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
     /// @return receiverAccountId See Leg.
     /// @return assetId See Leg.
     /// @return amount See Leg.
-    /// @return owed See Leg.
+    /// @return debt See Leg.
     /// @return collateral See Leg.
     /// @return fee See Leg.
     function escrowLegs(
@@ -146,7 +148,7 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
             bytes28 receiverAccountId,
             bytes28 assetId,
             uint256 amount,
-            uint256 owed,
+            uint256 debt,
             uint256 collateral,
             uint256 fee
         );

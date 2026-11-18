@@ -9,7 +9,7 @@ import { Turnstile } from "../../src/turnstile/Turnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitAccountLib } from "../../src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
 
 contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
@@ -21,8 +21,8 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(usdc))
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc))
             ),
             100e6,
             "deposit: alice not credited depot balance"
@@ -61,8 +61,8 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, alice),
-                TransitAccountLib.formatAccountId(HUB_CHAIN_ID, address(other))
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(other))
             ),
             1e18,
             "deposit: arbitrary asset not credited on depot"
@@ -141,8 +141,8 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitAccountLib.formatAccountId(SPOKE_CHAIN_ID, alice),
-                TransitAccountLib.formatAccountId(SPOKE_CHAIN_ID, address(usdg))
+                TransitAddressLib.formatTransitAddress(SPOKE_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(SPOKE_CHAIN_ID, address(usdg))
             ),
             100e6,
             "spoke deposit: depot did not credit alice"

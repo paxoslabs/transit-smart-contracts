@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 import { IUserConductor } from "src/interfaces/IUserConductor.sol";
 
@@ -21,9 +21,9 @@ contract UserConductor is IUserConductor, RequestConductor {
     /// @inheritdoc IUserConductor
     function requestTransfer(TransferRequest calldata request) external {
         _request(
-            TransitAccountLib.formatAccountId(request.ownerChainId, request.owner),
+            TransitAddressLib.formatTransitAddress(request.ownerChainId, request.owner),
             digestTransferRequest(request),
-            TransitAccountLib.formatAccountId(request.assetChainId, request.asset),
+            TransitAddressLib.formatTransitAddress(request.assetChainId, request.asset),
             request.amount
         );
     }
@@ -32,8 +32,8 @@ contract UserConductor is IUserConductor, RequestConductor {
     function executeTransfer(TransferRequest calldata request) external {
         if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
-        bytes28 accountId = TransitAccountLib.formatAccountId(request.ownerChainId, request.owner);
-        bytes28 assetId = TransitAccountLib.formatAccountId(request.assetChainId, request.asset);
+        bytes28 accountId = TransitAddressLib.formatTransitAddress(request.ownerChainId, request.owner);
+        bytes28 assetId = TransitAddressLib.formatTransitAddress(request.assetChainId, request.asset);
         _consume(accountId, requestId, assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
@@ -42,8 +42,8 @@ contract UserConductor is IUserConductor, RequestConductor {
         }
 
         uint256 amount = _executableAmount(accountId, assetId, request.amount, request.partiallyFillable);
-        IDepot(DEPOT)
-            .transferFrom(accountId, TransitAccountLib.formatAccountId(request.toChainId, request.to), assetId, amount);
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(request.toChainId, request.to);
+        IDepot(DEPOT).transferFrom(accountId, toAccountId, assetId, amount);
 
         emit TransferExecuted(requestId, amount);
     }

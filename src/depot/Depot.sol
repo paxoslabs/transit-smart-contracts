@@ -6,7 +6,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 /**
  * @title Depot
@@ -65,7 +65,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         restricted
         whenNotPaused
     {
-        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) {
+        if (!TransitAddressLib.isValid(fromAccountId) || !TransitAddressLib.isValid(toAccountId)) {
             revert InvalidAccount();
         }
         _requireNotFrozen(fromAccountId);
@@ -87,7 +87,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             if (delta.amount == 0) revert ZeroAmount();
 
             bytes28 assetId = delta.assetId;
-            if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
+            if (!TransitAddressLib.isValid(assetId)) revert InvalidAsset();
             uint256 assetIndex;
 
             /// TODO: Linear search is O(deltas * uniqueAssets). Could require solvers to order inputs so conductors
@@ -102,7 +102,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to mint so the following applies to all non-mints
             if (delta.fromAccountId != bytes28(0)) {
                 // Ensure the account is valid and from is not from a frozen address
-                if (!TransitAccountLib.isValid(delta.fromAccountId)) revert InvalidAccount();
+                if (!TransitAddressLib.isValid(delta.fromAccountId)) revert InvalidAccount();
                 _requireNotFrozen(delta.fromAccountId);
                 // Ensure enough balance exists at the account unreserved at this point
                 if (freeBalanceOf(delta.fromAccountId, assetId) < delta.amount) revert InsufficientBalance();
@@ -113,7 +113,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to burn so the following applies to all non-burns
             if (delta.toAccountId != bytes28(0)) {
                 // Ensure the account is valid
-                if (!TransitAccountLib.isValid(delta.toAccountId)) revert InvalidAccount();
+                if (!TransitAddressLib.isValid(delta.toAccountId)) revert InvalidAccount();
                 credits[assetIndex] += delta.amount;
             }
 
@@ -130,14 +130,14 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     /// @inheritdoc IDepot
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
-        if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
+        if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
+        if (!TransitAddressLib.isValid(assetId)) revert InvalidAsset();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
 
     /// @inheritdoc IDepot
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(fromAccountId)) revert InvalidAccount();
+        if (!TransitAddressLib.isValid(fromAccountId)) revert InvalidAccount();
         _requireNotFrozen(fromAccountId);
         if (freeBalanceOf(fromAccountId, assetId) < amount) revert InsufficientBalance();
         _transfer(fromAccountId, bytes28(0), assetId, amount);
