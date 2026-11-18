@@ -20,6 +20,9 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @notice Credit a deposit received by the Turnstile. Mints to the recipient, then transfers the facilitation fee
     /// from the recipient to the fee receiver. A frozen sender's deposit is minted whole to its own account, with no
     /// fee.
+    /// @dev Must never be in the Turnstile's genericMessageWhitelist: generic calls also arrive from the Turnstile and
+    /// pass `restricted`, so anyone could mint unbacked balance. Only a Deposit message, sent after custody, may call
+    /// it.
     /// @param sourceChainId Chain the deposit was made on.
     /// @param asset Address of the deposited asset on the source chain.
     /// @param amount Amount deposited.
@@ -39,6 +42,9 @@ interface IHubWarehouseConductor is IRequestConductor {
         external;
 
     /// @notice Execute an effective withdrawal request, burning up to the executable amount. Called by the Turnstile.
+    /// @dev Must never be in the Turnstile's genericMessageWhitelist: generic calls also arrive from the Turnstile and
+    /// pass `restricted`, but only a Withdrawal dispatch sends the release message for the returned amount. A generic
+    /// call would burn the owner's balance with no payout, and anyone could do it to any effective request.
     /// @param action Withdrawal action.
     /// @return amount Amount burned; 0 if expired or unfillable.
     function executeWithdrawal(ITurnstile.WithdrawalAction calldata action) external returns (uint256 amount);
