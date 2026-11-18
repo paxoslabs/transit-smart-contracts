@@ -44,6 +44,8 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (bytes32 messageId)
     {
+        /// TODO: Decide whether to refund overpayment. The router keeps all of msg.value; refunding needs an on-chain
+        /// getFee here and a refund path back through Turnstile to its caller.
         return IRouterClient(getRouter()).ccipSend{ value: msg.value }(
             uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
         );

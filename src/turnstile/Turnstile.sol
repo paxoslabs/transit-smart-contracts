@@ -283,12 +283,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        /// TODO: Decide what happens to bridgeFee when an expired or empty withdrawal sends no message. Currently it
-        /// stays in Turnstile.
         if (body.length != 0) {
             messageHash = _handleMessage(
                 uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee, facilitated
             );
+        } else if (action.bridgeFee != 0) {
+            // A zero-amount withdrawal sends no message. This could revert NoBridgeFee instead, but refunding avoids
+            // reverting a whole batch on races the sender cannot see, e.g. a deposit not yet credited at execution.
+            SafeTransferLib.forceSafeTransferETH(msg.sender, action.bridgeFee);
         }
     }
 
