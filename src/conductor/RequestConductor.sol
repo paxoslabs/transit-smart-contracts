@@ -3,7 +3,7 @@ pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
-import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
+import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
 import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /**
@@ -15,7 +15,7 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
  * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
  * @custom:security-contact security@paxoslabs.com
  */
-abstract contract RequestConductor is IRequestConductor, TurnstileGated {
+abstract contract RequestConductor is IRequestConductor, ConductorGatedByTurnstile {
 
     /// @inheritdoc IRequestConductor
     uint256 public constant EXECUTED = type(uint256).max;
@@ -26,7 +26,7 @@ abstract contract RequestConductor is IRequestConductor, TurnstileGated {
     /// @inheritdoc IRequestConductor
     mapping(bytes28 accountId => mapping(bytes32 requestId => uint256 effectiveAtEpoch)) public requestEffectiveAtEpoch;
 
-    constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
+    constructor(address _depot, address _turnstile) ConductorGatedByTurnstile(_turnstile) {
         DEPOT = _depot;
     }
 

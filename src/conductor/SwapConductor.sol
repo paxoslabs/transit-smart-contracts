@@ -6,7 +6,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
-import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
+import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
 
 /**
  * @title SwapConductor
@@ -17,7 +17,7 @@ import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
  * takes effect in the current epoch.
  * @custom:security-contact security@paxoslabs.com
  */
-abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, TurnstileGated {
+abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, ConductorGatedByTurnstile {
 
     /// @inheritdoc ISwapConductor
     address public immutable DEPOT;
@@ -38,7 +38,7 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         address _turnstile
     )
         AccessManaged(_authority)
-        TurnstileGated(_turnstile)
+        ConductorGatedByTurnstile(_turnstile)
     {
         DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
