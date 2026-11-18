@@ -8,6 +8,7 @@ pragma solidity 0.8.37;
  * @dev 28 rather than 32 bytes leaves 4 bytes of a word free for metadata, e.g. TurnstileGated packs an account and
  * 4 bytes of flags into one 32-byte calldata suffix. bytes28(0) is reserved by the Depot as the mint/burn sentinel and
  * is never valid.
+ * @custom:security-contact security@paxoslabs.com
  */
 library TransitAddressLib {
 

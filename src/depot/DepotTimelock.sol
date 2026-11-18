@@ -13,6 +13,7 @@ import { IDepotTimelock } from "src/interfaces/IDepotTimelock.sol";
  * observe the change before resubmitting. Signed orders are unaffected and remain valid under the new rules; users who
  * object must cancel during the delay. Requires a role permitting advanceEpoch. Side effect: actions waiting on the
  * next epoch (reservations, requests, cancellations) take effect one batch early.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract DepotTimelock is IDepotTimelock, TimelockController {
 

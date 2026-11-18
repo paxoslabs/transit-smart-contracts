@@ -15,6 +15,7 @@ import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
  * @dev Orders are user-signed EIP-712 messages settled by a restricted solver in epoch batches. Cancellations take
  * effect from the next epoch, so a batch already in flight cannot be invalidated by one; a facilitated cancellation
  * takes effect in the current epoch.
+ * @custom:security-contact security@paxoslabs.com
  */
 abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, TurnstileGated {
 

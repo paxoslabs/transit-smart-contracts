@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+/**
+ * @title Roles
+ * @notice Role ids used by TransitAuthority. Each AccessManaged function is mapped to one role with
+ * setTargetFunctionRole, and an account may call it if it holds that role.
+ * @custom:security-contact security@paxoslabs.com
+ */
 library Roles {
 
     bytes32 internal constant ADMIN = bytes32(uint256(0x01));

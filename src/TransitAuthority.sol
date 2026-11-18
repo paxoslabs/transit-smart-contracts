@@ -13,6 +13,7 @@ import { ITransitAuthority } from "src/interfaces/ITransitAuthority.sol";
  * @dev Glue between AccessManaged, which asks canCall(caller, target, selector), and OZ AccessControlEnumerable, which
  * only answers hasRole. Unmapped functions are callable by no one. Used instead of OZ AccessManager to keep role
  * enumeration.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract TransitAuthority is ITransitAuthority, AccessControlEnumerable {
 

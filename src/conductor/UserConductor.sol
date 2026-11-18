@@ -13,6 +13,7 @@ import { IUserConductor } from "src/interfaces/IUserConductor.sol";
  * leaving the ledger. A transfer is requested, waits one epoch, then may be executed by anyone.
  * @dev Built on RequestConductor: the request reserves the funds, and execution transfers up to the executable
  * amount. Expired requests are consumed without moving funds.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract UserConductor is IUserConductor, RequestConductor {
 

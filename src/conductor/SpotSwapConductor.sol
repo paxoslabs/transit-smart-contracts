@@ -14,6 +14,7 @@ import { SwapConductor } from "src/conductor/SwapConductor.sol";
  * Each fill burns the owner's sell token and mints the buy token to the receiver; per asset, mints must equal burns.
  * @dev Fees are minted to SURPLUS_RECIPIENT_ACCOUNT_ID and must be covered by surplus burns in the same batch (e.g.
  * price improvement), enforced by the Depot's zero-sum check.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
 

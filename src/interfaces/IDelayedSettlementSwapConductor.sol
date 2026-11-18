@@ -6,6 +6,7 @@ import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
 /// @title Transit Terminal DelayedSettlementSwapConductor
 /// @notice Order types and entrypoints for swaps where one side may settle its payment after a delay, backed by
 /// collateral.
+/// @custom:security-contact security@paxoslabs.com
 interface IDelayedSettlementSwapConductor is ISwapConductor {
 
     /// @notice A user's signed order.

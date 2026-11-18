@@ -6,6 +6,7 @@ import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 
 /// @title Transit Terminal HubWarehouseConductor
 /// @notice Hub-side handling of deposits and withdrawals: mints deposited balances and burns withdrawn ones.
+/// @custom:security-contact security@paxoslabs.com
 interface IHubWarehouseConductor is IRequestConductor {
 
     /// @notice A withdrawal request was executed.

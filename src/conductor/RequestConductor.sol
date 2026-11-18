@@ -13,6 +13,7 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
  * may execute it, which releases the reservation and consumes the request.
  * @dev The delay keeps user-initiated outflows from invalidating a solver batch already in flight. A facilitated owner
  * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
+ * @custom:security-contact security@paxoslabs.com
  */
 abstract contract RequestConductor is IRequestConductor, TurnstileGated {
 

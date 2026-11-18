@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+/// @title Typehashes
+/// @notice EIP-712 type hashes for every signed Transit struct.
 /// @dev For all-static structs (WithdrawalAction, TransferRequest, Order, DelayedSettlementOrder), hash functions
 /// encode the struct whole, so each type string's field order must match the struct's declaration order.
+/// @custom:security-contact security@paxoslabs.com
 library Typehashes {
 
     /// @dev EIP-712 type hash for the Deposit action.

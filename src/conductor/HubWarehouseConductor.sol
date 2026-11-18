@@ -18,6 +18,7 @@ import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.so
  * recieveWithdrawal. requestWithdrawal is open to the owner but only reserves
  * funds; the withdrawal completes through the Turnstile once the request is effective, or immediately for a
  * facilitated owner.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, RequestConductor {
 

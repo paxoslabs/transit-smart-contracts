@@ -12,6 +12,7 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
  * @title Depot
  * @notice The main ledger for the Transit Terminal system. The Depot exists only on a Hub chain and uses a bytes28
  * "account" data type to store data for different address/chainId combinations.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract Depot is IDepot, AccessManaged, Pausable {
 

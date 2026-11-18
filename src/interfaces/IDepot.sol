@@ -6,6 +6,7 @@ import { AddressFreezeList } from "src/AddressFreezeList.sol";
 /// @title Transit Terminal Depot
 /// @notice The main ledger for the Transit Terminal system, keyed by bytes28 account and asset ids (chainId and
 /// address).
+/// @custom:security-contact security@paxoslabs.com
 interface IDepot {
 
     /// @notice An account's reserved balance of one asset.
