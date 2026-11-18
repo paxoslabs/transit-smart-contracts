@@ -5,6 +5,7 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /// @title Transit Terminal UserConductor
 /// @notice Requested transfers of a user's own Depot balance between accounts.
+/// @custom:security-contact security@paxoslabs.com
 interface IUserConductor is IRequestConductor {
 
     /// @notice A user's signed transfer request.

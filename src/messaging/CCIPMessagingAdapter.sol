@@ -8,6 +8,12 @@ import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCod
 import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
 
+/**
+ * @title CCIPMessagingAdapter
+ * @notice MessagingAdapter over Chainlink CCIP. Peers are mapped to CCIP chain selectors through remoteId, and the
+ * bridge fee is paid in native gas.
+ * @custom:security-contact security@paxoslabs.com
+ */
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
     constructor(

@@ -25,6 +25,7 @@ import { FACILITATED_FLAG } from "src/turnstile/TurnstileGated.sol";
  * cross-chain message is recorded as Failed for an admin retry, except out-of-gas, which reverts for a bridge retry.
  * Calls into conductors carry the sender and facilitated flag as a calldata suffix (see _buildTurnstileCallData).
  * The VAULT approves this contract, so the generic message whitelist must never include token contracts.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 

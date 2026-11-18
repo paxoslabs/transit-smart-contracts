@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 /// @title Transit Terminal MessagingAdapter
 /// @notice Bridge-agnostic messaging between Turnstiles on different chains. Each bridge implements one adapter.
+/// @custom:security-contact security@paxoslabs.com
 interface IMessagingAdapter {
 
     /// @notice Configuration of a remote chain's adapter.

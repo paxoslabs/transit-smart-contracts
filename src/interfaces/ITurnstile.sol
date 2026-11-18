@@ -6,6 +6,7 @@ import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 /// @title Transit Terminal Turnstile
 /// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for
 /// Conductor contracts, and custodies deposits into and releases withdrawals from the chain's VAULT.
+/// @custom:security-contact security@paxoslabs.com
 interface ITurnstile is IMessagingReceiver {
 
     /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and

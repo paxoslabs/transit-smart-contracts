@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 /// @title Transit Terminal SwapConductor
 /// @notice Shared state, events and errors of swap conductors: fill progress, pre-approvals and owner cancellations.
+/// @custom:security-contact security@paxoslabs.com
 interface ISwapConductor {
 
     /// @notice An owner requested an order's cancellation.

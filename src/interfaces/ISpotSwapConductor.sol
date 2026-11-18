@@ -5,6 +5,7 @@ import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
 
 /// @title Transit Terminal SpotSwapConductor
 /// @notice Order types and solver entrypoint for spot swaps settled in the Depot.
+/// @custom:security-contact security@paxoslabs.com
 interface ISpotSwapConductor is ISwapConductor {
 
     /// @notice A user's signed swap order.

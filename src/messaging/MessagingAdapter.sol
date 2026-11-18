@@ -5,6 +5,13 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
+/**
+ * @title MessagingAdapter
+ * @notice Bridge-agnostic base for sending the local Turnstile's messages to peer adapters on other chains and
+ * delivering inbound messages to it. Holds per-chain peer config: allowed directions and message gas bounds.
+ * @dev Each bridge implements _send and _quote, and calls _receive from its own inbound hook.
+ * @custom:security-contact security@paxoslabs.com
+ */
 abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
     /// @inheritdoc IMessagingAdapter

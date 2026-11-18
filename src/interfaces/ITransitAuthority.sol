@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 /// @title Transit Terminal TransitAuthority
 /// @notice Authority for AccessManaged Transit contracts: maps each (target, selector) to a role.
+/// @custom:security-contact security@paxoslabs.com
 interface ITransitAuthority {
 
     /// @notice A function's required role was set.
