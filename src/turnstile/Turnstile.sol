@@ -103,9 +103,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHashes = _dispatch(actions, new bytes[](0), false);
     }
 
-    /// @dev TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
-    /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
-    /// facilitator.
     /// @inheritdoc ITurnstile
     function facilitate(
         Action[] calldata actions,

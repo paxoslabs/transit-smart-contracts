@@ -502,7 +502,6 @@ contract DepotUnitTest is Test {
             depot.settlementEpoch(),
             "facilitate: cancel not immediate"
         );
-        /// TODO: Restore fee assertions once facilitate charges fees.
 
         _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
     }
