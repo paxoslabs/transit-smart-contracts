@@ -92,7 +92,7 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         peerSels[0] = MessagingAdapter.setPeer.selector;
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.receiveMessage.selector;
+        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(spokeTurnstile), turnstileAdminSels, Roles.ADMIN);
@@ -341,7 +341,7 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
 
         vm.prank(mallory);
         vm.expectRevert();
-        turnstile.receiveMessage(SPOKE_CHAIN_ID, payload);
+        turnstile.handleReceivedMessage(SPOKE_CHAIN_ID, payload);
     }
 
 }

@@ -47,8 +47,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (_vault == address(0)) revert VaultUnset();
         VAULT = _vault;
         /// NOTE: messagingAdapter is not set here because MessagingAdapter takes this Turnstile as its immutable
-        /// ENDPOINT, making constructor wiring circular. We could instead check !=0 on every call as was done before
-        /// but this only provides a more convinient error. And the window between deploy and setting still reverts.
+        /// LOCAL_TURNSTILE, making constructor wiring circular. We could instead check !=0 on every call as was done
+        /// before but this only provides a more convinient error. And the window between deploy and setting still
+        /// reverts.
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
@@ -249,7 +250,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     // ========================================= ADAPTER ========================================
 
     /// @inheritdoc IMessagingReceiver
-    function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
+    function handleReceivedMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
         _handleMessage(chainId, uint64(block.chainid), 0, actionType, body, 0, false);
     }

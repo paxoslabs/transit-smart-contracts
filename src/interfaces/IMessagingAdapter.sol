@@ -39,6 +39,21 @@ interface IMessagingAdapter {
         bool allowMessagesTo
     );
 
+    /// @notice Whether messages from a chain are accepted was set.
+    /// @param chainId Remote chainId.
+    /// @param allowed Whether accepted.
+    event AllowMessagesFromChainSet(uint64 indexed chainId, bool allowed);
+
+    /// @notice Whether messages to a chain may be sent was set.
+    /// @param chainId Remote chainId.
+    /// @param allowed Whether allowed.
+    event AllowMessagesToChainSet(uint64 indexed chainId, bool allowed);
+
+    /// @notice A chain's messageGasLimit was set.
+    /// @param chainId Remote chainId.
+    /// @param messageGasLimit New limit.
+    event ChainGasLimitSet(uint64 indexed chainId, uint64 messageGasLimit);
+
     /// @notice A peer was removed.
     /// @param chainId Remote chainId.
     event PeerRemoved(uint64 indexed chainId);
@@ -49,14 +64,14 @@ interface IMessagingAdapter {
     /// @param payload Message payload.
     event MessageSent(uint64 indexed chainId, bytes32 indexed messageId, bytes payload);
 
-    /// @notice A message was received and forwarded to the ENDPOINT.
+    /// @notice A message was received and forwarded to the LOCAL_TURNSTILE.
     /// @param chainId Source chainId.
     /// @param sender Remote adapter.
     /// @param payload Message payload.
     event MessageReceived(uint64 indexed chainId, bytes32 sender, bytes payload);
 
-    /// @notice The caller is not the ENDPOINT.
-    error OnlyEndpoint();
+    /// @notice The caller is not the LOCAL_TURNSTILE.
+    error OnlyLocalTurnstile();
 
     /// @notice No peer is configured for the chain.
     error PeerNotSet(uint64 chainId);
@@ -80,8 +95,8 @@ interface IMessagingAdapter {
     error MessagesNotAllowedTo(uint64 chainId);
 
     /// @notice The local Turnstile, the only sender and the receiver of messages.
-    /// @return Endpoint address.
-    function ENDPOINT() external view returns (address);
+    /// @return Local Turnstile address.
+    function LOCAL_TURNSTILE() external view returns (address);
 
     /// @notice The chainId of the hub chain.
     /// @return Hub chainId.
@@ -157,7 +172,7 @@ interface IMessagingAdapter {
     /// @return bridgeFee Fee in native token.
     function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view returns (uint256 bridgeFee);
 
-    /// @notice Send a message to a remote chain. Only callable by the ENDPOINT; msg.value pays the bridge fee.
+    /// @notice Send a message to a remote chain. Only callable by the LOCAL_TURNSTILE; msg.value pays the bridge fee.
     /// @param chainId Destination chainId.
     /// @param gasLimit Gas the message requests on the destination.
     /// @param payload Message payload.

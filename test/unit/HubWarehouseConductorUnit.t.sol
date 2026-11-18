@@ -55,7 +55,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
-        turnstile.receiveMessage(HUB_CHAIN_ID, payload);
+        turnstile.handleReceivedMessage(HUB_CHAIN_ID, payload);
 
         vm.prank(mallory);
         vm.expectRevert();

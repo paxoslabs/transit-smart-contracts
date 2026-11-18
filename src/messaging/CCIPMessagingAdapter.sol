@@ -11,11 +11,11 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
     constructor(
         address _authority,
-        address _endpoint,
+        address _localTurnstile,
         uint64 _hubChainId,
         address _router
     )
-        MessagingAdapter(_authority, _endpoint, _hubChainId)
+        MessagingAdapter(_authority, _localTurnstile, _hubChainId)
         CCIPReceiver(_router)
     { }
 
@@ -30,7 +30,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (uint256 bridgeFee)
     {
-        PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
+        PeerConfig memory peer = _validateOutboundAndGetPeer(chainId, gasLimit);
         return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
     }
 

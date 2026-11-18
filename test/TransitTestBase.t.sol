@@ -183,7 +183,7 @@ contract TransitTestBase is Test {
         Turnstile chainTurnstile = turnstiles[chain];
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.receiveMessage.selector;
+        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), receiveSels, Roles.MESSAGING_ADAPTER);
 
         bytes4[] memory turnstileAdminSels = new bytes4[](4);

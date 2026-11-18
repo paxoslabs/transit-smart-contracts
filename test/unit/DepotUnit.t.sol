@@ -63,7 +63,7 @@ contract DepotUnitTest is Test {
         usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
 
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.receiveMessage.selector;
+        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
 
         bytes4[] memory solverSels = new bytes4[](1);
         solverSels[0] = SpotSwapConductor.settle.selector;

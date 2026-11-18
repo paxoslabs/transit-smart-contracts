@@ -81,7 +81,7 @@ abstract contract WarehouseConductorUnitBase is Test {
 
     function _authorizeDepot() internal {
         bytes4[] memory sels = new bytes4[](1);
-        sels[0] = Turnstile.receiveMessage.selector;
+        sels[0] = Turnstile.handleReceivedMessage.selector;
 
         bytes4[] memory turnstileAdminSels = new bytes4[](3);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;

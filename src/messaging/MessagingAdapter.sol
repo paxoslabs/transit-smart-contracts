@@ -8,7 +8,7 @@ import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
     /// @inheritdoc IMessagingAdapter
-    address public immutable ENDPOINT;
+    address public immutable LOCAL_TURNSTILE;
     /// @inheritdoc IMessagingAdapter
     uint64 public immutable HUB_CHAIN_ID;
 
@@ -17,8 +17,8 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     /// @inheritdoc IMessagingAdapter
     mapping(uint256 remoteId => uint64 chainId) public chainIdForRemoteId;
 
-    constructor(address _authority, address _endpoint, uint64 _hubChainId) AccessManaged(_authority) {
-        ENDPOINT = _endpoint;
+    constructor(address _authority, address _localTurnstile, uint64 _hubChainId) AccessManaged(_authority) {
+        LOCAL_TURNSTILE = _localTurnstile;
         HUB_CHAIN_ID = _hubChainId;
     }
 
@@ -40,6 +40,9 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
             PeerConfig(peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
         chainIdForRemoteId[remoteId] = chainId;
         emit PeerSet(chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
+        emit ChainGasLimitSet(chainId, messageGasLimit);
+        emit AllowMessagesFromChainSet(chainId, allowMessagesFrom);
+        emit AllowMessagesToChainSet(chainId, allowMessagesTo);
     }
 
     /// @inheritdoc IMessagingAdapter
@@ -52,17 +55,20 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     /// @inheritdoc IMessagingAdapter
     function setAllowMessagesFromChain(uint64 chainId, bool allowed) external restricted {
         peers[chainId].allowMessagesFrom = allowed;
+        emit AllowMessagesFromChainSet(chainId, allowed);
     }
 
     /// @inheritdoc IMessagingAdapter
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external restricted {
         peers[chainId].allowMessagesTo = allowed;
+        emit AllowMessagesToChainSet(chainId, allowed);
     }
 
     /// @inheritdoc IMessagingAdapter
     function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
         if (messageGasLimit == 0) revert ZeroMessageGasLimit();
         peers[chainId].messageGasLimit = messageGasLimit;
+        emit ChainGasLimitSet(chainId, messageGasLimit);
     }
 
     /// @inheritdoc IMessagingAdapter
@@ -71,9 +77,9 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         payable
         returns (bytes32 messageId)
     {
-        if (msg.sender != ENDPOINT) revert OnlyEndpoint();
+        if (msg.sender != LOCAL_TURNSTILE) revert OnlyLocalTurnstile();
 
-        PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
+        PeerConfig memory peer = _validateOutboundAndGetPeer(chainId, gasLimit);
         messageId = _send(chainId, gasLimit, peer, payload);
 
         emit MessageSent(chainId, messageId, payload);
@@ -96,7 +102,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
 
         emit MessageReceived(chainId, sender, payload);
 
-        IMessagingReceiver(ENDPOINT).receiveMessage(chainId, payload);
+        IMessagingReceiver(LOCAL_TURNSTILE).handleReceivedMessage(chainId, payload);
     }
 
     function _peerOf(uint64 chainId) internal view returns (PeerConfig memory peer) {
@@ -104,7 +110,16 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
         if (peer.peer == bytes32(0)) revert PeerNotSet(chainId);
     }
 
-    function _outboundPeerOf(uint64 chainId, uint64 gasLimit) internal view returns (PeerConfig memory peer) {
+    /// @dev Returns the chain's peer after checking a message may be sent to it: the peer is set, sending is allowed,
+    /// and gasLimit is within [minimumMessageGas, messageGasLimit]. Reverts otherwise.
+    function _validateOutboundAndGetPeer(
+        uint64 chainId,
+        uint64 gasLimit
+    )
+        internal
+        view
+        returns (PeerConfig memory peer)
+    {
         peer = _peerOf(chainId);
         if (!peer.allowMessagesTo) revert MessagesNotAllowedTo(chainId);
         if (gasLimit > peer.messageGasLimit) revert GasLimitExceeded();
