@@ -159,6 +159,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     action.target,
                     keccak256(action.data),
                     action.deadline,
+                    action.dependsOn,
                     action.salt
                 )
             )
@@ -379,6 +380,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
         if (action.ownerChainId != block.chainid || sender != action.owner) revert NotOwner();
+        // A partially fillable withdrawal cannot be depended on: its message body holds the executed amount,
+        // min(requested, free balance), which is unknown until execution, so its hash cannot be computed in advance.
+        if (action.dependsOn != 0 && messageStatus[action.dependsOn] != MessageStatus.Executed) {
+            revert DependencyNotExecuted();
+        }
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             GenericMessage({

@@ -17,7 +17,7 @@ library Typehashes {
     );
     /// @dev EIP-712 type hash for a Generic action.
     bytes32 internal constant GENERIC_ACTION = keccak256(
-        "GenericAction(uint64 ownerChainId,address owner,address target,bytes data,uint256 deadline,bytes32 salt)"
+        "GenericAction(uint64 ownerChainId,address owner,address target,bytes data,uint256 deadline,bytes32 dependsOn,bytes32 salt)"
     );
     /// @dev EIP-712 type hash for a UserConductor transfer request.
     bytes32 internal constant TRANSFER_REQUEST = keccak256(

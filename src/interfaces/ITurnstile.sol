@@ -130,6 +130,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param target Action call target address.
     /// @param data Action calldata.
     /// @param deadline Action execution deadline.
+    /// @param dependsOn Hash of a message (see digestMessage) that must have executed before this one, or 0 for
+    /// none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct GenericAction {
         uint64 ownerChainId;
@@ -137,6 +139,7 @@ interface ITurnstile is IMessagingReceiver {
         address target;
         bytes data;
         uint256 deadline;
+        bytes32 dependsOn;
         bytes32 salt;
     }
 
@@ -250,6 +253,9 @@ interface ITurnstile is IMessagingReceiver {
 
     /// @notice An action's owner is not its sender or signer.
     error NotOwner();
+
+    /// @notice A generic action's dependsOn message has not executed.
+    error DependencyNotExecuted();
 
     /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so
     /// withdrawals can be released.

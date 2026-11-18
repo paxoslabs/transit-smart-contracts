@@ -234,6 +234,7 @@ contract DepotUnitTest is Test {
             target: target,
             data: data,
             deadline: block.timestamp,
+            dependsOn: bytes32(0),
             salt: bytes32(++requestSalt)
         });
     }
@@ -245,6 +246,7 @@ contract DepotUnitTest is Test {
             target: address(spotSwapConductor),
             data: abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
             deadline: type(uint256).max,
+            dependsOn: bytes32(0),
             salt: bytes32(++requestSalt)
         });
     }
