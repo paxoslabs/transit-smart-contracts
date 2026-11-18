@@ -75,6 +75,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param toChainId ChainId element of accountId of deposit recipient.
     /// @param to Address element of accountId of deposit recipient.
     /// @param deadline Deposit request submission deadline.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
@@ -85,6 +87,7 @@ interface ITurnstile is IMessagingReceiver {
         uint64 toChainId;
         address to;
         uint256 deadline;
+        bytes32 dependsOn;
         bytes32 salt;
         Permit permit;
     }
@@ -111,6 +114,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param deadline Withdrawal request submission deadline.
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
     /// full amount.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct WithdrawalAction {
         uint64 ownerChainId;
@@ -121,6 +126,7 @@ interface ITurnstile is IMessagingReceiver {
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
+        bytes32 dependsOn;
         bytes32 salt;
     }
 
@@ -130,8 +136,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param target Action call target address.
     /// @param data Action calldata.
     /// @param deadline Action execution deadline.
-    /// @param dependsOn Hash of a message (see digestMessage) that must have executed before this one, or 0 for
-    /// none.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct GenericAction {
         uint64 ownerChainId;
@@ -254,7 +260,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An action's owner is not its sender or signer.
     error NotOwner();
 
-    /// @notice A generic action's dependsOn message has not executed.
+    /// @notice An action's dependsOn message has not executed.
     error DependencyNotExecuted();
 
     /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so

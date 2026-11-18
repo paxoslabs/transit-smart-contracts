@@ -133,6 +133,7 @@ abstract contract WarehouseConductorUnitBase is Test {
                     toChainId: HUB_CHAIN_ID,
                     to: user,
                     deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
                 })

@@ -20,6 +20,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
+            dependsOn: bytes32(0),
             salt: bytes32(++withdrawSalt)
         });
     }

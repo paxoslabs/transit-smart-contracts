@@ -51,6 +51,7 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
                     toChainId: HUB_CHAIN_ID,
                     to: alice,
                     deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
                 })
@@ -124,6 +125,7 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
                     toChainId: SPOKE_CHAIN_ID,
                     to: alice,
                     deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
                 })
@@ -169,6 +171,94 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         vm.stopPrank();
 
         assertEq(spokeTurnstile.hubWarehouseConductor(), address(0), "spoke: hub warehouse conductor was set");
+    }
+
+    // ---------------------------------------------------------------- dependsOn
+
+    function _depositActions(
+        address user,
+        uint256 amount,
+        bytes32 dependsOn,
+        bytes32 salt
+    )
+        internal
+        view
+        returns (ITurnstile.Action[] memory actions)
+    {
+        actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Deposit,
+            data: abi.encode(
+                ITurnstile.DepositAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: user,
+                    asset: address(usdc),
+                    amount: amount,
+                    toChainId: HUB_CHAIN_ID,
+                    to: user,
+                    deadline: type(uint256).max,
+                    dependsOn: dependsOn,
+                    salt: salt,
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            ),
+            bridgeFee: 0,
+            messageGas: 0
+        });
+    }
+
+    function testDepositRevertsOnUnexecutedDependency() public {
+        deal(address(usdc), alice, 1e6);
+        vm.startPrank(alice);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), 1e6);
+        ITurnstile.Action[] memory actions = _depositActions(alice, 1e6, keccak256("unexecuted"), bytes32(0));
+        vm.expectRevert(ITurnstile.DependencyNotExecuted.selector);
+        turnstile.dispatch(actions);
+        vm.stopPrank();
+    }
+
+    function testDepositSucceedsOnExecutedDependency() public {
+        deal(address(usdc), alice, 2e6);
+        vm.startPrank(alice);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), 2e6);
+        bytes32 firstHash = turnstile.dispatch(_depositActions(alice, 1e6, bytes32(0), bytes32(0)))[0];
+        turnstile.dispatch(_depositActions(alice, 1e6, firstHash, bytes32(uint256(1))));
+        vm.stopPrank();
+
+        assertEq(
+            depot.balanceOf(
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc))
+            ),
+            2e6,
+            "dependsOn: dependent deposit not credited after its dependency executed"
+        );
+    }
+
+    function testWithdrawalRevertsOnUnexecutedDependency() public {
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Withdrawal,
+            data: abi.encode(
+                ITurnstile.WithdrawalAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: alice,
+                    to: alice,
+                    assetChainId: HUB_CHAIN_ID,
+                    asset: address(usdc),
+                    amount: 1e6,
+                    deadline: type(uint256).max,
+                    partiallyFillable: false,
+                    dependsOn: keccak256("unexecuted"),
+                    salt: bytes32(0)
+                })
+            ),
+            bridgeFee: 0,
+            messageGas: 0
+        });
+        vm.prank(alice);
+        vm.expectRevert(ITurnstile.DependencyNotExecuted.selector);
+        turnstile.dispatch(actions);
     }
 
     // ---------------------------------------------------------------- messages

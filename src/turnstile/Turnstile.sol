@@ -118,23 +118,22 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function hashDepositAction(DepositAction memory action) public view returns (bytes32) {
+        // Permit is all-static, so it hashes whole. The outer encoding is split in two because a single abi.encode of
+        // every field is stack too deep; concatenated static encodings equal the single encoding.
+        bytes32 permitHash = keccak256(abi.encode(Typehashes.PERMIT, action.permit));
         return _hashTypedData(
             keccak256(
-                abi.encode(
-                    Typehashes.DEPOSIT_ACTION,
-                    action.ownerChainId,
-                    action.owner,
-                    action.asset,
-                    action.amount,
-                    action.toChainId,
-                    action.to,
-                    action.deadline,
-                    action.salt,
-                    keccak256(
-                        abi.encode(
-                            Typehashes.PERMIT, action.permit.deadline, action.permit.v, action.permit.r, action.permit.s
-                        )
-                    )
+                bytes.concat(
+                    abi.encode(
+                        Typehashes.DEPOSIT_ACTION,
+                        action.ownerChainId,
+                        action.owner,
+                        action.asset,
+                        action.amount,
+                        action.toChainId,
+                        action.to
+                    ),
+                    abi.encode(action.deadline, action.dependsOn, action.salt, permitHash)
                 )
             )
         );
@@ -306,6 +305,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         // For deposits, facilitation only determines who `from` is. It is not propagated in the message.
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
         if (action.ownerChainId != block.chainid || from != action.owner) revert NotOwner();
+        _requireDependency(action.dependsOn);
         if (block.timestamp > action.deadline) revert Expired();
         bytes28 toAccountId = TransitAddressLib.formatTransitAddress(action.toChainId, action.to);
         if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
@@ -336,6 +336,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         returns (uint64 chainId, bytes memory body)
     {
         WithdrawalAction memory action = abi.decode(actionData, (WithdrawalAction));
+        _requireDependency(action.dependsOn);
         bytes28 accountId;
         {
             // Withdrawals are dispatched on the hub, so the owner is always an account on this chain.
@@ -379,17 +380,20 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
         if (action.ownerChainId != block.chainid || sender != action.owner) revert NotOwner();
-        // A partially fillable withdrawal cannot be depended on: its message body holds the executed amount,
-        // min(requested, free balance), which is unknown until execution, so its hash cannot be computed in advance.
-        if (action.dependsOn != 0 && messageStatus[action.dependsOn] != MessageStatus.Executed) {
-            revert DependencyNotExecuted();
-        }
+        _requireDependency(action.dependsOn);
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
         body = abi.encode(
             GenericMessage({
                 sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
             })
         );
+    }
+
+    /// @dev Reverts unless dependsOn is 0 or a message already Executed in this Turnstile's messageStatus. A partially
+    /// fillable withdrawal cannot be depended on: its message body holds the executed amount, min(requested, free
+    /// balance), which is unknown until execution, so its hash cannot be computed in advance.
+    function _requireDependency(bytes32 dependsOn) private view {
+        if (dependsOn != 0 && messageStatus[dependsOn] != MessageStatus.Executed) revert DependencyNotExecuted();
     }
 
     function _handleMessage(
