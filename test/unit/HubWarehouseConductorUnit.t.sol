@@ -48,6 +48,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
             amount: 1e6,
             fromAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
             toAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
+            facilitationFee: 0,
+            feeReceiverAccountId: bytes28(0),
             salt: bytes32(uint256(1))
         });
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
@@ -58,7 +60,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         vm.prank(mallory);
         vm.expectRevert();
         hubWarehouseConductor.receiveDeposit(
-            HUB_CHAIN_ID, message.asset, message.amount, message.fromAccountId, message.toAccountId
+            HUB_CHAIN_ID, message.asset, message.amount, message.fromAccountId, message.toAccountId, 0, bytes28(0)
         );
     }
 

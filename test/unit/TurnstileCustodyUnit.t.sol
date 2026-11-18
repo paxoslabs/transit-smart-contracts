@@ -50,6 +50,9 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
                     amount: 1e18,
                     toChainId: HUB_CHAIN_ID,
                     to: alice,
+                    facilitationFee: 0,
+                    feeReceiverChainId: 0,
+                    feeReceiver: address(0),
                     deadline: type(uint256).max,
                     dependsOn: bytes32(0),
                     salt: bytes32(0),
@@ -124,6 +127,9 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
                     amount: 100e6,
                     toChainId: SPOKE_CHAIN_ID,
                     to: alice,
+                    facilitationFee: 0,
+                    feeReceiverChainId: 0,
+                    feeReceiver: address(0),
                     deadline: type(uint256).max,
                     dependsOn: bytes32(0),
                     salt: bytes32(0),
@@ -196,6 +202,9 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
                     amount: amount,
                     toChainId: HUB_CHAIN_ID,
                     to: user,
+                    facilitationFee: 0,
+                    feeReceiverChainId: 0,
+                    feeReceiver: address(0),
                     deadline: type(uint256).max,
                     dependsOn: dependsOn,
                     salt: salt,
@@ -259,6 +268,67 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         vm.prank(alice);
         vm.expectRevert(ITurnstile.DependencyNotExecuted.selector);
         turnstile.dispatch(actions);
+    }
+
+    // ---------------------------------------------------------------- facilitation fee
+
+    function _feeDepositActions(
+        address user,
+        uint256 amount,
+        uint256 fee,
+        address feeReceiver
+    )
+        internal
+        view
+        returns (ITurnstile.Action[] memory actions)
+    {
+        actions = _depositActions(user, amount, bytes32(0), bytes32(0));
+        ITurnstile.DepositAction memory action = abi.decode(actions[0].data, (ITurnstile.DepositAction));
+        action.facilitationFee = fee;
+        action.feeReceiverChainId = HUB_CHAIN_ID;
+        action.feeReceiver = feeReceiver;
+        actions[0].data = abi.encode(action);
+    }
+
+    function testDepositFacilitationFeePaidToReceiver() public {
+        deal(address(usdc), alice, 100e6);
+        vm.startPrank(alice);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), 100e6);
+        turnstile.dispatch(_feeDepositActions(alice, 100e6, 1e6, backend));
+        vm.stopPrank();
+
+        bytes28 usdcId = TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc));
+        assertEq(
+            depot.balanceOf(TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice), usdcId),
+            99e6,
+            "fee: recipient not credited amount minus fee"
+        );
+        assertEq(
+            depot.balanceOf(TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, backend), usdcId),
+            1e6,
+            "fee: fee receiver not paid"
+        );
+        assertEq(usdc.balanceOf(vault), 100e6, "fee: vault should custody the full amount");
+    }
+
+    function testDepositFeeExceedingAmountReverts() public {
+        deal(address(usdc), alice, 1e6);
+        vm.startPrank(alice);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), 1e6);
+        ITurnstile.Action[] memory actions = _feeDepositActions(alice, 1e6, 1e6 + 1, backend);
+        vm.expectRevert(ITurnstile.FeeExceedsAmount.selector);
+        turnstile.dispatch(actions);
+        vm.stopPrank();
+    }
+
+    function testDepositFeeToInvalidReceiverReverts() public {
+        deal(address(usdc), alice, 1e6);
+        vm.startPrank(alice);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), 1e6);
+        ITurnstile.Action[] memory actions = _feeDepositActions(alice, 1e6, 1, address(0));
+        vm.expectRevert(ITurnstile.InvalidAccount.selector);
+        turnstile.dispatch(actions);
+        vm.stopPrank();
     }
 
     // ---------------------------------------------------------------- messages

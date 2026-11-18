@@ -46,18 +46,27 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         address asset,
         uint256 amount,
         bytes28 fromAccountId,
-        bytes28 toAccountId
+        bytes28 toAccountId,
+        uint256 facilitationFee,
+        bytes28 feeReceiverAccountId
     )
         external
         restricted
     {
         bytes28 assetId = TransitAddressLib.formatTransitAddress(sourceChainId, asset);
-        // Tokens are already held on the spoke, so the deposit must be credited somewhere rather than revert. A
-        // frozen sender must not move funds out by depositing to another account, so its deposit stays in its own
-        // frozen account, where it cannot move and may be seized with Depot.forceTransferFrom.
-        bytes28 mintTo = toAccountId;
-        if (IDepot(DEPOT).addressFreezeList().isFrozen(fromAccountId)) mintTo = fromAccountId;
-        IDepot(DEPOT).mint(mintTo, assetId, amount);
+        // A frozen sender must not move funds out by depositing to another account, so its deposit stays whole in its
+        // own frozen account, where it cannot move and may be seized with Depot.forceTransferFrom. No fee is paid from
+        // frozen funds.
+        if (IDepot(DEPOT).addressFreezeList().isFrozen(fromAccountId)) {
+            IDepot(DEPOT).mint(fromAccountId, assetId, amount);
+            return;
+        }
+        IDepot(DEPOT).mint(toAccountId, assetId, amount);
+        // The fee should never fail. If it does (e.g. a frozen recipient), the whole deposit reverts and the message is
+        // left Failed for an admin to retry, so the fee is only ever taken alongside a credited deposit.
+        if (facilitationFee != 0) {
+            IDepot(DEPOT).transferFrom(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
+        }
     }
 
     /// @inheritdoc IHubWarehouseConductor

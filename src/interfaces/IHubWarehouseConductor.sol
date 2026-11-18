@@ -17,19 +17,24 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param action Withdrawal action.
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
 
-    /// @notice Credit a deposit received by the Turnstile. Mints to the recipient, or to a frozen sender's own
-    /// account.
+    /// @notice Credit a deposit received by the Turnstile. Mints to the recipient, then transfers the facilitation fee
+    /// from the recipient to the fee receiver. A frozen sender's deposit is minted whole to its own account, with no
+    /// fee.
     /// @param sourceChainId Chain the deposit was made on.
     /// @param asset Address of the deposited asset on the source chain.
     /// @param amount Amount deposited.
     /// @param fromAccountId Depositing account.
     /// @param toAccountId Recipient account.
+    /// @param facilitationFee Part of amount paid from the recipient to feeReceiverAccountId; 0 for none.
+    /// @param feeReceiverAccountId Facilitation fee receiver account.
     function receiveDeposit(
         uint64 sourceChainId,
         address asset,
         uint256 amount,
         bytes28 fromAccountId,
-        bytes28 toAccountId
+        bytes28 toAccountId,
+        uint256 facilitationFee,
+        bytes28 feeReceiverAccountId
     )
         external;
 

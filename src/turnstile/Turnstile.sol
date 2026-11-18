@@ -133,7 +133,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                         action.toChainId,
                         action.to
                     ),
-                    abi.encode(action.deadline, action.dependsOn, action.salt, permitHash)
+                    abi.encode(
+                        action.facilitationFee,
+                        action.feeReceiverChainId,
+                        action.feeReceiver,
+                        action.deadline,
+                        action.dependsOn,
+                        action.salt,
+                        permitHash
+                    )
                 )
             )
         );
@@ -183,6 +191,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                             amount: action.amount,
                             fromAccountId: TransitAddressLib.formatTransitAddress(uint64(block.chainid), msg.sender),
                             toAccountId: TransitAddressLib.formatTransitAddress(action.toChainId, action.to),
+                            facilitationFee: action.facilitationFee,
+                            feeReceiverAccountId: TransitAddressLib.formatTransitAddress(
+                                action.feeReceiverChainId, action.feeReceiver
+                            ),
                             salt: action.salt
                         })
                     )
@@ -310,6 +322,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         bytes28 toAccountId = TransitAddressLib.formatTransitAddress(action.toChainId, action.to);
         if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
         if (action.amount == 0) revert ZeroAssets();
+        if (action.facilitationFee > action.amount) revert FeeExceedsAmount();
+        bytes28 feeReceiverAccountId =
+            TransitAddressLib.formatTransitAddress(action.feeReceiverChainId, action.feeReceiver);
+        if (action.facilitationFee != 0 && !TransitAddressLib.isValid(feeReceiverAccountId)) revert InvalidAccount();
         if (!assetWhitelisted[action.asset]) revert AssetNotWhitelisted();
         if (action.permit.deadline != 0) _permit(from, action.asset, action.amount, action.permit);
         SafeTransferLib.safeTransferFrom(action.asset, from, VAULT, action.amount);
@@ -321,6 +337,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 amount: action.amount,
                 fromAccountId: fromAccountId,
                 toAccountId: toAccountId,
+                facilitationFee: action.facilitationFee,
+                feeReceiverAccountId: feeReceiverAccountId,
                 salt: action.salt
             })
         );
@@ -467,7 +485,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             data = _buildTurnstileCallData(
                 abi.encodeCall(
                     HubWarehouseConductor.receiveDeposit,
-                    (chainId, message.asset, message.amount, message.fromAccountId, message.toAccountId)
+                    (
+                        chainId,
+                        message.asset,
+                        message.amount,
+                        message.fromAccountId,
+                        message.toAccountId,
+                        message.facilitationFee,
+                        message.feeReceiverAccountId
+                    )
                 ),
                 message.fromAccountId,
                 false

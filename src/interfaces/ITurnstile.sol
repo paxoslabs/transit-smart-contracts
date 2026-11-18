@@ -29,12 +29,16 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param fromAccountId AccountId of depositor, credited before transfer to recipient.
     /// @param toAccountId AccountId of deposit recipient.
+    /// @param facilitationFee Part of amount transferred from the recipient to feeReceiverAccountId once credited.
+    /// @param feeReceiverAccountId AccountId receiving the facilitation fee; ignored if facilitationFee is 0.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct DepositMessage {
         address asset;
         uint256 amount;
         bytes28 fromAccountId;
         bytes28 toAccountId;
+        uint256 facilitationFee;
+        bytes28 feeReceiverAccountId;
         bytes32 salt;
     }
 
@@ -74,6 +78,10 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param toChainId ChainId element of accountId of deposit recipient.
     /// @param to Address element of accountId of deposit recipient.
+    /// @param facilitationFee Part of amount the recipient pays feeReceiver on the hub once the deposit is credited, or
+    /// 0 for none. At most amount.
+    /// @param feeReceiverChainId ChainId element of accountId of the facilitation fee receiver.
+    /// @param feeReceiver Address element of accountId of the facilitation fee receiver.
     /// @param deadline Deposit request submission deadline.
     /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
     /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
@@ -86,6 +94,9 @@ interface ITurnstile is IMessagingReceiver {
         uint256 amount;
         uint64 toChainId;
         address to;
+        uint256 facilitationFee;
+        uint64 feeReceiverChainId;
+        address feeReceiver;
         uint256 deadline;
         bytes32 dependsOn;
         bytes32 salt;
@@ -220,6 +231,9 @@ interface ITurnstile is IMessagingReceiver {
 
     /// @notice A deposit amount is zero.
     error ZeroAssets();
+
+    /// @notice A deposit's facilitation fee exceeds its amount.
+    error FeeExceedsAmount();
 
     /// @notice The asset is not whitelisted for deposit.
     error AssetNotWhitelisted();
