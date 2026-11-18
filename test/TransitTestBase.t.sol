@@ -338,6 +338,8 @@ contract TransitTestBase is Test {
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: chain,
+                    owner: user,
                     asset: address(asset),
                     amount: amount,
                     toChainId: hubChainId,

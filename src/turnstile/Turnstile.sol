@@ -103,9 +103,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         messageHashes = _dispatch(actions, new bytes[](0), false);
     }
 
-    /// @dev TODO: Decide how facilitate charges fees; a fee call can no longer be bundled with the facilitated call.
-    /// TODO: Decide messageGas for facilitated actions. Currently an unsigned per-action value chosen by the
-    /// facilitator.
     /// @inheritdoc ITurnstile
     function facilitate(
         Action[] calldata actions,
@@ -125,6 +122,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             keccak256(
                 abi.encode(
                     Typehashes.DEPOSIT_ACTION,
+                    action.ownerChainId,
+                    action.owner,
                     action.asset,
                     action.amount,
                     action.toChainId,
@@ -151,7 +150,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         return _hashTypedData(
             keccak256(
                 abi.encode(
-                    Typehashes.GENERIC_ACTION, action.target, keccak256(action.data), action.deadline, action.salt
+                    Typehashes.GENERIC_ACTION,
+                    action.ownerChainId,
+                    action.owner,
+                    action.target,
+                    keccak256(action.data),
+                    action.deadline,
+                    action.dependsOn,
+                    action.salt
                 )
             )
         );
@@ -206,7 +212,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                     abi.encode(
                         GenericMessage({
                             sender: msg.sender,
-                            facilitated: false,
                             target: action.target,
                             data: action.data,
                             deadline: action.deadline,
@@ -226,7 +231,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
         // _handleMessage will attempt to _execute locally if destChainId == block.chainid which this ensures, so this
         // will never send another crosschain message
-        _handleMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0);
+        _handleMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0, false);
         emit MessageRetried(sourceChainId, actionType, messageHash);
     }
 
@@ -235,7 +240,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @inheritdoc IMessagingReceiver
     function receiveMessage(uint64 chainId, bytes calldata payload) external restricted {
         (ActionType actionType, bytes memory body) = abi.decode(payload, (ActionType, bytes));
-        _handleMessage(chainId, uint64(block.chainid), 0, actionType, body, 0);
+        _handleMessage(chainId, uint64(block.chainid), 0, actionType, body, 0, false);
     }
 
     function _dispatch(
@@ -278,11 +283,14 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         } else {
             (chainId, body) = _dispatchGeneric(action.data, signature, facilitated);
         }
-        /// TODO: Decide what happens to bridgeFee when an expired or empty withdrawal sends no message. Currently it
-        /// stays in Turnstile.
         if (body.length != 0) {
-            messageHash =
-                _handleMessage(uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee);
+            messageHash = _handleMessage(
+                uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee, facilitated
+            );
+        } else if (action.bridgeFee != 0) {
+            // A zero-amount withdrawal sends no message. This could revert NoBridgeFee instead, but refunding avoids
+            // reverting a whole batch on races the sender cannot see, e.g. a deposit not yet credited at execution.
+            SafeTransferLib.forceSafeTransferETH(msg.sender, action.bridgeFee);
         }
     }
 
@@ -297,6 +305,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         DepositAction memory action = abi.decode(actionData, (DepositAction));
         // For deposits, facilitation only determines who `from` is. It is not propagated in the message.
         address from = facilitated ? ECDSA.recover(hashDepositAction(action), signature) : msg.sender;
+        if (action.ownerChainId != block.chainid || from != action.owner) revert NotOwner();
         if (block.timestamp > action.deadline) revert Expired();
         bytes28 toAccountId = TransitAddressLib.formatTransitAddress(action.toChainId, action.to);
         if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
@@ -369,16 +378,16 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         GenericAction memory action = abi.decode(actionData, (GenericAction));
         address sender = facilitated ? ECDSA.recover(hashGenericAction(action), signature) : msg.sender;
+        if (action.ownerChainId != block.chainid || sender != action.owner) revert NotOwner();
+        // A partially fillable withdrawal cannot be depended on: its message body holds the executed amount,
+        // min(requested, free balance), which is unknown until execution, so its hash cannot be computed in advance.
+        if (action.dependsOn != 0 && messageStatus[action.dependsOn] != MessageStatus.Executed) {
+            revert DependencyNotExecuted();
+        }
         chainId = IMessagingAdapter(messagingAdapter).HUB_CHAIN_ID();
-        // The facilitated flag travels in the message body so the hub can forward it to the target.
         body = abi.encode(
             GenericMessage({
-                sender: sender,
-                facilitated: facilitated,
-                target: action.target,
-                data: action.data,
-                deadline: action.deadline,
-                salt: action.salt
+                sender: sender, target: action.target, data: action.data, deadline: action.deadline, salt: action.salt
             })
         );
     }
@@ -389,7 +398,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         uint64 messageGas,
         ActionType actionType,
         bytes memory body,
-        uint256 bridgeFee
+        uint256 bridgeFee,
+        bool facilitated
     )
         internal
         returns (bytes32 messageHash)
@@ -402,7 +412,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
             if (bridgeFee != 0) revert NoBridgeFee();
-            _executeMessageLocally(sourceChainId, actionType, body);
+            _executeMessageLocally(sourceChainId, actionType, body, facilitated);
         } else {
             // Cross-chain messages are encoded and forwarded to the MessagingAdapter.
             IMessagingAdapter(messagingAdapter).send{ value: bridgeFee }(
@@ -429,7 +439,17 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     /// @param chainId Message's source chainId.
     /// @param actionType Message's ActionType.
     /// @param body Message's body.
-    function _executeMessageLocally(uint64 chainId, ActionType actionType, bytes memory body) internal whenNotPaused {
+    /// @param facilitated Whether the message was facilitated. Only set on same-chain messages; the flag does not
+    /// travel cross-chain.
+    function _executeMessageLocally(
+        uint64 chainId,
+        ActionType actionType,
+        bytes memory body,
+        bool facilitated
+    )
+        internal
+        whenNotPaused
+    {
         bytes32 messageHash = digestMessage(chainId, actionType, body);
 
         address target;
@@ -469,7 +489,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 target = message.target;
                 // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
                 data = _buildTurnstileCallData(
-                    message.data, TransitAddressLib.formatTransitAddress(chainId, message.sender), message.facilitated
+                    message.data, TransitAddressLib.formatTransitAddress(chainId, message.sender), facilitated
                 );
             }
         }

@@ -44,6 +44,8 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: alice,
                     asset: address(other),
                     amount: 1e18,
                     toChainId: HUB_CHAIN_ID,
@@ -115,6 +117,8 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: SPOKE_CHAIN_ID,
+                    owner: alice,
                     asset: address(usdg),
                     amount: 100e6,
                     toChainId: SPOKE_CHAIN_ID,
