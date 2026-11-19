@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 
@@ -27,6 +28,18 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     constructor(address _authority, address _localTurnstile, uint64 _hubChainId) AccessManaged(_authority) {
         LOCAL_TURNSTILE = _localTurnstile;
         HUB_CHAIN_ID = _hubChainId;
+    }
+
+    /// @notice Accepts ETH so a bridge that refunds fee overpayment to its caller cannot make sends revert. Received
+    /// ETH is not forwarded by later sends (each forwards only its own msg.value); an admin recovers it with
+    /// withdrawETH.
+    receive() external payable { }
+
+    /// @inheritdoc IMessagingAdapter
+    function withdrawETH(address to) external restricted {
+        uint256 amount = address(this).balance;
+        SafeTransferLib.safeTransferETH(to, amount);
+        emit ETHWithdrawn(to, amount);
     }
 
     /// @inheritdoc IMessagingAdapter

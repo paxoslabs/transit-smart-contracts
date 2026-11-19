@@ -55,6 +55,11 @@ interface IMessagingAdapter {
     /// @param messageGasLimit New limit.
     event PeerGasLimitSet(uint64 indexed chainId, uint64 messageGasLimit);
 
+    /// @notice The adapter's ETH balance was withdrawn.
+    /// @param to Recipient.
+    /// @param amount Amount withdrawn.
+    event ETHWithdrawn(address indexed to, uint256 amount);
+
     /// @notice A peer was removed.
     /// @param chainId Remote chainId.
     event PeerRemoved(uint64 indexed chainId);
@@ -160,6 +165,10 @@ interface IMessagingAdapter {
     /// @param chainId Remote chainId.
     /// @param allowed Whether allowed.
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external;
+
+    /// @notice Send the adapter's entire ETH balance. Useful if refunds or leftover fees collect in contract
+    /// @param to Recipient.
+    function withdrawETH(address to) external;
 
     /// @notice Set a peer's messageGasLimit.
     /// @param chainId Remote chainId.
