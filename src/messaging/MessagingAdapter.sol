@@ -47,7 +47,7 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
             PeerConfig(peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
         chainIdForRemoteId[remoteId] = chainId;
         emit PeerSet(chainId, peer, remoteId, messageGasLimit, minimumMessageGas, allowMessagesFrom, allowMessagesTo);
-        emit ChainGasLimitSet(chainId, messageGasLimit);
+        emit PeerGasLimitSet(chainId, messageGasLimit);
         emit AllowMessagesFromChainSet(chainId, allowMessagesFrom);
         emit AllowMessagesToChainSet(chainId, allowMessagesTo);
     }
@@ -72,10 +72,10 @@ abstract contract MessagingAdapter is AccessManaged, IMessagingAdapter {
     }
 
     /// @inheritdoc IMessagingAdapter
-    function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
+    function setPeerGasLimit(uint64 chainId, uint64 messageGasLimit) external restricted {
         if (messageGasLimit == 0) revert ZeroMessageGasLimit();
         peers[chainId].messageGasLimit = messageGasLimit;
-        emit ChainGasLimitSet(chainId, messageGasLimit);
+        emit PeerGasLimitSet(chainId, messageGasLimit);
     }
 
     /// @inheritdoc IMessagingAdapter

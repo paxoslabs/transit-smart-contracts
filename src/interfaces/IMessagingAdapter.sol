@@ -50,10 +50,10 @@ interface IMessagingAdapter {
     /// @param allowed Whether allowed.
     event AllowMessagesToChainSet(uint64 indexed chainId, bool allowed);
 
-    /// @notice A chain's messageGasLimit was set.
+    /// @notice A peer's messageGasLimit was set.
     /// @param chainId Remote chainId.
     /// @param messageGasLimit New limit.
-    event ChainGasLimitSet(uint64 indexed chainId, uint64 messageGasLimit);
+    event PeerGasLimitSet(uint64 indexed chainId, uint64 messageGasLimit);
 
     /// @notice A peer was removed.
     /// @param chainId Remote chainId.
@@ -161,10 +161,10 @@ interface IMessagingAdapter {
     /// @param allowed Whether allowed.
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external;
 
-    /// @notice Set a chain's messageGasLimit.
+    /// @notice Set a peer's messageGasLimit.
     /// @param chainId Remote chainId.
     /// @param messageGasLimit New limit; must be nonzero.
-    function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external;
+    function setPeerGasLimit(uint64 chainId, uint64 messageGasLimit) external;
 
     /// @notice Bridge fee to send a message.
     /// @param chainId Destination chainId.

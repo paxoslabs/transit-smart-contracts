@@ -148,7 +148,7 @@ contract TransitTestBase is Test {
 
         bytes4[] memory peerSels = new bytes4[](5);
         peerSels[0] = MessagingAdapter.setPeer.selector;
-        peerSels[1] = MessagingAdapter.setChainGasLimit.selector;
+        peerSels[1] = MessagingAdapter.setPeerGasLimit.selector;
         peerSels[2] = MessagingAdapter.removePeer.selector;
         peerSels[3] = MessagingAdapter.setAllowMessagesFromChain.selector;
         peerSels[4] = MessagingAdapter.setAllowMessagesToChain.selector;
