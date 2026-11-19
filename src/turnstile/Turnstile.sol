@@ -301,8 +301,13 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 uint64(block.chainid), chainId, action.messageGas, actionType, body, action.bridgeFee, facilitated
             );
         } else if (action.bridgeFee != 0) {
-            // A zero-amount withdrawal sends no message. This could revert NoBridgeFee instead, but refunding avoids
-            // reverting a whole batch on races the sender cannot see, e.g. a deposit not yet credited at execution.
+            // Only a withdrawal returns an empty body: executeWithdrawal returned 0 because the action expired, or the
+            // owner's free balance was 0 or short of a non-partially-fillable amount. By now executeWithdrawal has
+            // already consumed the request and released its reservation, and that must stand. Reverting would roll it
+            // back,
+            // and an expired request could then never be consumed, leaving its reservation (which only _consume
+            // releases) reserving the owner's funds forever. It would also revert every other action in the batch.
+            // With no message sent, this action's bridgeFee was not spent; it is refunded to whoever paid it.
             SafeTransferLib.forceSafeTransferETH(msg.sender, action.bridgeFee);
         }
     }
