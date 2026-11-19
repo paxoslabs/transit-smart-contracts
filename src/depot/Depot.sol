@@ -215,9 +215,12 @@ contract Depot is IDepot, AccessManaged, Pausable {
         res.pendingEpoch = settlementEpoch + 1;
     }
 
-    /// @dev Only effective amounts can be released; releasing a still-pending amount underflows and reverts.
+    /// @dev Only effective amounts can be released; releasing more than the effective reservation, including a
+    /// still-pending amount, reverts ReleaseExceedsReserved.
     function _release(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
-        _rollReservation(accountId, assetId).effective -= amount;
+        Reservation storage res = _rollReservation(accountId, assetId);
+        if (res.effective < amount) revert ReleaseExceedsReserved(amount, res.effective);
+        res.effective -= amount;
     }
 
     /// @dev Promotes pending into effective once its epoch has arrived. advanceEpoch cannot iterate every

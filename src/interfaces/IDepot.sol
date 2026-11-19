@@ -72,6 +72,11 @@ interface IDepot {
     /// @notice Unreserved balance is less than the amount debited.
     error InsufficientBalance();
 
+    /// @notice A release is larger than the account's effective reservation.
+    /// @param amount Amount being released.
+    /// @param effective Account's effective reservation of the asset.
+    error ReleaseExceedsReserved(uint256 amount, uint256 effective);
+
     /// @notice A transferAmong batch's debits and credits do not net to zero for some asset.
     error NotZeroSum();
 
