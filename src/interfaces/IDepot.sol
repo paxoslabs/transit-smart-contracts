@@ -9,14 +9,15 @@ import { AddressFreezeList } from "src/AddressFreezeList.sol";
 /// @custom:security-contact security@paxoslabs.com
 interface IDepot {
 
-    /// @notice An account's reserved balance of one asset.
+    /// @notice An account's reserved balance of one asset, packed into one storage slot so each debit's free balance
+    /// check costs one cold read. effective + pending is capped at uint112 max (~5.2e33) when reserving.
     /// @param effective Amount currently reserved.
     /// @param pending Amount that becomes reserved once `pendingEpoch` arrives.
     /// @param pendingEpoch Epoch at which `pending` becomes effective.
     struct Reservation {
-        uint256 effective;
-        uint256 pending;
-        uint256 pendingEpoch;
+        uint112 effective;
+        uint112 pending;
+        uint32 pendingEpoch;
     }
 
     /// @notice A single movement within a transferAmong batch.
@@ -116,7 +117,7 @@ interface IDepot {
     )
         external
         view
-        returns (uint256 effective, uint256 pending, uint256 pendingEpoch);
+        returns (uint112 effective, uint112 pending, uint32 pendingEpoch);
 
     /// @notice Balance not reserved, floored at 0 since forced transfers can bypass reservations.
     /// @param accountId Account to query.

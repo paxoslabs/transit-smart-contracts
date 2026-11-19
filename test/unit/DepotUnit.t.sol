@@ -5,6 +5,7 @@ import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { TransitAuthority } from "../../src/TransitAuthority.sol";
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
@@ -586,6 +587,19 @@ contract DepotUnitTest is Test {
 
     function _account(address user) internal pure returns (bytes28) {
         return TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, user);
+    }
+
+    function testReserveAboveUint112CapReverts() public {
+        bytes28 acct = _account(alice);
+        bytes28 asset = _account(address(usdc));
+        vm.prank(address(userConductor));
+        depot.reserve(acct, asset, type(uint112).max);
+        (, uint112 pending,) = depot.reservation(acct, asset);
+        assertEq(pending, type(uint112).max, "reserve: cap amount not recorded as pending");
+
+        vm.prank(address(userConductor));
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        depot.reserve(acct, asset, 1);
     }
 
 }

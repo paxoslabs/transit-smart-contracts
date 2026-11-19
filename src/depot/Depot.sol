@@ -4,6 +4,7 @@ pragma solidity 0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
@@ -91,8 +92,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
             if (!TransitAddressLib.isValid(assetId)) revert InvalidAsset();
             uint256 assetIndex;
 
-            /// TODO: Linear search is O(deltas * uniqueAssets). Could require solvers to order inputs so conductors
-            /// emit deltas grouped by ascending assetId, then net-check each group in one pass with no arrays.
+            // Linear search is O(deltas * uniqueAssets), but it only touches memory, which is far cheaper than the
+            // storage reads and writes each delta already makes, so sorting or binary search would barely move the
+            // needle especially as asset counts will not be extreeme.
             // loop through assetIds and find the index of this deltas asset or insert it
             while (assetIndex < uniqueAssetCount && assetIds[assetIndex] != assetId) assetIndex++;
             if (assetIndex == uniqueAssetCount) {
@@ -211,8 +213,9 @@ contract Depot is IDepot, AccessManaged, Pausable {
     /// pending bucket suffices.
     function _reserve(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
         Reservation storage res = _rollReservation(accountId, assetId);
-        res.pending += amount;
-        res.pendingEpoch = settlementEpoch + 1;
+        SafeCastLib.toUint112(uint256(res.effective) + res.pending + amount);
+        res.pending += uint112(amount);
+        res.pendingEpoch = SafeCastLib.toUint32(settlementEpoch + 1);
     }
 
     /// @dev Only effective amounts can be released; releasing more than the effective reservation, including a
@@ -220,7 +223,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
     function _release(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
         Reservation storage res = _rollReservation(accountId, assetId);
         if (res.effective < amount) revert ReleaseExceedsReserved(amount, res.effective);
-        res.effective -= amount;
+        res.effective -= uint112(amount);
     }
 
     /// @dev Promotes pending into effective once its epoch has arrived. advanceEpoch cannot iterate every
