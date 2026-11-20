@@ -230,6 +230,15 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The VAULT address is zero.
     error VaultUnset();
 
+    /// @notice A contract holding a VAULT allowance for this Turnstile cannot be a generic message target.
+    /// @param target Call target.
+    error VaultApprovedTarget(address target);
+
+    /// @notice A function restricted to the TURNSTILE role cannot be a generic message target.
+    /// @param target Call target.
+    /// @param selector Function selector.
+    error TurnstileOnlySelector(address target, bytes4 selector);
+
     /// @notice A deposit amount is zero.
     error ZeroAssets();
 
@@ -318,7 +327,8 @@ interface ITurnstile is IMessagingReceiver {
 
     /// @notice Set the routability of an address-selector combination by generic messages.
     /// @dev Routable targets must use the `ConductorGatedByTurnstile` meta-transaction implementation in order to
-    /// properly attribute a message to its sender.
+    /// properly attribute a message to its sender. Allowing reverts for targets holding a VAULT allowance for this
+    /// Turnstile and for any selector the authority restricts to the TURNSTILE role.
     /// @param target Call target.
     /// @param selectors Call function selectors.
     /// @param allowed Whether calldata is whitelisted.

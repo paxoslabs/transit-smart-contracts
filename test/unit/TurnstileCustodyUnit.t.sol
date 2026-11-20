@@ -6,6 +6,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
+import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MessagingAdapter } from "../../src/messaging/MessagingAdapter.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
@@ -329,6 +330,99 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         vm.expectRevert(ITurnstile.InvalidAccount.selector);
         turnstile.dispatch(actions);
         vm.stopPrank();
+    }
+
+    // ---------------------------------------------------------------- whitelist guards
+
+    function testSetRoutableRejectsTurnstileOnlySelector() public {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = HubWarehouseConductor.receiveDeposit.selector;
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(ITurnstile.TurnstileOnlySelector.selector, address(hubWarehouseConductor), sels[0])
+        );
+        turnstile.setRoutable(address(hubWarehouseConductor), sels, true);
+    }
+
+    function testSetRoutableRejectsVaultApprovedTarget() public {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = ERC20.transferFrom.selector;
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(ITurnstile.VaultApprovedTarget.selector, address(usdc)));
+        turnstile.setRoutable(address(usdc), sels, true);
+    }
+
+    function testGenericCallBlockedOnceSelectorBecomesTurnstileOnly() public {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = HubWarehouseConductor.requestWithdrawal.selector;
+        vm.prank(admin);
+        authority.setTargetFunctionRole(address(hubWarehouseConductor), sels, Roles.TURNSTILE);
+
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Generic,
+            data: abi.encode(
+                ITurnstile.GenericAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: mallory,
+                    target: address(hubWarehouseConductor),
+                    data: abi.encodePacked(sels[0]),
+                    deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
+                    salt: bytes32(0)
+                })
+            ),
+            bridgeFee: 0,
+            messageGas: 0
+        });
+        vm.prank(mallory);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
+        turnstile.dispatch(actions);
+    }
+
+    function testGenericCallBlockedOnceTargetGainsVaultAllowance() public {
+        ERC20 token = _asset("Late", "LATE", 18);
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = ERC20.transferFrom.selector;
+        vm.prank(admin);
+        turnstile.setRoutable(address(token), sels, true);
+
+        deal(address(token), vault, 1e18);
+        vm.prank(vault);
+        SafeTransferLib.safeApprove(address(token), address(turnstile), type(uint256).max);
+
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({
+            actionType: ITurnstile.ActionType.Generic,
+            data: abi.encode(
+                ITurnstile.GenericAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: mallory,
+                    target: address(token),
+                    data: abi.encodeCall(ERC20.transferFrom, (vault, mallory, 1e18)),
+                    deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
+                    salt: bytes32(0)
+                })
+            ),
+            bridgeFee: 0,
+            messageGas: 0
+        });
+        vm.prank(mallory);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
+        turnstile.dispatch(actions);
+        assertEq(token.balanceOf(vault), 1e18, "generic: vault-approved target was callable");
+    }
+
+    function testSetRoutableAllowsDisallowingTurnstileOnlySelector() public {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = HubWarehouseConductor.executeWithdrawal.selector;
+        vm.prank(admin);
+        turnstile.setRoutable(address(hubWarehouseConductor), sels, false);
+        assertFalse(
+            turnstile.genericMessageWhitelist(address(hubWarehouseConductor), sels[0]),
+            "setRoutable: disallowing a turnstile-only selector should succeed"
+        );
     }
 
     // ---------------------------------------------------------------- messages

@@ -9,6 +9,8 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
+import { ITransitAuthority } from "src/interfaces/ITransitAuthority.sol";
+import { Roles } from "src/helpers/Roles.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
@@ -76,7 +78,15 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function setRoutable(address target, bytes4[] calldata selectors, bool allowed) external restricted {
+        // The VAULT has approved this Turnstile for its assets. If generic calls could reach a contract holding such an
+        // approval, anyone could spend it (e.g. transferFrom(VAULT, attacker, amount)). Also checked at execution.
+        if (allowed && _hasVaultAllowance(target)) revert VaultApprovedTarget(target);
         for (uint256 i; i < selectors.length; i++) {
+            // Turnstile-only functions are callable only by the Turnstile because they rely on the Turnstile calling
+            // them in a particular way (e.g. executeWithdrawal() must be followed by a message to release tokens).
+            if (allowed && _isTurnstileOnly(target, selectors[i])) {
+                revert TurnstileOnlySelector(target, selectors[i]);
+            }
             genericMessageWhitelist[target][selectors[i]] = allowed;
         }
         emit GenericMessageWhitelistUpdated(target, selectors, allowed);
@@ -520,7 +530,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
             if (block.timestamp > message.deadline) {
                 result = abi.encodeWithSelector(Expired.selector);
-            } else if (!genericMessageWhitelist[message.target][bytes4(message.data)]) {
+            } else if (!_isRoutable(message.target, bytes4(message.data))) {
                 result = abi.encodeWithSelector(NotWhitelisted.selector);
             } else {
                 target = message.target;
@@ -564,6 +574,35 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             .permit(from, address(this), amount, permit_.deadline, permit_.v, permit_.r, permit_.s) { }
         catch {
             if (IERC20(asset).allowance(from, address(this)) < amount) revert PermitFailedAndAllowanceTooLow();
+        }
+    }
+
+    /// @dev Whether a generic message may call target.selector: whitelisted, not restricted to the TURNSTILE role, and
+    /// target holds no VAULT allowance for this Turnstile. Checked at execution so a role change or approval made
+    /// after whitelisting still blocks the call.
+    function _isRoutable(address target, bytes4 selector) internal view returns (bool) {
+        return
+            genericMessageWhitelist[target][selector] && !_isTurnstileOnly(target, selector)
+                && !_hasVaultAllowance(target);
+    }
+
+    /// @dev Whether the authority restricts target.selector to the TURNSTILE role.
+    function _isTurnstileOnly(address target, bytes4 selector) internal view returns (bool) {
+        return ITransitAuthority(authority()).roleOf(target, selector) == Roles.TURNSTILE;
+    }
+
+    /// @dev Whether target reports a nonzero allowance(VAULT, this). Only allowances are covered, as this Turnstile
+    /// holds no token balance. A failed call or short return counts as no allowance (target is not an ERC20). Only 32
+    /// bytes of return data are copied, so a large return cannot waste gas.
+    function _hasVaultAllowance(address target) internal view returns (bool approved) {
+        address vault = VAULT;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xdd62ed3e00000000000000000000000000000000000000000000000000000000) // allowance(address,address)
+            mstore(add(m, 0x04), vault)
+            mstore(add(m, 0x24), address())
+            let ok := staticcall(gas(), target, m, 0x44, m, 0x20)
+            approved := and(and(ok, gt(returndatasize(), 0x1f)), iszero(iszero(mload(m))))
         }
     }
 
