@@ -9,7 +9,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
-import { ITransitAuthority } from "src/interfaces/ITransitAuthority.sol";
+import { IAccessManager } from "@openzeppelin/contracts/access/manager/IAccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
@@ -588,7 +588,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @dev Whether the authority restricts target.selector to the TURNSTILE role.
     function _isTurnstileOnly(address target, bytes4 selector) internal view returns (bool) {
-        return ITransitAuthority(authority()).roleOf(target, selector) == Roles.TURNSTILE;
+        return IAccessManager(authority()).getTargetFunctionRole(target, selector) == Roles.TURNSTILE;
     }
 
     /// @dev Whether target reports a nonzero allowance(VAULT, this). Only allowances are covered, as this Turnstile

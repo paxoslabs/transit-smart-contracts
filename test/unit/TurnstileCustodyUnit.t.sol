@@ -100,7 +100,7 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         authority.setTargetFunctionRole(address(spokeAdapter), peerSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(hubAdapter), peerSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
-        authority.grantRole(Roles.MESSAGING_ADAPTER, address(hubAdapter));
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(hubAdapter), 0);
 
         spokeTurnstile.setMessagingAdapter(address(spokeAdapter));
         spokeTurnstile.setAssetWhitelisted(_list(address(usdg)), true);
@@ -422,6 +422,30 @@ contract TurnstileCustodyUnitTest is WarehouseConductorUnitBase {
         assertFalse(
             turnstile.genericMessageWhitelist(address(hubWarehouseConductor), sels[0]),
             "setRoutable: disallowing a turnstile-only selector should succeed"
+        );
+    }
+
+    // ---------------------------------------------------------------- delayed admin
+
+    function testDelayedAdminMustScheduleThenWait() public {
+        address delayedAdmin = makeAddr("delayedAdmin");
+        vm.prank(admin);
+        authority.grantRole(Roles.ADMIN, delayedAdmin, 1 days);
+        ERC20 other = _asset("Other", "OTH", 18);
+        bytes memory data = abi.encodeCall(Turnstile.setAssetWhitelisted, (_list(address(other)), true));
+
+        vm.prank(delayedAdmin);
+        vm.expectRevert();
+        turnstile.setAssetWhitelisted(_list(address(other)), true);
+
+        vm.prank(delayedAdmin);
+        authority.schedule(address(turnstile), data, 0);
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(delayedAdmin);
+        turnstile.setAssetWhitelisted(_list(address(other)), true);
+
+        assertTrue(
+            turnstile.assetWhitelisted(address(other)), "delayed admin: scheduled call did not apply after delay"
         );
     }
 

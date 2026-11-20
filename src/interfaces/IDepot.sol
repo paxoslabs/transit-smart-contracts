@@ -190,8 +190,9 @@ interface IDepot {
     /// @param amount Amount moved.
     function forceTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch and by DepotTimelock on
-    /// execution. Restricted until 24h after the last advance, then callable by anyone so pending actions cannot stall.
+    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch, and by the admin alongside
+    /// rule changes so an in-flight settle reverts BadEpoch. Restricted until 24h after the last advance, then callable
+    /// by anyone so pending actions cannot stall.
     /// @dev Settlers should guard against an advance racing their batch by checking the expected epoch before settling.
     function advanceEpoch() external;
 

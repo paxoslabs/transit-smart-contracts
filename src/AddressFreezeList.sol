@@ -13,7 +13,7 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
  * cannot move them out; admins may seize them with Depot.forceTransferFrom.
  * @dev Implements Predicate's IFreezable so Predicate's freeze manager can enforce Asset Compliance freezes. Freezes
  * are keyed by address only, so freezing an address freezes it on every chain. Freeze functions must be mapped to
- * Roles.FREEZE_MANAGER in TransitAuthority.
+ * Roles.FREEZE_MANAGER in the AccessManager.
  * @custom:security-contact security@paxoslabs.com
  */
 contract AddressFreezeList is IAddressFreezeList, AccessManaged {
@@ -59,7 +59,7 @@ contract AddressFreezeList is IAddressFreezeList, AccessManaged {
 
     /// @inheritdoc IFreezable
     function FREEZE_MANAGER_ROLE() external pure returns (bytes32) {
-        return Roles.FREEZE_MANAGER;
+        return bytes32(uint256(Roles.FREEZE_MANAGER));
     }
 
     function _freeze(address account) internal {

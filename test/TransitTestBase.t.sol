@@ -9,7 +9,7 @@ import { RequestConductor } from "../src/conductor/RequestConductor.sol";
 import { SpotSwapConductor } from "../src/conductor/SpotSwapConductor.sol";
 import { ISpotSwapConductor } from "../src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "../src/conductor/SwapConductor.sol";
-import { TransitAuthority } from "../src/TransitAuthority.sol";
+import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { HubWarehouseConductor } from "../src/conductor/HubWarehouseConductor.sol";
 import { Depot } from "../src/depot/Depot.sol";
 import { AddressFreezeList } from "../src/AddressFreezeList.sol";
@@ -58,7 +58,7 @@ contract TransitTestBase is Test {
     UserConductor userConductor;
     HubWarehouseConductor hubWarehouseConductor;
     Turnstile turnstile;
-    mapping(uint64 => TransitAuthority) authorities;
+    mapping(uint64 => AccessManager) authorities;
     mapping(uint64 => Turnstile) turnstiles;
     mapping(uint64 => MockMessagingAdapter) adapters;
 
@@ -103,7 +103,7 @@ contract TransitTestBase is Test {
     function _deployCore(uint64 chain) internal {
         _selectChain(chain);
 
-        TransitAuthority authority = new TransitAuthority(admin);
+        AccessManager authority = new AccessManager(admin);
         Turnstile chainTurnstile = new Turnstile(address(authority), vault);
         if (chain == hubChainId) {
             depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
@@ -141,7 +141,7 @@ contract TransitTestBase is Test {
     }
 
     function _grantRoles(uint64 chain) internal {
-        TransitAuthority authority = authorities[chain];
+        AccessManager authority = authorities[chain];
         bytes4[] memory pauseSels = new bytes4[](2);
         pauseSels[0] = Turnstile.pause.selector;
         pauseSels[1] = Turnstile.unpause.selector;
@@ -157,9 +157,9 @@ contract TransitTestBase is Test {
         authority.setTargetFunctionRole(address(turnstiles[chain]), pauseSels, Roles.PAUSER);
         authority.setTargetFunctionRole(address(adapters[chain]), peerSels, Roles.ADMIN);
 
-        authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]));
-        authority.grantRole(Roles.PAUSER, admin);
-        authority.grantRole(Roles.SOLVER, solver);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(adapters[chain]), 0);
+        authority.grantRole(Roles.PAUSER, admin, 0);
+        authority.grantRole(Roles.SOLVER, solver, 0);
 
         _wireTurnstile(chain);
 
@@ -179,7 +179,7 @@ contract TransitTestBase is Test {
     }
 
     function _wireTurnstile(uint64 chain) internal {
-        TransitAuthority authority = authorities[chain];
+        AccessManager authority = authorities[chain];
         Turnstile chainTurnstile = turnstiles[chain];
 
         bytes4[] memory receiveSels = new bytes4[](1);
@@ -193,11 +193,11 @@ contract TransitTestBase is Test {
         turnstileAdminSels[3] = Turnstile.setAssetWhitelisted.selector;
         authority.setTargetFunctionRole(address(chainTurnstile), turnstileAdminSels, Roles.ADMIN);
 
-        authority.grantRole(Roles.TURNSTILE, address(chainTurnstile));
+        authority.grantRole(Roles.TURNSTILE, address(chainTurnstile), 0);
         chainTurnstile.setMessagingAdapter(address(adapters[chain]));
     }
 
-    function _wireDepot(TransitAuthority authority) internal {
+    function _wireDepot(AccessManager authority) internal {
         bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -205,8 +205,8 @@ contract TransitTestBase is Test {
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
-        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
-        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor), 0);
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor), 0);
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
@@ -232,9 +232,9 @@ contract TransitTestBase is Test {
 
         vm.startPrank(admin);
         authorities[hubChainId].setTargetFunctionRole(address(depot), moveSels, Roles.CONDUCTOR);
-        authorities[hubChainId].grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
+        authorities[hubChainId].grantRole(Roles.CONDUCTOR, address(spotSwapConductor), 0);
         authorities[hubChainId].setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
-        authorities[hubChainId].grantRole(Roles.EPOCH, address(spotSwapConductor));
+        authorities[hubChainId].grantRole(Roles.EPOCH, address(spotSwapConductor), 0);
 
         bytes4[] memory settleSels = new bytes4[](1);
         settleSels[0] = SpotSwapConductor.settle.selector;

@@ -3,19 +3,20 @@ pragma solidity 0.8.37;
 
 /**
  * @title Roles
- * @notice Role ids used by TransitAuthority. Each AccessManaged function is mapped to one role with
- * setTargetFunctionRole, and an account may call it if it holds that role.
+ * @notice Role ids for the OZ AccessManager authority. Each AccessManaged function is mapped to one role with
+ * setTargetFunctionRole, and an account may call it if it holds that role. ADMIN is AccessManager's ADMIN_ROLE, which
+ * also governs every unmapped function.
  * @custom:security-contact security@paxoslabs.com
  */
 library Roles {
 
-    bytes32 internal constant ADMIN = bytes32(uint256(0x01));
-    bytes32 internal constant PAUSER = bytes32(uint256(0x02));
-    bytes32 internal constant MESSAGING_ADAPTER = bytes32(uint256(0x03));
-    bytes32 internal constant SOLVER = bytes32(uint256(0x04));
-    bytes32 internal constant CONDUCTOR = bytes32(uint256(0x05));
-    bytes32 internal constant EPOCH = bytes32(uint256(0x06));
-    bytes32 internal constant TURNSTILE = bytes32(uint256(0x07));
-    bytes32 internal constant FREEZE_MANAGER = bytes32(uint256(0x08));
+    uint64 internal constant ADMIN = 0;
+    uint64 internal constant PAUSER = 1;
+    uint64 internal constant MESSAGING_ADAPTER = 2;
+    uint64 internal constant SOLVER = 3;
+    uint64 internal constant CONDUCTOR = 4;
+    uint64 internal constant EPOCH = 5;
+    uint64 internal constant TURNSTILE = 6;
+    uint64 internal constant FREEZE_MANAGER = 7;
 
 }

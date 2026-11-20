@@ -5,7 +5,7 @@ import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
 import { Depot } from "../../src/depot/Depot.sol";
@@ -22,7 +22,7 @@ abstract contract WarehouseConductorUnitBase is Test {
     uint64 constant HUB_CHAIN_ID = 1;
     uint64 constant SPOKE_CHAIN_ID = 4663;
 
-    TransitAuthority authority;
+    AccessManager authority;
     ERC20 usdc;
     Depot depot;
     UserConductor userConductor;
@@ -43,7 +43,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         vm.chainId(HUB_CHAIN_ID);
         (, alicePk) = makeAddrAndKey("alice");
 
-        authority = new TransitAuthority(admin);
+        authority = new AccessManager(admin);
         turnstile = new Turnstile(address(authority), vault);
         depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
@@ -60,7 +60,7 @@ abstract contract WarehouseConductorUnitBase is Test {
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), adminSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
-        authority.grantRole(Roles.SOLVER, backend);
+        authority.grantRole(Roles.SOLVER, backend, 0);
         turnstile.setAssetWhitelisted(_list(address(usdc)), true);
         vm.stopPrank();
 
@@ -92,9 +92,9 @@ abstract contract WarehouseConductorUnitBase is Test {
         routedSels[0] = UserConductor.requestTransfer.selector;
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(turnstile), sels, Roles.MESSAGING_ADAPTER);
-        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local), 0);
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
-        authority.grantRole(Roles.TURNSTILE, address(turnstile));
+        authority.grantRole(Roles.TURNSTILE, address(turnstile), 0);
         bytes4[] memory userConductorSels = new bytes4[](5);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
@@ -102,8 +102,8 @@ abstract contract WarehouseConductorUnitBase is Test {
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.mint.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
-        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
-        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor), 0);
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor), 0);
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
