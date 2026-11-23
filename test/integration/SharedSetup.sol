@@ -171,9 +171,10 @@ abstract contract SharedSetup is Test {
         spotSels[1] = SwapConductor.requestOrderCancellation.selector;
         turnstile.setRoutable(address(spotSwapConductor), spotSels, true);
 
-        bytes4[] memory delayedSels = new bytes4[](2);
+        bytes4[] memory delayedSels = new bytes4[](3);
         delayedSels[0] = DelayedSettlementSwapConductor.preApprove.selector;
         delayedSels[1] = SwapConductor.requestOrderCancellation.selector;
+        delayedSels[2] = DelayedSettlementSwapConductor.repay.selector;
         turnstile.setRoutable(address(delayedSettlementSwapConductor), delayedSels, true);
     }
 
@@ -335,6 +336,49 @@ abstract contract SharedSetup is Test {
 
     function _balance(uint64 accountChainId, address account, uint64 assetChainId) internal view returns (uint256) {
         return depot.balanceOf(_account(accountChainId, account), _asset(assetChainId));
+    }
+
+    function _deposit(address user, uint64 chainId, MockERC20 token, uint64 toChainId, uint256 amount) internal {
+        vm.chainId(chainId);
+        Turnstile chainTurnstile = _turnstile(chainId);
+        token.mint(user, amount);
+        vm.startPrank(user);
+        token.approve(address(chainTurnstile), amount);
+        _dispatchOne(
+            chainTurnstile,
+            ITurnstile.ActionType.Deposit,
+            abi.encode(
+                ITurnstile.DepositAction({
+                    ownerChainId: chainId,
+                    owner: user,
+                    asset: address(token),
+                    amount: amount,
+                    toChainId: toChainId,
+                    to: user,
+                    facilitationFee: 0,
+                    feeReceiverChainId: 0,
+                    feeReceiver: address(0),
+                    deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
+                    salt: bytes32(0),
+                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
+                })
+            )
+        );
+        vm.stopPrank();
+    }
+
+    function _sign(uint256 privateKey, bytes32 digest) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _adminCall(AccessManager manager, address target, bytes memory data) internal {
+        vm.prank(ADMIN_MULTISIG);
+        manager.schedule(target, data, 0);
+        vm.warp(block.timestamp + ADMIN_DELAY);
+        vm.prank(ADMIN_MULTISIG);
+        manager.execute(target, data);
     }
 
     function _hubAccount(address account) internal pure returns (bytes28) {

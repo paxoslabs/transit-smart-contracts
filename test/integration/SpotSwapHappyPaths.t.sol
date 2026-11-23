@@ -6,7 +6,6 @@ import { MockERC20 } from "lib/solady/test/utils/mocks/MockERC20.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
-import { Turnstile } from "src/turnstile/Turnstile.sol";
 import { SpotSwapConductor } from "src/conductor/SpotSwapConductor.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 
@@ -132,41 +131,10 @@ contract SpotSwapHappyPaths is SharedSetup {
         spotSwapConductor.settle(nextEpoch, retry, new ISpotSwapConductor.Fee[](0));
     }
 
-    function _deposit(address user, uint64 chainId, MockERC20 token, uint64 toChainId, uint256 amount) internal {
-        vm.chainId(chainId);
-        Turnstile chainTurnstile = _turnstile(chainId);
-        token.mint(user, amount);
-        vm.startPrank(user);
-        token.approve(address(chainTurnstile), amount);
-        _dispatchOne(
-            chainTurnstile,
-            ITurnstile.ActionType.Deposit,
-            abi.encode(
-                ITurnstile.DepositAction({
-                    ownerChainId: chainId,
-                    owner: user,
-                    asset: address(token),
-                    amount: amount,
-                    toChainId: toChainId,
-                    to: user,
-                    facilitationFee: 0,
-                    feeReceiverChainId: 0,
-                    feeReceiver: address(0),
-                    deadline: type(uint256).max,
-                    dependsOn: bytes32(0),
-                    salt: bytes32(0),
-                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-                })
-            )
-        );
-        vm.stopPrank();
-    }
-
     function _signedUsdgForUsdc(uint256 i) internal returns (ISpotSwapConductor.OrderFill memory) {
         vm.chainId(HUB_CHAIN_ID);
         ISpotSwapConductor.Order memory order = _usdgForUsdc(HUB_CHAIN_ID, eoas[i]);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(eoaPks[i], spotSwapConductor.hashOrder(order));
-        return _orderFill(order, abi.encodePacked(r, s, v));
+        return _orderFill(order, _sign(eoaPks[i], spotSwapConductor.hashOrder(order)));
     }
 
     function _preApprovedFromSpoke(address user) internal returns (ISpotSwapConductor.OrderFill memory) {
@@ -225,8 +193,12 @@ contract SpotSwapHappyPaths is SharedSetup {
             dependsOn: bytes32(0),
             salt: bytes32(0)
         });
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(eoaPks[i], turnstile.hashGenericAction(action));
-        _facilitate(HUB_CHAIN_ID, ITurnstile.ActionType.Generic, abi.encode(action), abi.encodePacked(r, s, v));
+        _facilitate(
+            HUB_CHAIN_ID,
+            ITurnstile.ActionType.Generic,
+            abi.encode(action),
+            _sign(eoaPks[i], turnstile.hashGenericAction(action))
+        );
     }
 
     function _usdgForUsdc(uint64 ownerChainId, address owner) internal view returns (ISpotSwapConductor.Order memory) {
