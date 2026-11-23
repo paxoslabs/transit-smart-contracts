@@ -7,9 +7,9 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Depot } from "src/depot/Depot.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
-import { TransitAuthority } from "src/TransitAuthority.sol";
+import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 contract DepotUnitTest is Test {
 
@@ -19,20 +19,20 @@ contract DepotUnitTest is Test {
     address epochKeeper = makeAddr("epochKeeper");
     address stranger = makeAddr("stranger");
 
-    bytes28 ALICE = TransitAccountLib.formatAccountId(1, makeAddr("alice"));
-    bytes28 BOB = TransitAccountLib.formatAccountId(1, makeAddr("bob"));
-    bytes28 CAROL = TransitAccountLib.formatAccountId(1, makeAddr("carol"));
-    bytes28 ASSET = TransitAccountLib.formatAccountId(1, makeAddr("asset"));
-    bytes28 ASSET2 = TransitAccountLib.formatAccountId(1, makeAddr("asset2"));
-    bytes28 INVALID_ZERO_CHAIN = TransitAccountLib.formatAccountId(0, makeAddr("invalid"));
-    bytes28 INVALID_ZERO_ADDRESS = TransitAccountLib.formatAccountId(1, address(0));
+    bytes28 ALICE = TransitAddressLib.formatTransitAddress(1, makeAddr("alice"));
+    bytes28 BOB = TransitAddressLib.formatTransitAddress(1, makeAddr("bob"));
+    bytes28 CAROL = TransitAddressLib.formatTransitAddress(1, makeAddr("carol"));
+    bytes28 ASSET = TransitAddressLib.formatTransitAddress(1, makeAddr("asset"));
+    bytes28 ASSET2 = TransitAddressLib.formatTransitAddress(1, makeAddr("asset2"));
+    bytes28 INVALID_ZERO_CHAIN = TransitAddressLib.formatTransitAddress(0, makeAddr("invalid"));
+    bytes28 INVALID_ZERO_ADDRESS = TransitAddressLib.formatTransitAddress(1, address(0));
 
-    TransitAuthority authority;
+    AccessManager authority;
     AddressFreezeList freezeList;
     Depot depot;
 
     function setUp() public {
-        authority = new TransitAuthority(admin);
+        authority = new AccessManager(admin);
         freezeList = new AddressFreezeList(address(authority));
         depot = new Depot(address(authority), freezeList);
 
@@ -64,10 +64,10 @@ contract DepotUnitTest is Test {
         authority.setTargetFunctionRole(address(depot), conductorSelectors, Roles.CONDUCTOR);
         authority.setTargetFunctionRole(address(depot), epochSelectors, Roles.EPOCH);
         authority.setTargetFunctionRole(address(freezeList), freezeSelectors, Roles.FREEZE_MANAGER);
-        authority.grantRole(Roles.PAUSER, pauser);
-        authority.grantRole(Roles.CONDUCTOR, conductor);
-        authority.grantRole(Roles.EPOCH, epochKeeper);
-        authority.grantRole(Roles.FREEZE_MANAGER, admin);
+        authority.grantRole(Roles.PAUSER, pauser, 0);
+        authority.grantRole(Roles.CONDUCTOR, conductor, 0);
+        authority.grantRole(Roles.EPOCH, epochKeeper, 0);
+        authority.grantRole(Roles.FREEZE_MANAGER, admin, 0);
         vm.stopPrank();
     }
 
@@ -92,7 +92,7 @@ contract DepotUnitTest is Test {
     }
 
     function _freeze(bytes28 accountId) internal {
-        (, address account) = TransitAccountLib.parseAccountId(accountId);
+        (, address account) = TransitAddressLib.parseTransitAddress(accountId);
         vm.prank(admin);
         freezeList.freeze(account);
     }
@@ -921,14 +921,14 @@ contract DepotUnitTest is Test {
     function test_release_RevertIf_AmountExceedsEffective() public {
         _reserve(ALICE, ASSET, 30);
         _advanceEpoch();
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.ReleaseExceedsReserved.selector, 31, 30));
         vm.prank(conductor);
         depot.release(ALICE, ASSET, 31);
     }
 
     function test_release_RevertIf_AmountIsStillPending() public {
         _reserve(ALICE, ASSET, 30);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.ReleaseExceedsReserved.selector, 30, 0));
         vm.prank(conductor);
         depot.release(ALICE, ASSET, 30);
     }

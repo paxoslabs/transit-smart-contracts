@@ -5,9 +5,9 @@ import { Test, Vm } from "forge-std/Test.sol";
 import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
-import { TransitAuthority } from "src/TransitAuthority.sol";
+import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 contract AddressFreezeListUnitTest is Test {
 
@@ -17,11 +17,11 @@ contract AddressFreezeListUnitTest is Test {
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
 
-    TransitAuthority authority;
+    AccessManager authority;
     AddressFreezeList freezeList;
 
     function setUp() public {
-        authority = new TransitAuthority(admin);
+        authority = new AccessManager(admin);
         freezeList = new AddressFreezeList(address(authority));
 
         bytes4[] memory selectors = new bytes4[](4);
@@ -32,7 +32,7 @@ contract AddressFreezeListUnitTest is Test {
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(freezeList), selectors, Roles.FREEZE_MANAGER);
-        authority.grantRole(Roles.FREEZE_MANAGER, freezeManager);
+        authority.grantRole(Roles.FREEZE_MANAGER, freezeManager, 0);
         vm.stopPrank();
     }
 
@@ -189,7 +189,7 @@ contract AddressFreezeListUnitTest is Test {
     }
 
     function test_isFrozen_ReturnsWhetherAccountAddressIsFrozen() public {
-        bytes28 accountId = TransitAccountLib.formatAccountId(1, alice);
+        bytes28 accountId = TransitAddressLib.formatTransitAddress(1, alice);
         assertFalse(freezeList.isFrozen(accountId), "account frozen before freeze");
         _freeze(alice);
         assertTrue(freezeList.isFrozen(accountId), "account not frozen after freeze");
@@ -197,16 +197,16 @@ contract AddressFreezeListUnitTest is Test {
 
     function test_isFrozen_ReturnsTrueForAccountOnAnyChain() public {
         _freeze(alice);
-        assertTrue(freezeList.isFrozen(TransitAccountLib.formatAccountId(1, alice)), "account on chain 1 not frozen");
-        assertTrue(freezeList.isFrozen(TransitAccountLib.formatAccountId(10, alice)), "account on chain 10 not frozen");
+        assertTrue(freezeList.isFrozen(TransitAddressLib.formatTransitAddress(1, alice)), "account on chain 1 not frozen");
+        assertTrue(freezeList.isFrozen(TransitAddressLib.formatTransitAddress(10, alice)), "account on chain 10 not frozen");
         assertTrue(
-            freezeList.isFrozen(TransitAccountLib.formatAccountId(type(uint64).max, alice)),
+            freezeList.isFrozen(TransitAddressLib.formatTransitAddress(type(uint64).max, alice)),
             "account on max chain not frozen"
         );
     }
 
     function test_FREEZE_MANAGER_ROLE_ReturnsFreezeManagerRole() public view {
-        assertEq(freezeList.FREEZE_MANAGER_ROLE(), Roles.FREEZE_MANAGER, "role not FREEZE_MANAGER");
+        assertEq(freezeList.FREEZE_MANAGER_ROLE(), bytes32(uint256(Roles.FREEZE_MANAGER)), "role not FREEZE_MANAGER");
     }
 
 }
