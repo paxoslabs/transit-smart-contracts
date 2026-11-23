@@ -1,61 +1,58 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { TransitTokenLib } from "../helpers/TransitTokenLib.sol";
-import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
-abstract contract RequestConductor is TurnstileGated {
+/**
+ * @title RequestConductor
+ * @notice Base for conductors whose user actions (withdrawals, transfers) must be requested one epoch before they
+ * execute. A request reserves the funds in the Depot so they cannot be spent elsewhere; once the epoch arrives anyone
+ * may execute it, which releases the reservation and consumes the request.
+ * @dev The delay keeps user-initiated outflows from invalidating a solver batch already in flight. A facilitated owner
+ * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
+ * @custom:security-contact security@paxoslabs.com
+ */
+abstract contract RequestConductor is IRequestConductor, ConductorGatedByTurnstile {
 
+    /// @inheritdoc IRequestConductor
     uint256 public constant EXECUTED = type(uint256).max;
 
+    /// @inheritdoc IRequestConductor
     address public immutable DEPOT;
 
-    mapping(bytes32 accountId => mapping(bytes32 requestId => uint256 status)) public requestStatus;
+    /// @inheritdoc IRequestConductor
+    mapping(bytes28 accountId => mapping(bytes32 requestId => uint256 effectiveAtEpoch)) public requestEffectiveAtEpoch;
 
-    event Requested(bytes32 indexed accountId, bytes32 indexed requestId, uint256 effectiveAtEpoch);
-    event RequestExpired(bytes32 indexed requestId);
-
-    error RequestReplay();
-    error NotEffective();
-    error NotOwner();
-
-    constructor(address _depot, address _turnstile) TurnstileGated(_turnstile) {
+    constructor(address _depot, address _turnstile) ConductorGatedByTurnstile(_turnstile) {
         DEPOT = _depot;
     }
 
-    function _request(uint64 ownerChainId, address owner, bytes32 requestId, bytes32 assetId, uint256 amount) internal {
-        bytes32 accountId = _senderAccountId();
-        if (accountId != TransitTokenLib.formatAccountId(ownerChainId, owner, false)) revert NotOwner();
-        if (requestStatus[accountId][requestId] != 0) revert RequestReplay();
+    function _request(bytes28 ownerAccountId, bytes32 requestId, bytes28 assetId, uint256 amount) internal {
+        bytes28 senderAccountId = _senderAccountId();
+        if (senderAccountId != ownerAccountId) revert NotOwner();
+        if (requestEffectiveAtEpoch[senderAccountId][requestId] != 0) revert RequestReplay();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch() + 1;
-        requestStatus[accountId][requestId] = effectiveAtEpoch;
-        IDepot(DEPOT).reserve(accountId, assetId, amount);
-        emit Requested(accountId, requestId, effectiveAtEpoch);
+        IDepot(DEPOT).reserve(senderAccountId, assetId, amount);
+        requestEffectiveAtEpoch[senderAccountId][requestId] = effectiveAtEpoch;
+        emit Requested(senderAccountId, requestId, effectiveAtEpoch);
     }
 
-    function _consume(
-        uint64 ownerChainId,
-        address owner,
-        bytes32 requestId,
-        bytes32 assetId,
-        uint256 amount
-    )
-        internal
-        returns (bytes32 accountId)
-    {
-        _requireEffective(ownerChainId, owner, requestId);
-        accountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
-        uint256 status = requestStatus[accountId][requestId];
-        if (status == EXECUTED) revert RequestReplay();
-        requestStatus[accountId][requestId] = EXECUTED;
-        if (status != 0) IDepot(DEPOT).release(accountId, assetId, amount);
+    function _consume(bytes28 ownerAccountId, bytes32 requestId, bytes28 assetId, uint256 amount) internal {
+        _requireEffective(ownerAccountId, requestId);
+        uint256 effectiveAtEpoch = requestEffectiveAtEpoch[ownerAccountId][requestId];
+        if (effectiveAtEpoch == EXECUTED) revert RequestReplay();
+        requestEffectiveAtEpoch[ownerAccountId][requestId] = EXECUTED;
+        // 0 means a facilitated owner skipped the request, so there is no reservation to release.
+        if (effectiveAtEpoch != 0) IDepot(DEPOT).release(ownerAccountId, assetId, amount);
+        emit Consumed(ownerAccountId, requestId);
     }
 
-    function _fillAmount(
-        bytes32 accountId,
-        bytes32 assetId,
+    function _executableAmount(
+        bytes28 accountId,
+        bytes28 assetId,
         uint256 requested,
         bool partiallyFillable
     )
@@ -67,12 +64,14 @@ abstract contract RequestConductor is TurnstileGated {
         if (!partiallyFillable && amount < requested) amount = 0;
     }
 
-    function _requireEffective(uint64 ownerChainId, address owner, bytes32 requestId) private view {
-        bytes32 ownerAccountId = TransitTokenLib.formatAccountId(ownerChainId, owner, false);
-        uint256 status = requestStatus[ownerAccountId][requestId];
-        if (status == 0 && _facilitated() && _senderAccountId() == ownerAccountId) return;
-        if (status == EXECUTED) return;
-        if (status == 0 || IDepot(DEPOT).settlementEpoch() < status) revert NotEffective();
+    function _requireEffective(bytes28 ownerAccountId, bytes32 requestId) private view {
+        uint256 effectiveAtEpoch = requestEffectiveAtEpoch[ownerAccountId][requestId];
+        // A facilitated owner with no prior request may execute immediately: the facilitator is trusted not to pull
+        // funds out from under an in-flight batch. Anyone else must wait for the request to become effective.
+        if (effectiveAtEpoch == 0 && _facilitated() && _senderAccountId() == ownerAccountId) return;
+        // Already consumed; _consume reverts on replay.
+        if (effectiveAtEpoch == EXECUTED) return;
+        if (effectiveAtEpoch == 0 || IDepot(DEPOT).settlementEpoch() < effectiveAtEpoch) revert NotEffective();
     }
 
 }

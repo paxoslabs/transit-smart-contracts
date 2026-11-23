@@ -1,67 +1,82 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
+import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { IDepot } from "../depot/IDepot.sol";
-import { TurnstileGated } from "../turnstile/TurnstileGated.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
+import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
 
-abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
+/**
+ * @title SwapConductor
+ * @notice Shared base for swap conductors. Tracks per-order fill progress, pre-approvals, and owner cancellations,
+ * and verifies order signatures.
+ * @dev Orders are user-signed EIP-712 messages settled by a restricted solver in epoch batches. Cancellations take
+ * effect from the next epoch, so a batch already in flight cannot be invalidated by one; a facilitated cancellation
+ * takes effect in the current epoch.
+ * @custom:security-contact security@paxoslabs.com
+ */
+abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, ConductorGatedByTurnstile {
 
+    /// @inheritdoc ISwapConductor
     address public immutable DEPOT;
-    bytes32 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
+    /// @inheritdoc ISwapConductor
+    bytes28 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
+    /// @inheritdoc ISwapConductor
     mapping(bytes32 orderHash => uint256) public filledAmount;
-    mapping(bytes32 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
+    /// @inheritdoc ISwapConductor
+    mapping(bytes28 accountId => mapping(bytes32 orderHash => uint256 epoch)) public cancelledFrom;
+    /// @inheritdoc ISwapConductor
     mapping(bytes32 orderHash => bool) public preApproved;
-
-    event OrderCancellationRequested(
-        bytes32 indexed ownerAccountId, bytes32 indexed orderHash, uint256 effectiveAtEpoch
-    );
-    event Filled(bytes32 indexed orderHash, bytes32 indexed ownerAccountId, uint256 sellFilled, uint256 buyFilled);
-
-    error LimitPrice(bytes32 orderHash);
-    error BadSignature();
-    error NotPreApproved(bytes32 orderHash);
-    error LengthMismatch();
-    error NotOwner();
-    error Expired(bytes32 id);
-    error Overfill(bytes32 orderHash);
-    error NotPartiallyFillable(bytes32 orderHash);
-    error Cancelled(bytes32 orderHash);
 
     constructor(
         address _authority,
         address _depot,
-        bytes32 _surplusRecipientAccountId,
+        bytes28 _surplusRecipientAccountId,
         address _turnstile
     )
         AccessManaged(_authority)
-        TurnstileGated(_turnstile)
+        ConductorGatedByTurnstile(_turnstile)
     {
         DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
 
+    /// @inheritdoc ISwapConductor
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _domainSeparator();
     }
 
     // ========================================= USER =========================================
 
+    /// @inheritdoc ISwapConductor
     function requestOrderCancellation(bytes32 orderHash) external {
-        bytes32 accountId = _senderAccountId();
+        bytes28 accountId = _senderAccountId();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();
         if (!_facilitated()) effectiveAtEpoch++;
-        uint256 cancelled = cancelledFrom[accountId][orderHash];
-        if (cancelled != 0 && cancelled <= effectiveAtEpoch) return;
+        uint256 cancelledFromEpoch = cancelledFrom[accountId][orderHash];
+        if (cancelledFromEpoch != 0 && cancelledFromEpoch <= effectiveAtEpoch) return;
         cancelledFrom[accountId][orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(accountId, orderHash, effectiveAtEpoch);
     }
 
+    /// @dev An empty signature means the owner pre-approved the order on-chain; otherwise it must be the owner's ECDSA
+    /// signature over the order hash.
+    function _verifySignature(bytes32 orderHash, address owner, bytes calldata signature) internal view {
+        if (signature.length == 0) {
+            if (!preApproved[orderHash]) revert NotPreApproved(orderHash);
+        } else if (ECDSA.recoverCalldata(orderHash, signature) != owner) {
+            revert BadSignature();
+        }
+    }
+
+    /// @dev Adds a fill to the order's progress and emits Filled. Reverts if the order would be overfilled or its
+    /// cancellation is effective at this settlement epoch.
     function _recordFill(
         bytes32 orderHash,
-        bytes32 ownerAccountId,
+        bytes28 ownerAccountId,
         uint256 sellAmount,
         uint256 sellFilled,
         uint256 buyFilled,
@@ -72,8 +87,8 @@ abstract contract SwapConductor is AccessManaged, EIP712, TurnstileGated {
         uint256 filled = filledAmount[orderHash] + sellFilled;
         if (filled > sellAmount) revert Overfill(orderHash);
         filledAmount[orderHash] = filled;
-        uint256 cancelled = cancelledFrom[ownerAccountId][orderHash];
-        if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
+        uint256 cancelledFromEpoch = cancelledFrom[ownerAccountId][orderHash];
+        if (cancelledFromEpoch != 0 && settlementEpoch >= cancelledFromEpoch) revert Cancelled(orderHash);
 
         emit Filled(orderHash, ownerAccountId, sellFilled, buyFilled);
     }

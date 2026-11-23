@@ -1,34 +1,42 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
-import { MessagingAdapter } from "./MessagingAdapter.sol";
+import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCodec.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
+import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
 
+/**
+ * @title CCIPMessagingAdapter
+ * @notice MessagingAdapter over Chainlink CCIP. Peers are mapped to CCIP chain selectors through remoteId, and the
+ * bridge fee is paid in native gas.
+ * @custom:security-contact security@paxoslabs.com
+ */
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
     constructor(
         address _authority,
-        address _endpoint,
+        address _localTurnstile,
         uint64 _hubChainId,
         address _router
     )
-        MessagingAdapter(_authority, _endpoint, _hubChainId)
+        MessagingAdapter(_authority, _localTurnstile, _hubChainId)
         CCIPReceiver(_router)
     { }
 
-    function quote(
-        uint64 chainId,
+    function _quote(
+        uint64,
         uint64 gasLimit,
+        PeerConfig memory peer,
         bytes calldata payload
     )
-        external
+        internal
         view
         override
-        returns (uint256 fare)
+        returns (uint256 bridgeFee)
     {
-        PeerConfig memory peer = _outboundPeerOf(chainId, gasLimit);
         return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
     }
 
@@ -42,6 +50,8 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (bytes32 messageId)
     {
+        // The router wraps and keeps all of msg.value (underpayment reverts), so overpayment is not refunded and no
+        // ETH comes back to this adapter. Overpaid fees go to Chainlink's fee aggregator and are not recoverable.
         return IRouterClient(getRouter()).ccipSend{ value: msg.value }(
             uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
         );
@@ -51,8 +61,12 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         _receive(chainIdForRemoteId[message.sourceChainSelector], bytes32(message.sender), message.data);
     }
 
-    /// TODO: Decide extraArgs. Currently legacy GenericExtraArgsV2 with allowOutOfOrderExecution = true (Warehouse
-    /// nonces don't need ordering). CCIP v2.0 lanes also accept GenericExtraArgsV3 (finality config, custom CCVs).
+    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the Fast Confirmation
+    /// Rule: the message is sent once the source block reaches the `safe` head rather than full finality. V2 extraArgs
+    /// cannot request finality. V3 has no ordering flag; messages don't need ordering. Each lane must allow this
+    /// finality or the send reverts. V3's gasLimit is uint32, so a larger gasLimit reverts.
+    /// NOTE: a reorg past an FCR-confirmed block (requires FCR's assumptions to fail) after a deposit or withdrawal
+    /// message is sent would leave the hub balance or the spoke release unbacked.
     function _buildMessage(
         PeerConfig memory peer,
         uint64 gasLimit,
@@ -67,9 +81,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             data: payload,
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: Client._argsToBytes(
-                Client.GenericExtraArgsV2({ gasLimit: gasLimit, allowOutOfOrderExecution: true })
-            )
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(SafeCastLib.toUint32(gasLimit))
         });
     }
 

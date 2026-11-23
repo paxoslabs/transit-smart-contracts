@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
 import { WarehouseConductorUnitBase } from "./WarehouseConductorUnitBase.t.sol";
+import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
 
 contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
@@ -14,10 +15,12 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetChainId: HUB_CHAIN_ID,
+            asset: address(usdc),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
+            dependsOn: bytes32(0),
             salt: bytes32(++withdrawSalt)
         });
     }
@@ -25,7 +28,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
     function _withdraw(ITurnstile.WithdrawalAction memory req, bytes memory sig) internal {
         ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
         actions[0] = ITurnstile.Action({
-            actionType: ITurnstile.ActionType.Withdrawal, data: abi.encode(req), fare: 0, messageGas: 0
+            actionType: ITurnstile.ActionType.Withdrawal, data: abi.encode(req), bridgeFee: 0, messageGas: 0
         });
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = sig;
@@ -43,19 +46,21 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         ITurnstile.DepositMessage memory message = ITurnstile.DepositMessage({
             asset: address(usdc),
             amount: 1e6,
-            fromAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
-            toAccountId: TransitTokenLib.formatAccountId(HUB_CHAIN_ID, mallory, false),
+            fromAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
+            toAccountId: TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, mallory),
+            facilitationFee: 0,
+            feeReceiverAccountId: bytes28(0),
             salt: bytes32(uint256(1))
         });
         bytes memory payload = abi.encode(ITurnstile.ActionType.Deposit, abi.encode(message));
         vm.prank(mallory);
         vm.expectRevert();
-        turnstile.receiveMessage(HUB_CHAIN_ID, payload);
+        turnstile.handleReceivedMessage(HUB_CHAIN_ID, payload);
 
         vm.prank(mallory);
         vm.expectRevert();
         hubWarehouseConductor.receiveDeposit(
-            HUB_CHAIN_ID, message.asset, message.amount, message.fromAccountId, message.toAccountId
+            HUB_CHAIN_ID, message.asset, message.amount, message.fromAccountId, message.toAccountId, 0, bytes28(0)
         );
     }
 
@@ -72,8 +77,8 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
 
         assertEq(
             depot.balanceOf(
-                TransitTokenLib.formatAccountId(HUB_CHAIN_ID, alice, false),
-                TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc))
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, alice),
+                TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc))
             ),
             0,
             "withdraw: depot balance not burned"
@@ -89,7 +94,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         bytes memory sig = _sign(req, wrongPk);
 
         vm.prank(backend);
-        vm.expectRevert(RequestConductor.NotEffective.selector);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
         _withdraw(req, sig);
     }
 
@@ -102,7 +107,7 @@ contract HubWarehouseConductorUnitTest is WarehouseConductorUnitBase {
         _withdraw(req, sig);
 
         vm.prank(backend);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         _withdraw(req, sig);
     }
 

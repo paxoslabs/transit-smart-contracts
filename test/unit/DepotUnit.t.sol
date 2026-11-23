@@ -1,32 +1,36 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.37;
+pragma solidity 0.8.37;
 
 import { dispatchOne } from "../helpers/DispatchOne.sol";
 import { Test } from "forge-std/Test.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { TransitAuthority } from "../../src/TransitAuthority.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
+import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
 import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { SpokeWarehouse } from "../../src/SpokeWarehouse.sol";
 import { Depot } from "../../src/depot/Depot.sol";
+import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
 import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
+import { ISpotSwapConductor } from "../../src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
 import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { IMessagingAdapter } from "../../src/messaging/IMessagingAdapter.sol";
+import { IMessagingAdapter } from "../../src/interfaces/IMessagingAdapter.sol";
 import { Turnstile } from "../../src/turnstile/Turnstile.sol";
-import { ITurnstile } from "../../src/turnstile/ITurnstile.sol";
+import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
 import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
 import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
 import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitTokenLib } from "../../src/helpers/TransitTokenLib.sol";
+import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
+import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
+import { ISwapConductor } from "../../src/interfaces/ISwapConductor.sol";
+import { IUserConductor } from "../../src/interfaces/IUserConductor.sol";
 
 contract DepotUnitTest is Test {
 
     uint64 constant HUB_CHAIN_ID = 1;
 
-    TransitAuthority authority;
-    SpokeWarehouse warehouse;
+    AccessManager authority;
     Depot depot;
     UserConductor userConductor;
     HubWarehouseConductor hubWarehouseConductor;
@@ -48,10 +52,9 @@ contract DepotUnitTest is Test {
         vm.chainId(HUB_CHAIN_ID);
         (, alicePk) = makeAddrAndKey("alice");
 
-        authority = new TransitAuthority(admin);
-        warehouse = new SpokeWarehouse(address(authority), vault);
-        turnstile = new Turnstile(address(authority), address(warehouse));
-        depot = new Depot(address(authority));
+        authority = new AccessManager(admin);
+        turnstile = new Turnstile(address(authority), vault);
+        depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
         local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
         userConductor = new UserConductor(address(depot), address(turnstile));
         hubWarehouseConductor = new HubWarehouseConductor(address(authority), address(depot), address(turnstile));
@@ -60,16 +63,8 @@ contract DepotUnitTest is Test {
         usdc = ERC20(address(new MockERC20("USD Coin", "USDC", 6)));
         usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
 
-        bytes4[] memory warehouseAdminSels = new bytes4[](1);
-        warehouseAdminSels[0] = SpokeWarehouse.setAssetWhitelisted.selector;
-
-        bytes4[] memory warehouseTurnstileSels = new bytes4[](3);
-        warehouseTurnstileSels[0] = SpokeWarehouse.receiveWithdrawal.selector;
-        warehouseTurnstileSels[1] = SpokeWarehouse.custody.selector;
-        warehouseTurnstileSels[2] = SpokeWarehouse.permit.selector;
-
         bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.receiveMessage.selector;
+        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
 
         bytes4[] memory solverSels = new bytes4[](1);
         solverSels[0] = SpotSwapConductor.settle.selector;
@@ -80,10 +75,11 @@ contract DepotUnitTest is Test {
         bytes4[] memory epochSels = new bytes4[](1);
         epochSels[0] = Depot.advanceEpoch.selector;
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](3);
+        bytes4[] memory turnstileAdminSels = new bytes4[](4);
         turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
         turnstileAdminSels[1] = Turnstile.setRoutable.selector;
         turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
+        turnstileAdminSels[3] = Turnstile.setAssetWhitelisted.selector;
 
         bytes4[] memory routedSels = new bytes4[](2);
         routedSels[0] = UserConductor.requestTransfer.selector;
@@ -94,45 +90,42 @@ contract DepotUnitTest is Test {
         swapRoutedSels[1] = SwapConductor.requestOrderCancellation.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(warehouse), warehouseAdminSels, Roles.ADMIN);
         authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
-        authority.setTargetFunctionRole(address(warehouse), warehouseTurnstileSels, Roles.TURNSTILE);
         authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, Roles.SOLVER);
         authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
         authority.setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
-        authority.grantRole(Roles.EPOCH, address(spotSwapConductor));
-        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local));
-        authority.grantRole(Roles.SOLVER, backend);
-        warehouse.setAssetWhitelisted(_list(address(usdc)), true);
+        authority.grantRole(Roles.EPOCH, address(spotSwapConductor), 0);
+        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local), 0);
+        authority.grantRole(Roles.SOLVER, backend, 0);
         authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
-        authority.grantRole(Roles.TURNSTILE, address(turnstile));
-        bytes4[] memory userConductorSels = new bytes4[](7);
+        turnstile.setAssetWhitelisted(_list(address(usdc)), true);
+        authority.grantRole(Roles.TURNSTILE, address(turnstile), 0);
+        bytes4[] memory userConductorSels = new bytes4[](6);
         userConductorSels[0] = Depot.reserve.selector;
         userConductorSels[1] = Depot.release.selector;
         userConductorSels[2] = Depot.transferFrom.selector;
         userConductorSels[3] = Depot.burn.selector;
         userConductorSels[4] = Depot.transferAmong.selector;
         userConductorSels[5] = Depot.mint.selector;
-        userConductorSels[6] = Depot.priorityTransferFrom.selector;
         authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
-        authority.grantRole(Roles.CONDUCTOR, address(userConductor));
-        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(userConductor), 0);
+        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor), 0);
         bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
         hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
         hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
         authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
+        turnstile.setMessagingAdapter(address(local));
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
-        authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor));
+        authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor), 0);
         turnstile.setRoutable(address(userConductor), routedSels, true);
         turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
         bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
         hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
-        turnstile.setMessagingAdapter(address(local));
         vm.stopPrank();
 
         vm.prank(vault);
-        SafeTransferLib.safeApprove(address(usdc), address(warehouse), type(uint256).max);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), type(uint256).max);
     }
 
     function _list(address asset) internal pure returns (address[] memory assets) {
@@ -143,17 +136,23 @@ contract DepotUnitTest is Test {
     function _deposit(address user, uint256 amount) internal {
         deal(address(usdc), user, amount);
         vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(usdc), address(warehouse), amount);
+        SafeTransferLib.safeApprove(address(usdc), address(turnstile), amount);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Deposit,
             abi.encode(
                 ITurnstile.DepositAction({
+                    ownerChainId: HUB_CHAIN_ID,
+                    owner: user,
                     asset: address(usdc),
                     amount: amount,
                     toChainId: HUB_CHAIN_ID,
                     to: user,
+                    facilitationFee: 0,
+                    feeReceiverChainId: 0,
+                    feeReceiver: address(0),
                     deadline: type(uint256).max,
+                    dependsOn: bytes32(0),
                     salt: bytes32(0),
                     permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
                 })
@@ -165,7 +164,7 @@ contract DepotUnitTest is Test {
 
     function _advanceEpoch() internal {
         vm.warp(block.timestamp + 24 hours);
-        depot.advanceEpoch(depot.settlementEpoch());
+        depot.advanceEpoch();
     }
 
     function _transferRequest(
@@ -174,14 +173,15 @@ contract DepotUnitTest is Test {
         uint256 amount
     )
         internal
-        returns (UserConductor.TransferRequest memory)
+        returns (IUserConductor.TransferRequest memory)
     {
-        return UserConductor.TransferRequest({
+        return IUserConductor.TransferRequest({
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             toChainId: HUB_CHAIN_ID,
             to: to,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetChainId: HUB_CHAIN_ID,
+            asset: address(usdc),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
@@ -194,20 +194,24 @@ contract DepotUnitTest is Test {
             ownerChainId: HUB_CHAIN_ID,
             owner: owner,
             to: owner,
-            assetId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            assetChainId: HUB_CHAIN_ID,
+            asset: address(usdc),
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: true,
+            dependsOn: bytes32(0),
             salt: bytes32(++requestSalt)
         });
     }
 
-    function _order(uint256 sellAmount, bool partiallyFillable) internal returns (SpotSwapConductor.Order memory) {
-        return SpotSwapConductor.Order({
+    function _order(uint256 sellAmount, bool partiallyFillable) internal returns (ISpotSwapConductor.Order memory) {
+        return ISpotSwapConductor.Order({
             ownerChainId: HUB_CHAIN_ID,
             owner: alice,
-            sellTokenId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
-            buyTokenId: TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)),
+            sellTokenChainId: HUB_CHAIN_ID,
+            sellToken: address(usdc),
+            buyTokenChainId: HUB_CHAIN_ID,
+            buyToken: address(usdc),
             sellAmount: sellAmount,
             buyAmount: sellAmount,
             receiverChainId: HUB_CHAIN_ID,
@@ -219,16 +223,36 @@ contract DepotUnitTest is Test {
     }
 
     function _generic(address target, bytes memory data) internal returns (ITurnstile.GenericAction memory) {
+        return _generic(alice, target, data);
+    }
+
+    function _generic(
+        address owner,
+        address target,
+        bytes memory data
+    )
+        internal
+        returns (ITurnstile.GenericAction memory)
+    {
         return ITurnstile.GenericAction({
-            target: target, data: data, deadline: block.timestamp, salt: bytes32(++requestSalt)
+            ownerChainId: HUB_CHAIN_ID,
+            owner: owner,
+            target: target,
+            data: data,
+            deadline: block.timestamp,
+            dependsOn: bytes32(0),
+            salt: bytes32(++requestSalt)
         });
     }
 
     function _facilitatedCancellation(bytes32 orderHash) internal returns (ITurnstile.GenericAction memory) {
         return ITurnstile.GenericAction({
+            ownerChainId: HUB_CHAIN_ID,
+            owner: alice,
             target: address(spotSwapConductor),
             data: abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
             deadline: type(uint256).max,
+            dependsOn: bytes32(0),
             salt: bytes32(++requestSalt)
         });
     }
@@ -245,7 +269,7 @@ contract DepotUnitTest is Test {
     function _facilitate(ITurnstile.GenericAction memory message, bytes memory signature) internal {
         ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
         actions[0] = ITurnstile.Action({
-            actionType: ITurnstile.ActionType.Generic, data: abi.encode(message), fare: 0, messageGas: 0
+            actionType: ITurnstile.ActionType.Generic, data: abi.encode(message), bridgeFee: 0, messageGas: 0
         });
         vm.prank(backend);
         turnstile.facilitate(actions, _toArray(signature));
@@ -257,28 +281,26 @@ contract DepotUnitTest is Test {
     }
 
     function _settle(
-        SpotSwapConductor.Order memory order,
+        ISpotSwapConductor.Order memory order,
         bytes memory signature,
         uint256 amount,
         bytes memory revertData
     )
         internal
     {
-        SpotSwapConductor.Order[] memory orders = new SpotSwapConductor.Order[](1);
-        orders[0] = order;
-        SpotSwapConductor.Fill[] memory fills = new SpotSwapConductor.Fill[](1);
-        fills[0] = SpotSwapConductor.Fill(amount, amount);
+        ISpotSwapConductor.OrderFill[] memory orderFills = new ISpotSwapConductor.OrderFill[](1);
+        orderFills[0] = ISpotSwapConductor.OrderFill(order, signature, ISpotSwapConductor.Fill(amount, amount));
         uint256 epoch = depot.settlementEpoch();
         vm.prank(backend);
         if (revertData.length != 0) vm.expectRevert(revertData);
-        spotSwapConductor.settle(epoch, orders, _toArray(signature), fills, new SpotSwapConductor.Fee[](0));
+        spotSwapConductor.settle(epoch, orderFills, new ISpotSwapConductor.Fee[](0));
     }
 
     // ---------------------------------------------------------------- transfer
 
     function testRequestTransferReservesThenExecutes() public {
         _deposit(alice, 100e6);
-        UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
+        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
         bytes32 requestId = userConductor.digestTransferRequest(request);
         vm.prank(alice);
@@ -290,15 +312,15 @@ contract DepotUnitTest is Test {
         );
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             depot.settlementEpoch() + 1,
-            "request: status not pending next epoch"
+            "request: effectiveAtEpoch not pending next epoch"
         );
         assertEq(_depotBalance(alice), 100e6, "request: balance moved early");
         assertEq(_depotBalance(bob), 0, "request: bob credited early");
 
         vm.prank(bob);
-        vm.expectRevert(RequestConductor.NotEffective.selector);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
         userConductor.executeTransfer(request);
 
         _advanceEpoch();
@@ -307,21 +329,21 @@ contract DepotUnitTest is Test {
         userConductor.executeTransfer(request);
 
         assertEq(
-            userConductor.requestStatus(_account(alice), requestId),
+            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             userConductor.EXECUTED(),
-            "execute: status not executed"
+            "execute: effectiveAtEpoch not executed"
         );
         assertEq(_depotBalance(alice), 40e6, "execute: alice not debited");
         assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
 
         vm.prank(bob);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         userConductor.executeTransfer(request);
     }
 
     function testRequestTransferReplayReverts() public {
         _deposit(alice, 100e6);
-        UserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
+        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
 
         bytes memory data = abi.encodeCall(UserConductor.requestTransfer, (request));
 
@@ -329,7 +351,7 @@ contract DepotUnitTest is Test {
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
 
         vm.prank(alice);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
     }
 
@@ -353,9 +375,9 @@ contract DepotUnitTest is Test {
         );
 
         assertEq(
-            hubWarehouseConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             depot.settlementEpoch() + 1,
-            "request: status not pending next epoch"
+            "request: effectiveAtEpoch not pending next epoch"
         );
         assertEq(usdc.balanceOf(alice), 0, "request: alice received usdc early");
 
@@ -365,9 +387,9 @@ contract DepotUnitTest is Test {
         dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(request), 0);
 
         assertEq(
-            hubWarehouseConductor.requestStatus(_account(alice), requestId),
+            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
             hubWarehouseConductor.EXECUTED(),
-            "execute: status not executed"
+            "execute: effectiveAtEpoch not executed"
         );
         assertEq(_depotBalance(alice), 60e6, "execute: alice depot balance not burned");
         assertEq(usdc.balanceOf(alice), 40e6, "execute: alice did not receive usdc");
@@ -385,7 +407,7 @@ contract DepotUnitTest is Test {
         );
 
         vm.prank(alice);
-        vm.expectRevert(RequestConductor.RequestReplay.selector);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
         dispatchOne(
             turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
         );
@@ -395,7 +417,7 @@ contract DepotUnitTest is Test {
 
     function testPreApproveAllowsEmptySignatureFill() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
@@ -415,15 +437,15 @@ contract DepotUnitTest is Test {
 
     function testFillWithoutPreApproveReverts() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
-        _settle(order, "", 100e6, abi.encodeWithSelector(SwapConductor.NotPreApproved.selector, orderHash));
+        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.NotPreApproved.selector, orderHash));
     }
 
     function testRequestOrderCancellationTakesEffectNextEpoch() public {
         _deposit(alice, 100e6);
-        SpotSwapConductor.Order memory order = _order(100e6, true);
+        ISpotSwapConductor.Order memory order = _order(100e6, true);
         bytes32 orderHash = spotSwapConductor.hashOrder(order);
 
         vm.prank(alice);
@@ -456,12 +478,12 @@ contract DepotUnitTest is Test {
 
         _advanceEpoch();
 
-        _settle(order, "", 40e6, abi.encodeWithSelector(SwapConductor.Cancelled.selector, orderHash));
+        _settle(order, "", 40e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
     }
 
     // ---------------------------------------------------------------- facilitated cancel
 
-    function _preApprovedOrder() internal returns (SpotSwapConductor.Order memory order, bytes32 orderHash) {
+    function _preApprovedOrder() internal returns (ISpotSwapConductor.Order memory order, bytes32 orderHash) {
         _deposit(alice, 100e6);
         order = _order(100e6, false);
         orderHash = spotSwapConductor.hashOrder(order);
@@ -476,7 +498,7 @@ contract DepotUnitTest is Test {
     }
 
     function testFacilitatedOrderCancellationIsImmediateAndPaysFee() public {
-        (SpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
+        (ISpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
         ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
 
         _facilitate(message, _signFacilitated(message, alicePk));
@@ -486,9 +508,8 @@ contract DepotUnitTest is Test {
             depot.settlementEpoch(),
             "facilitate: cancel not immediate"
         );
-        /// TODO: Restore fee assertions once facilitate charges fees.
 
-        _settle(order, "", 100e6, abi.encodeWithSelector(SwapConductor.Cancelled.selector, orderHash));
+        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
     }
 
     function testFacilitatedOrderCancellationReplayReverts() public {
@@ -533,41 +554,52 @@ contract DepotUnitTest is Test {
         );
     }
 
-    /// TODO: Decide test name; a wrong signer no longer reverts, it acts as its own account.
     function testFacilitatedOrderCancellationBadSignatureReverts() public {
         (, bytes32 orderHash) = _preApprovedOrder();
         ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
         (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
         bytes memory sig = _signFacilitated(message, wrongPk);
 
+        vm.expectRevert(ITurnstile.NotOwner.selector);
         _facilitate(message, sig);
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash), 0, "bad sig: cancellation recorded for alice"
-        );
     }
 
     // ---------------------------------------------------------------- auth
 
     function testPreApproveForAnotherOwnerReverts() public {
-        SpotSwapConductor.Order memory order = _order(100e6, false);
+        ISpotSwapConductor.Order memory order = _order(100e6, false);
 
         vm.prank(bob);
-        vm.expectRevert(SwapConductor.NotOwner.selector);
+        vm.expectRevert(ISwapConductor.NotOwner.selector);
         dispatchOne(
             turnstile,
             ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
+            abi.encode(
+                _generic(bob, address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))
+            ),
             0
         );
     }
 
     function _depotBalance(address user) internal view returns (uint256) {
-        return depot.balanceOf(_account(user), TransitTokenLib.formatAssetId(HUB_CHAIN_ID, address(usdc)));
+        return depot.balanceOf(_account(user), TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc)));
     }
 
-    function _account(address user) internal pure returns (bytes32) {
-        return TransitTokenLib.formatAccountId(HUB_CHAIN_ID, user, false);
+    function _account(address user) internal pure returns (bytes28) {
+        return TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, user);
+    }
+
+    function testReserveAboveUint112CapReverts() public {
+        bytes28 acct = _account(alice);
+        bytes28 asset = _account(address(usdc));
+        vm.prank(address(userConductor));
+        depot.reserve(acct, asset, type(uint112).max);
+        (, uint112 pending,) = depot.reservation(acct, asset);
+        assertEq(pending, type(uint112).max, "reserve: cap amount not recorded as pending");
+
+        vm.prank(address(userConductor));
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        depot.reserve(acct, asset, 1);
     }
 
 }
