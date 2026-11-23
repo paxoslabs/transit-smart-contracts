@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { MockERC20 } from "lib/solady/test/utils/mocks/MockERC20.sol";
 import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
@@ -16,6 +16,8 @@ import { DelayedSettlementSwapConductor } from "src/conductor/DelayedSettlementS
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { CCIPMessagingAdapter } from "src/messaging/CCIPMessagingAdapter.sol";
+import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
+import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 
 abstract contract SharedSetup is Test {
@@ -47,16 +49,26 @@ abstract contract SharedSetup is Test {
     MockERC20 usdc;
     MockERC20 usdg;
 
+    mapping(uint64 => AccessManager) spokeAccessManager;
+    mapping(uint64 => Turnstile) spokeTurnstile;
+    mapping(uint64 => CCIPMessagingAdapter) spokeMessagingAdapter;
+    mapping(uint64 => MockERC20) spokeUsdg;
+    mapping(address => uint64) chainIdOfAdapter;
+
     function setUp() public virtual {
         vm.chainId(HUB_CHAIN_ID);
         _deploy();
+        _deploySpoke(ROBINHOOD_CHAIN_ID);
+        _deploySpoke(ARBITRUM_CHAIN_ID);
         vm.startPrank(DEPLOYER);
         _setFunctionRoles();
         _grantRoles();
         _wire();
-        _handOffAdmin();
+        _handOffAdmin(accessManager);
         vm.stopPrank();
         _approveVault();
+        _mockCcipRouter();
+        vm.recordLogs();
     }
 
     function _deploy() internal {
@@ -68,6 +80,7 @@ abstract contract SharedSetup is Test {
         depot = new Depot(authority, addressFreezeList);
         turnstile = new Turnstile(authority, VAULT);
         messagingAdapter = new CCIPMessagingAdapter(authority, address(turnstile), HUB_CHAIN_ID, CCIP_ROUTER);
+        chainIdOfAdapter[address(messagingAdapter)] = HUB_CHAIN_ID;
         hubWarehouseConductor = new HubWarehouseConductor(authority, address(depot), address(turnstile));
         userConductor = new UserConductor(address(depot), address(turnstile));
         spotSwapConductor =
@@ -89,17 +102,8 @@ abstract contract SharedSetup is Test {
         freezeSels[3] = AddressFreezeList.unfreezeAccounts.selector;
         accessManager.setTargetFunctionRole(address(addressFreezeList), freezeSels, Roles.FREEZE_MANAGER);
 
-        bytes4[] memory pauseSels = new bytes4[](1);
-        pauseSels[0] = Depot.pause.selector;
-        accessManager.setTargetFunctionRole(address(depot), pauseSels, Roles.PAUSER);
-        pauseSels[0] = Turnstile.pause.selector;
-        accessManager.setTargetFunctionRole(address(turnstile), pauseSels, Roles.PAUSER);
-
-        bytes4[] memory unpauseSels = new bytes4[](1);
-        unpauseSels[0] = Depot.unpause.selector;
-        accessManager.setTargetFunctionRole(address(depot), unpauseSels, Roles.UNPAUSER);
-        unpauseSels[0] = Turnstile.unpause.selector;
-        accessManager.setTargetFunctionRole(address(turnstile), unpauseSels, Roles.UNPAUSER);
+        _setPauseRoles(accessManager, address(depot));
+        _setPauseRoles(accessManager, address(turnstile));
 
         bytes4[] memory depotConductorSels = new bytes4[](7);
         depotConductorSels[0] = Depot.transferFrom.selector;
@@ -111,13 +115,9 @@ abstract contract SharedSetup is Test {
         depotConductorSels[6] = Depot.advanceEpoch.selector;
         accessManager.setTargetFunctionRole(address(depot), depotConductorSels, Roles.CONDUCTOR);
 
-        bytes4[] memory facilitateSels = new bytes4[](1);
-        facilitateSels[0] = Turnstile.facilitate.selector;
-        accessManager.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
+        _setFacilitateRole(accessManager, address(turnstile));
 
-        bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
-        accessManager.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
+        _setReceiveRole(accessManager, address(turnstile));
 
         bytes4[] memory warehouseSels = new bytes4[](2);
         warehouseSels[0] = HubWarehouseConductor.receiveDeposit.selector;
@@ -134,8 +134,7 @@ abstract contract SharedSetup is Test {
     }
 
     function _grantRoles() internal {
-        accessManager.grantRole(Roles.PAUSER, PAUSER_ADDRESS, 0);
-        accessManager.grantRole(Roles.UNPAUSER, ADMIN_MULTISIG, 0);
+        _grantPauseRoles(accessManager);
         accessManager.grantRole(Roles.FREEZE_MANAGER, PREDICATE_FREEZE_MANAGER, 0);
         accessManager.grantRole(Roles.SOLVER, SOLVER_ADDRESS, 0);
         accessManager.grantRole(Roles.MESSAGING_ADAPTER, address(messagingAdapter), 0);
@@ -148,8 +147,8 @@ abstract contract SharedSetup is Test {
 
     function _wire() internal {
         turnstile.setMessagingAdapter(address(messagingAdapter));
-        _setSpokePeer(ROBINHOOD_CHAIN_ID);
-        _setSpokePeer(ARBITRUM_CHAIN_ID);
+        _setPeer(messagingAdapter, ROBINHOOD_CHAIN_ID, address(spokeMessagingAdapter[ROBINHOOD_CHAIN_ID]));
+        _setPeer(messagingAdapter, ARBITRUM_CHAIN_ID, address(spokeMessagingAdapter[ARBITRUM_CHAIN_ID]));
         turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
 
         address[] memory assets = new address[](2);
@@ -161,8 +160,9 @@ abstract contract SharedSetup is Test {
         warehouseSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
         turnstile.setRoutable(address(hubWarehouseConductor), warehouseSels, true);
 
-        bytes4[] memory userSels = new bytes4[](1);
+        bytes4[] memory userSels = new bytes4[](2);
         userSels[0] = UserConductor.requestTransfer.selector;
+        userSels[1] = UserConductor.executeTransfer.selector;
         turnstile.setRoutable(address(userConductor), userSels, true);
 
         bytes4[] memory spotSels = new bytes4[](2);
@@ -176,9 +176,65 @@ abstract contract SharedSetup is Test {
         turnstile.setRoutable(address(delayedSettlementSwapConductor), delayedSels, true);
     }
 
-    function _handOffAdmin() internal {
-        accessManager.grantRole(Roles.ADMIN, ADMIN_MULTISIG, ADMIN_DELAY);
-        accessManager.renounceRole(Roles.ADMIN, DEPLOYER);
+    function _deploySpoke(uint64 spokeChainId) internal {
+        MockERC20 token = new MockERC20("Global Dollar", "USDG", 6);
+        AccessManager manager = new AccessManager(DEPLOYER);
+        Turnstile spoke = new Turnstile(address(manager), VAULT);
+        CCIPMessagingAdapter adapter =
+            new CCIPMessagingAdapter(address(manager), address(spoke), HUB_CHAIN_ID, CCIP_ROUTER);
+        spokeUsdg[spokeChainId] = token;
+        spokeAccessManager[spokeChainId] = manager;
+        spokeTurnstile[spokeChainId] = spoke;
+        spokeMessagingAdapter[spokeChainId] = adapter;
+        chainIdOfAdapter[address(adapter)] = spokeChainId;
+
+        vm.startPrank(DEPLOYER);
+        _setPauseRoles(manager, address(spoke));
+        _setReceiveRole(manager, address(spoke));
+        _setFacilitateRole(manager, address(spoke));
+        _grantPauseRoles(manager);
+        manager.grantRole(Roles.SOLVER, SOLVER_ADDRESS, 0);
+        manager.grantRole(Roles.MESSAGING_ADAPTER, address(adapter), 0);
+        spoke.setMessagingAdapter(address(adapter));
+        _setPeer(adapter, HUB_CHAIN_ID, address(messagingAdapter));
+        address[] memory assets = new address[](1);
+        assets[0] = address(token);
+        spoke.setAssetWhitelisted(assets, true);
+        _handOffAdmin(manager);
+        vm.stopPrank();
+
+        vm.prank(VAULT);
+        token.approve(address(spoke), type(uint256).max);
+    }
+
+    function _handOffAdmin(AccessManager manager) internal {
+        manager.grantRole(Roles.ADMIN, ADMIN_MULTISIG, ADMIN_DELAY);
+        manager.renounceRole(Roles.ADMIN, DEPLOYER);
+    }
+
+    function _setPauseRoles(AccessManager manager, address target) internal {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = Turnstile.pause.selector;
+        manager.setTargetFunctionRole(target, sels, Roles.PAUSER);
+        sels[0] = Turnstile.unpause.selector;
+        manager.setTargetFunctionRole(target, sels, Roles.UNPAUSER);
+    }
+
+    function _setReceiveRole(AccessManager manager, address target) internal {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = Turnstile.handleReceivedMessage.selector;
+        manager.setTargetFunctionRole(target, sels, Roles.MESSAGING_ADAPTER);
+    }
+
+    function _setFacilitateRole(AccessManager manager, address target) internal {
+        bytes4[] memory sels = new bytes4[](1);
+        sels[0] = Turnstile.facilitate.selector;
+        manager.setTargetFunctionRole(target, sels, Roles.SOLVER);
+    }
+
+    function _grantPauseRoles(AccessManager manager) internal {
+        manager.grantRole(Roles.PAUSER, PAUSER_ADDRESS, 0);
+        manager.grantRole(Roles.UNPAUSER, ADMIN_MULTISIG, 0);
     }
 
     function _approveVault() internal {
@@ -188,34 +244,53 @@ abstract contract SharedSetup is Test {
         vm.stopPrank();
     }
 
-    function _setSpokePeer(uint64 spokeChainId) internal {
-        messagingAdapter.setPeer(
-            spokeChainId,
-            bytes32(uint256(uint160(_spokeMessagingAdapter(spokeChainId)))),
-            spokeChainId,
-            1_000_000,
-            0,
-            true,
-            true
-        );
+    function _setPeer(CCIPMessagingAdapter adapter, uint64 peerChainId, address peerAdapter) internal {
+        adapter.setPeer(peerChainId, bytes32(uint256(uint160(peerAdapter))), peerChainId, 1_000_000, 0, true, true);
     }
 
-    function _spokeMessagingAdapter(uint64 spokeChainId) internal returns (address) {
-        return makeAddr(string.concat("SPOKE_MESSAGING_ADAPTER_", vm.toString(spokeChainId)));
+    function _mockCcipRouter() internal {
+        vm.mockCall(CCIP_ROUTER, abi.encodeWithSelector(IRouterClient.getFee.selector), abi.encode(uint256(0)));
+        vm.mockCall(CCIP_ROUTER, abi.encodeWithSelector(IRouterClient.ccipSend.selector), abi.encode(bytes32(0)));
+    }
+
+    function _adapterOf(uint64 chainId) internal view returns (CCIPMessagingAdapter) {
+        return chainId == HUB_CHAIN_ID ? messagingAdapter : spokeMessagingAdapter[chainId];
+    }
+
+    function _relayMessages() internal {
+        uint64 chainId = uint64(block.chainid);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] != IMessagingAdapter.MessageSent.selector) continue;
+            _deliver(
+                chainIdOfAdapter[logs[i].emitter], uint64(uint256(logs[i].topics[1])), abi.decode(logs[i].data, (bytes))
+            );
+        }
+        vm.chainId(chainId);
+    }
+
+    function _deliver(uint64 sourceChainId, uint64 destinationChainId, bytes memory payload) internal {
+        vm.chainId(destinationChainId);
+        vm.prank(CCIP_ROUTER);
+        _adapterOf(destinationChainId)
+            .ccipReceive(
+                Client.Any2EVMMessage({
+                    messageId: keccak256(payload),
+                    sourceChainSelector: sourceChainId,
+                    sender: abi.encode(address(_adapterOf(sourceChainId))),
+                    data: payload,
+                    destTokenAmounts: new Client.EVMTokenAmount[](0)
+                })
+            );
     }
 
     function _receiveFromSpoke(uint64 spokeChainId, ITurnstile.ActionType actionType, bytes memory body) internal {
-        bytes memory payload = abi.encode(actionType, body);
-        vm.prank(CCIP_ROUTER);
-        messagingAdapter.ccipReceive(
-            Client.Any2EVMMessage({
-                messageId: keccak256(payload),
-                sourceChainSelector: spokeChainId,
-                sender: abi.encode(_spokeMessagingAdapter(spokeChainId)),
-                data: payload,
-                destTokenAmounts: new Client.EVMTokenAmount[](0)
-            })
-        );
+        _deliver(spokeChainId, HUB_CHAIN_ID, abi.encode(actionType, body));
+    }
+
+    function _advanceEpoch() internal {
+        vm.warp(block.timestamp + 24 hours);
+        depot.advanceEpoch();
     }
 
     function _hubAccount(address account) internal pure returns (bytes28) {
