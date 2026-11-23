@@ -47,10 +47,10 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
     /// @inheritdoc ISpotSwapConductor
     function settle(uint256 epoch, OrderFill[] calldata orderFills, Fee[] calldata fees) external restricted {
         if (epoch != IDepot(DEPOT).settlementEpoch()) revert BadEpoch(epoch);
-        // Each order produces two deltas (sell burn, buy mint), followed by one mint per fee.
+        // Each order produces two deltas: all buy mints, then all sell burns, followed by one mint per fee.
         IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](orderFills.length * 2 + fees.length);
 
-        // _fillOrders populates the deltas for orderFills.length * 2 (2 for each fill)
+        // _fillOrders populates the first orderFills.length * 2 deltas (2 for each fill)
         _fillOrders(epoch, orderFills, deltas);
 
         for (uint256 i; i < fees.length; i++) {
@@ -91,18 +91,19 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
                 revert LimitPrice(orderHash);
             }
 
-            // Order i owns slots 2i (sell burn from owner) and 2i + 1 (buy mint to receiver).
-            deltas[i * 2] = IDepot.TransferDelta(
-                ownerAccountId,
-                bytes28(0),
-                TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken),
-                fill.sellFilled
-            );
-            deltas[i * 2 + 1] = IDepot.TransferDelta(
+            // Credits precede every debit in the batch (credits at i, debits at orderFills.length + i), so an account
+            // can spend assets it receives within the same batch.
+            deltas[i] = IDepot.TransferDelta(
                 bytes28(0),
                 TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
                 TransitAddressLib.formatTransitAddress(order.buyTokenChainId, order.buyToken),
                 fill.buyFilled
+            );
+            deltas[orderFills.length + i] = IDepot.TransferDelta(
+                ownerAccountId,
+                bytes28(0),
+                TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken),
+                fill.sellFilled
             );
         }
     }
