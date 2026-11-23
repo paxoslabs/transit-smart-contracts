@@ -197,8 +197,12 @@ contract AddressFreezeListUnitTest is Test {
 
     function test_isFrozen_ReturnsTrueForAccountOnAnyChain() public {
         _freeze(alice);
-        assertTrue(freezeList.isFrozen(TransitAddressLib.formatTransitAddress(1, alice)), "account on chain 1 not frozen");
-        assertTrue(freezeList.isFrozen(TransitAddressLib.formatTransitAddress(10, alice)), "account on chain 10 not frozen");
+        assertTrue(
+            freezeList.isFrozen(TransitAddressLib.formatTransitAddress(1, alice)), "account on chain 1 not frozen"
+        );
+        assertTrue(
+            freezeList.isFrozen(TransitAddressLib.formatTransitAddress(10, alice)), "account on chain 10 not frozen"
+        );
         assertTrue(
             freezeList.isFrozen(TransitAddressLib.formatTransitAddress(type(uint64).max, alice)),
             "account on max chain not frozen"

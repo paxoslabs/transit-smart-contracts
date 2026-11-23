@@ -48,12 +48,15 @@ contract TransitAddressLibUnitTest is Test {
     function test_isValid_ReturnsTrueIfChainIdAndAddressAreNonzero(uint64 chainId, address account) public pure {
         vm.assume(chainId != 0 && account != address(0));
         assertTrue(
-            TransitAddressLib.isValid(TransitAddressLib.formatTransitAddress(chainId, account)), "nonzero account id invalid"
+            TransitAddressLib.isValid(TransitAddressLib.formatTransitAddress(chainId, account)),
+            "nonzero account id invalid"
         );
     }
 
     function test_isValid_ReturnsFalseIfChainIdIsZero(address account) public pure {
-        assertFalse(TransitAddressLib.isValid(TransitAddressLib.formatTransitAddress(0, account)), "zero chain id valid");
+        assertFalse(
+            TransitAddressLib.isValid(TransitAddressLib.formatTransitAddress(0, account)), "zero chain id valid"
+        );
     }
 
     function test_isValid_ReturnsFalseIfAddressIsZero(uint64 chainId) public pure {
