@@ -5,7 +5,7 @@ import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessMana
 import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 import { IAddressFreezeList } from "src/interfaces/IAddressFreezeList.sol";
 import { Roles } from "src/helpers/Roles.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 /**
  * @title AddressFreezeList
@@ -13,7 +13,8 @@ import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
  * cannot move them out; admins may seize them with Depot.forceTransferFrom.
  * @dev Implements Predicate's IFreezable so Predicate's freeze manager can enforce Asset Compliance freezes. Freezes
  * are keyed by address only, so freezing an address freezes it on every chain. Freeze functions must be mapped to
- * Roles.FREEZE_MANAGER in TransitAuthority.
+ * Roles.FREEZE_MANAGER in the AccessManager.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract AddressFreezeList is IAddressFreezeList, AccessManaged {
 
@@ -47,7 +48,7 @@ contract AddressFreezeList is IAddressFreezeList, AccessManaged {
 
     /// @inheritdoc IAddressFreezeList
     function isFrozen(bytes28 accountId) external view returns (bool) {
-        (, address account) = TransitAccountLib.parseAccountId(accountId);
+        (, address account) = TransitAddressLib.parseTransitAddress(accountId);
         return _isFrozen[account];
     }
 
@@ -58,7 +59,7 @@ contract AddressFreezeList is IAddressFreezeList, AccessManaged {
 
     /// @inheritdoc IFreezable
     function FREEZE_MANAGER_ROLE() external pure returns (bytes32) {
-        return Roles.FREEZE_MANAGER;
+        return bytes32(uint256(Roles.FREEZE_MANAGER));
     }
 
     function _freeze(address account) internal {

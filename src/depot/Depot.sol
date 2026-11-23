@@ -4,14 +4,16 @@ pragma solidity 0.8.37;
 import { AccessManaged } from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 /**
  * @title Depot
  * @notice The main ledger for the Transit Terminal system. The Depot exists only on a Hub chain and uses a bytes28
  * "account" data type to store data for different address/chainId combinations.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract Depot is IDepot, AccessManaged, Pausable {
 
@@ -65,7 +67,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
         restricted
         whenNotPaused
     {
-        if (!TransitAccountLib.isValid(fromAccountId) || !TransitAccountLib.isValid(toAccountId)) {
+        if (!TransitAddressLib.isValid(fromAccountId) || !TransitAddressLib.isValid(toAccountId)) {
             revert InvalidAccount();
         }
         _requireNotFrozen(fromAccountId);
@@ -87,11 +89,12 @@ contract Depot is IDepot, AccessManaged, Pausable {
             if (delta.amount == 0) revert ZeroAmount();
 
             bytes28 assetId = delta.assetId;
-            if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
+            if (!TransitAddressLib.isValid(assetId)) revert InvalidAsset();
             uint256 assetIndex;
 
-            /// TODO: Linear search is O(deltas * uniqueAssets). Could require solvers to order inputs so conductors
-            /// emit deltas grouped by ascending assetId, then net-check each group in one pass with no arrays.
+            // Linear search is O(deltas * uniqueAssets), but it only touches memory, which is far cheaper than the
+            // storage reads and writes each delta already makes, so sorting or binary search would barely move the
+            // needle especially as asset counts will not be extreeme.
             // loop through assetIds and find the index of this deltas asset or insert it
             while (assetIndex < uniqueAssetCount && assetIds[assetIndex] != assetId) assetIndex++;
             if (assetIndex == uniqueAssetCount) {
@@ -102,7 +105,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to mint so the following applies to all non-mints
             if (delta.fromAccountId != bytes28(0)) {
                 // Ensure the account is valid and from is not from a frozen address
-                if (!TransitAccountLib.isValid(delta.fromAccountId)) revert InvalidAccount();
+                if (!TransitAddressLib.isValid(delta.fromAccountId)) revert InvalidAccount();
                 _requireNotFrozen(delta.fromAccountId);
                 // Ensure enough balance exists at the account unreserved at this point
                 if (freeBalanceOf(delta.fromAccountId, assetId) < delta.amount) revert InsufficientBalance();
@@ -113,7 +116,7 @@ contract Depot is IDepot, AccessManaged, Pausable {
             // bytes28(0) represents an intent to burn so the following applies to all non-burns
             if (delta.toAccountId != bytes28(0)) {
                 // Ensure the account is valid
-                if (!TransitAccountLib.isValid(delta.toAccountId)) revert InvalidAccount();
+                if (!TransitAddressLib.isValid(delta.toAccountId)) revert InvalidAccount();
                 credits[assetIndex] += delta.amount;
             }
 
@@ -130,14 +133,14 @@ contract Depot is IDepot, AccessManaged, Pausable {
 
     /// @inheritdoc IDepot
     function mint(bytes28 toAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(toAccountId)) revert InvalidAccount();
-        if (!TransitAccountLib.isValid(assetId)) revert InvalidAsset();
+        if (!TransitAddressLib.isValid(toAccountId)) revert InvalidAccount();
+        if (!TransitAddressLib.isValid(assetId)) revert InvalidAsset();
         _transfer(bytes28(0), toAccountId, assetId, amount);
     }
 
     /// @inheritdoc IDepot
     function burn(bytes28 fromAccountId, bytes28 assetId, uint256 amount) external restricted whenNotPaused {
-        if (!TransitAccountLib.isValid(fromAccountId)) revert InvalidAccount();
+        if (!TransitAddressLib.isValid(fromAccountId)) revert InvalidAccount();
         _requireNotFrozen(fromAccountId);
         if (freeBalanceOf(fromAccountId, assetId) < amount) revert InsufficientBalance();
         _transfer(fromAccountId, bytes28(0), assetId, amount);
@@ -210,13 +213,17 @@ contract Depot is IDepot, AccessManaged, Pausable {
     /// pending bucket suffices.
     function _reserve(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
         Reservation storage res = _rollReservation(accountId, assetId);
-        res.pending += amount;
-        res.pendingEpoch = settlementEpoch + 1;
+        SafeCastLib.toUint112(uint256(res.effective) + res.pending + amount);
+        res.pending += uint112(amount);
+        res.pendingEpoch = SafeCastLib.toUint32(settlementEpoch + 1);
     }
 
-    /// @dev Only effective amounts can be released; releasing a still-pending amount underflows and reverts.
+    /// @dev Only effective amounts can be released; releasing more than the effective reservation, including a
+    /// still-pending amount, reverts ReleaseExceedsReserved.
     function _release(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
-        _rollReservation(accountId, assetId).effective -= amount;
+        Reservation storage res = _rollReservation(accountId, assetId);
+        if (res.effective < amount) revert ReleaseExceedsReserved(amount, res.effective);
+        res.effective -= uint112(amount);
     }
 
     /// @dev Promotes pending into effective once its epoch has arrived. advanceEpoch cannot iterate every

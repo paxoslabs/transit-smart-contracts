@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 /// @title Transit Terminal MessagingAdapter
 /// @notice Bridge-agnostic messaging between Turnstiles on different chains. Each bridge implements one adapter.
+/// @custom:security-contact security@paxoslabs.com
 interface IMessagingAdapter {
 
     /// @notice Configuration of a remote chain's adapter.
@@ -39,6 +40,26 @@ interface IMessagingAdapter {
         bool allowMessagesTo
     );
 
+    /// @notice Whether messages from a chain are accepted was set.
+    /// @param chainId Remote chainId.
+    /// @param allowed Whether accepted.
+    event AllowMessagesFromChainSet(uint64 indexed chainId, bool allowed);
+
+    /// @notice Whether messages to a chain may be sent was set.
+    /// @param chainId Remote chainId.
+    /// @param allowed Whether allowed.
+    event AllowMessagesToChainSet(uint64 indexed chainId, bool allowed);
+
+    /// @notice A peer's messageGasLimit was set.
+    /// @param chainId Remote chainId.
+    /// @param messageGasLimit New limit.
+    event PeerGasLimitSet(uint64 indexed chainId, uint64 messageGasLimit);
+
+    /// @notice The adapter's ETH balance was withdrawn.
+    /// @param to Recipient.
+    /// @param amount Amount withdrawn.
+    event ETHWithdrawn(address indexed to, uint256 amount);
+
     /// @notice A peer was removed.
     /// @param chainId Remote chainId.
     event PeerRemoved(uint64 indexed chainId);
@@ -49,14 +70,14 @@ interface IMessagingAdapter {
     /// @param payload Message payload.
     event MessageSent(uint64 indexed chainId, bytes32 indexed messageId, bytes payload);
 
-    /// @notice A message was received and forwarded to the ENDPOINT.
+    /// @notice A message was received and forwarded to the LOCAL_TURNSTILE.
     /// @param chainId Source chainId.
     /// @param sender Remote adapter.
     /// @param payload Message payload.
     event MessageReceived(uint64 indexed chainId, bytes32 sender, bytes payload);
 
-    /// @notice The caller is not the ENDPOINT.
-    error OnlyEndpoint();
+    /// @notice The caller is not the LOCAL_TURNSTILE.
+    error OnlyLocalTurnstile();
 
     /// @notice No peer is configured for the chain.
     error PeerNotSet(uint64 chainId);
@@ -80,8 +101,8 @@ interface IMessagingAdapter {
     error MessagesNotAllowedTo(uint64 chainId);
 
     /// @notice The local Turnstile, the only sender and the receiver of messages.
-    /// @return Endpoint address.
-    function ENDPOINT() external view returns (address);
+    /// @return Local Turnstile address.
+    function LOCAL_TURNSTILE() external view returns (address);
 
     /// @notice The chainId of the hub chain.
     /// @return Hub chainId.
@@ -145,10 +166,14 @@ interface IMessagingAdapter {
     /// @param allowed Whether allowed.
     function setAllowMessagesToChain(uint64 chainId, bool allowed) external;
 
-    /// @notice Set a chain's messageGasLimit.
+    /// @notice Send the adapter's entire ETH balance. Useful if refunds or leftover fees collect in contract
+    /// @param to Recipient.
+    function withdrawETH(address to) external;
+
+    /// @notice Set a peer's messageGasLimit.
     /// @param chainId Remote chainId.
     /// @param messageGasLimit New limit; must be nonzero.
-    function setChainGasLimit(uint64 chainId, uint64 messageGasLimit) external;
+    function setPeerGasLimit(uint64 chainId, uint64 messageGasLimit) external;
 
     /// @notice Bridge fee to send a message.
     /// @param chainId Destination chainId.
@@ -157,7 +182,7 @@ interface IMessagingAdapter {
     /// @return bridgeFee Fee in native token.
     function quote(uint64 chainId, uint64 gasLimit, bytes calldata payload) external view returns (uint256 bridgeFee);
 
-    /// @notice Send a message to a remote chain. Only callable by the ENDPOINT; msg.value pays the bridge fee.
+    /// @notice Send a message to a remote chain. Only callable by the LOCAL_TURNSTILE; msg.value pays the bridge fee.
     /// @param chainId Destination chainId.
     /// @param gasLimit Gas the message requests on the destination.
     /// @param payload Message payload.

@@ -6,7 +6,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
-import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
+import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
 
 /**
  * @title SwapConductor
@@ -15,8 +15,9 @@ import { TurnstileGated } from "src/turnstile/TurnstileGated.sol";
  * @dev Orders are user-signed EIP-712 messages settled by a restricted solver in epoch batches. Cancellations take
  * effect from the next epoch, so a batch already in flight cannot be invalidated by one; a facilitated cancellation
  * takes effect in the current epoch.
+ * @custom:security-contact security@paxoslabs.com
  */
-abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, TurnstileGated {
+abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, ConductorGatedByTurnstile {
 
     /// @inheritdoc ISwapConductor
     address public immutable DEPOT;
@@ -37,7 +38,7 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         address _turnstile
     )
         AccessManaged(_authority)
-        TurnstileGated(_turnstile)
+        ConductorGatedByTurnstile(_turnstile)
     {
         DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
@@ -55,8 +56,8 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         bytes28 accountId = _senderAccountId();
         uint256 effectiveAtEpoch = IDepot(DEPOT).settlementEpoch();
         if (!_facilitated()) effectiveAtEpoch++;
-        uint256 cancelled = cancelledFrom[accountId][orderHash];
-        if (cancelled != 0 && cancelled <= effectiveAtEpoch) return;
+        uint256 cancelledFromEpoch = cancelledFrom[accountId][orderHash];
+        if (cancelledFromEpoch != 0 && cancelledFromEpoch <= effectiveAtEpoch) return;
         cancelledFrom[accountId][orderHash] = effectiveAtEpoch;
         emit OrderCancellationRequested(accountId, orderHash, effectiveAtEpoch);
     }
@@ -86,8 +87,8 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Turnst
         uint256 filled = filledAmount[orderHash] + sellFilled;
         if (filled > sellAmount) revert Overfill(orderHash);
         filledAmount[orderHash] = filled;
-        uint256 cancelled = cancelledFrom[ownerAccountId][orderHash];
-        if (cancelled != 0 && settlementEpoch >= cancelled) revert Cancelled(orderHash);
+        uint256 cancelledFromEpoch = cancelledFrom[ownerAccountId][orderHash];
+        if (cancelledFromEpoch != 0 && settlementEpoch >= cancelledFromEpoch) revert Cancelled(orderHash);
 
         emit Filled(orderHash, ownerAccountId, sellFilled, buyFilled);
     }

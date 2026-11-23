@@ -6,6 +6,7 @@ import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
 /// @title Transit Terminal Turnstile
 /// @notice The local-chain entrypoint for Transit Terminal actions.  Functions as a meta-transaction orchestrator for
 /// Conductor contracts, and custodies deposits into and releases withdrawals from the chain's VAULT.
+/// @custom:security-contact security@paxoslabs.com
 interface ITurnstile is IMessagingReceiver {
 
     /// @notice Type of executable action within the Transit Terminal system.  Determines how action calldata and
@@ -29,12 +30,16 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param fromAccountId AccountId of depositor, credited before transfer to recipient.
     /// @param toAccountId AccountId of deposit recipient.
+    /// @param facilitationFee Part of amount transferred from the recipient to feeReceiverAccountId once credited.
+    /// @param feeReceiverAccountId AccountId receiving the facilitation fee; ignored if facilitationFee is 0.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct DepositMessage {
         address asset;
         uint256 amount;
         bytes28 fromAccountId;
         bytes28 toAccountId;
+        uint256 facilitationFee;
+        bytes28 feeReceiverAccountId;
         bytes32 salt;
     }
 
@@ -74,7 +79,13 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param toChainId ChainId element of accountId of deposit recipient.
     /// @param to Address element of accountId of deposit recipient.
+    /// @param facilitationFee Part of amount the recipient pays feeReceiver on the hub once the deposit is credited, or
+    /// 0 for none. At most amount.
+    /// @param feeReceiverChainId ChainId element of accountId of the facilitation fee receiver.
+    /// @param feeReceiver Address element of accountId of the facilitation fee receiver.
     /// @param deadline Deposit request submission deadline.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
@@ -84,7 +95,11 @@ interface ITurnstile is IMessagingReceiver {
         uint256 amount;
         uint64 toChainId;
         address to;
+        uint256 facilitationFee;
+        uint64 feeReceiverChainId;
+        address feeReceiver;
         uint256 deadline;
+        bytes32 dependsOn;
         bytes32 salt;
         Permit permit;
     }
@@ -111,6 +126,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param deadline Withdrawal request submission deadline.
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
     /// full amount.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct WithdrawalAction {
         uint64 ownerChainId;
@@ -121,6 +138,7 @@ interface ITurnstile is IMessagingReceiver {
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
+        bytes32 dependsOn;
         bytes32 salt;
     }
 
@@ -130,8 +148,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param target Action call target address.
     /// @param data Action calldata.
     /// @param deadline Action execution deadline.
-    /// @param dependsOn Hash of a message (see digestMessage) that must have executed before this one, or 0 for
-    /// none.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
+    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct GenericAction {
         uint64 ownerChainId;
@@ -212,8 +230,20 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice The VAULT address is zero.
     error VaultUnset();
 
+    /// @notice A contract holding a VAULT allowance for this Turnstile cannot be a generic message target.
+    /// @param target Call target.
+    error VaultApprovedTarget(address target);
+
+    /// @notice A function restricted to the TURNSTILE role cannot be a generic message target.
+    /// @param target Call target.
+    /// @param selector Function selector.
+    error TurnstileOnlySelector(address target, bytes4 selector);
+
     /// @notice A deposit amount is zero.
     error ZeroAssets();
+
+    /// @notice A deposit's facilitation fee exceeds its amount.
+    error FeeExceedsAmount();
 
     /// @notice The asset is not whitelisted for deposit.
     error AssetNotWhitelisted();
@@ -254,7 +284,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice An action's owner is not its sender or signer.
     error NotOwner();
 
-    /// @notice A generic action's dependsOn message has not executed.
+    /// @notice An action's dependsOn message has not executed.
     error DependencyNotExecuted();
 
     /// @notice Address holding the custodied tokens. It must approve this Turnstile for every whitelisted asset so
@@ -296,8 +326,9 @@ interface ITurnstile is IMessagingReceiver {
     function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
     /// @notice Set the routability of an address-selector combination by generic messages.
-    /// @dev Routable targets must use the `TurnstileGated` meta-transaction implementation in order to properly
-    /// attribute a message to its sender.
+    /// @dev Routable targets must use the `ConductorGatedByTurnstile` meta-transaction implementation in order to
+    /// properly attribute a message to its sender. Allowing reverts for targets holding a VAULT allowance for this
+    /// Turnstile and for any selector the authority restricts to the TURNSTILE role.
     /// @param target Call target.
     /// @param selectors Call function selectors.
     /// @param allowed Whether calldata is whitelisted.

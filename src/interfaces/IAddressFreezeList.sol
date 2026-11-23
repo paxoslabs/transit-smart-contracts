@@ -5,6 +5,7 @@ import { IFreezable } from "@predicate/interfaces/IFreezable.sol";
 
 /// @title Transit Terminal AddressFreezeList
 /// @notice Predicate IFreezable freeze list, extended to check Transit bytes28 accounts.
+/// @custom:security-contact security@paxoslabs.com
 interface IAddressFreezeList is IFreezable {
 
     /// @notice Whether an account's address is frozen. The chainId is ignored: freezes apply on every chain.

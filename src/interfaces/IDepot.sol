@@ -6,16 +6,18 @@ import { AddressFreezeList } from "src/AddressFreezeList.sol";
 /// @title Transit Terminal Depot
 /// @notice The main ledger for the Transit Terminal system, keyed by bytes28 account and asset ids (chainId and
 /// address).
+/// @custom:security-contact security@paxoslabs.com
 interface IDepot {
 
-    /// @notice An account's reserved balance of one asset.
+    /// @notice An account's reserved balance of one asset, packed into one storage slot so each debit's free balance
+    /// check costs one cold read. effective + pending is capped at uint112 max (~5.2e33) when reserving.
     /// @param effective Amount currently reserved.
     /// @param pending Amount that becomes reserved once `pendingEpoch` arrives.
     /// @param pendingEpoch Epoch at which `pending` becomes effective.
     struct Reservation {
-        uint256 effective;
-        uint256 pending;
-        uint256 pendingEpoch;
+        uint112 effective;
+        uint112 pending;
+        uint32 pendingEpoch;
     }
 
     /// @notice A single movement within a transferAmong batch.
@@ -71,6 +73,11 @@ interface IDepot {
     /// @notice Unreserved balance is less than the amount debited.
     error InsufficientBalance();
 
+    /// @notice A release is larger than the account's effective reservation.
+    /// @param amount Amount being released.
+    /// @param effective Account's effective reservation of the asset.
+    error ReleaseExceedsReserved(uint256 amount, uint256 effective);
+
     /// @notice A transferAmong batch's debits and credits do not net to zero for some asset.
     error NotZeroSum();
 
@@ -110,7 +117,7 @@ interface IDepot {
     )
         external
         view
-        returns (uint256 effective, uint256 pending, uint256 pendingEpoch);
+        returns (uint112 effective, uint112 pending, uint32 pendingEpoch);
 
     /// @notice Balance not reserved, floored at 0 since forced transfers can bypass reservations.
     /// @param accountId Account to query.
@@ -183,8 +190,9 @@ interface IDepot {
     /// @param amount Amount moved.
     function forceTransferFrom(bytes28 fromAccountId, bytes28 toAccountId, bytes28 assetId, uint256 amount) external;
 
-    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch and by DepotTimelock on
-    /// execution. Restricted until 24h after the last advance, then callable by anyone so pending actions cannot stall.
+    /// @notice Increments settlementEpoch. Called by settlement conductors after each batch, and by the admin alongside
+    /// rule changes so an in-flight settle reverts BadEpoch. Restricted until 24h after the last advance, then callable
+    /// by anyone so pending actions cannot stall.
     /// @dev Settlers should guard against an advance racing their batch by checking the expected epoch before settling.
     function advanceEpoch() external;
 

@@ -4,7 +4,7 @@ pragma solidity 0.8.37;
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
-import { TransitAccountLib } from "src/helpers/TransitAccountLib.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 
@@ -14,6 +14,7 @@ import { SwapConductor } from "src/conductor/SwapConductor.sol";
  * Each fill burns the owner's sell token and mints the buy token to the receiver; per asset, mints must equal burns.
  * @dev Fees are minted to SURPLUS_RECIPIENT_ACCOUNT_ID and must be covered by surplus burns in the same batch (e.g.
  * price improvement), enforced by the Depot's zero-sum check.
+ * @custom:security-contact security@paxoslabs.com
  */
 contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
 
@@ -35,7 +36,7 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
     /// @inheritdoc ISpotSwapConductor
     function preApprove(Order calldata order) external {
         bytes28 accountId = _senderAccountId();
-        if (accountId != TransitAccountLib.formatAccountId(order.ownerChainId, order.owner)) revert NotOwner();
+        if (accountId != TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner)) revert NotOwner();
         bytes32 orderHash = hashOrder(order);
         preApproved[orderHash] = true;
         emit PreApproved(accountId, orderHash, order);
@@ -46,10 +47,10 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
     /// @inheritdoc ISpotSwapConductor
     function settle(uint256 epoch, OrderFill[] calldata orderFills, Fee[] calldata fees) external restricted {
         if (epoch != IDepot(DEPOT).settlementEpoch()) revert BadEpoch(epoch);
-        // Each order produces two deltas (sell burn, buy mint), followed by one mint per fee.
+        // Each order produces two deltas: all buy mints, then all sell burns, followed by one mint per fee.
         IDepot.TransferDelta[] memory deltas = new IDepot.TransferDelta[](orderFills.length * 2 + fees.length);
 
-        // _fillOrders populates the deltas for orderFills.length * 2 (2 for each fill)
+        // _fillOrders populates the first orderFills.length * 2 deltas (2 for each fill)
         _fillOrders(epoch, orderFills, deltas);
 
         for (uint256 i; i < fees.length; i++) {
@@ -78,7 +79,7 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
             Order calldata order = orderFills[i].order;
             Fill calldata fill = orderFills[i].fill;
             bytes32 orderHash = hashOrder(order);
-            bytes28 ownerAccountId = TransitAccountLib.formatAccountId(order.ownerChainId, order.owner);
+            bytes28 ownerAccountId = TransitAddressLib.formatTransitAddress(order.ownerChainId, order.owner);
 
             if (order.expiresAt <= lastEpochAdvancedAt) revert Expired(orderHash);
             if (!order.partiallyFillable && fill.sellFilled != order.sellAmount) {
@@ -90,18 +91,19 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
                 revert LimitPrice(orderHash);
             }
 
-            // Order i owns slots 2i (sell burn from owner) and 2i + 1 (buy mint to receiver).
-            deltas[i * 2] = IDepot.TransferDelta(
+            // Credits precede every debit in the batch (credits at i, debits at orderFills.length + i), so an account
+            // can spend assets it receives within the same batch.
+            deltas[i] = IDepot.TransferDelta(
+                bytes28(0),
+                TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
+                TransitAddressLib.formatTransitAddress(order.buyTokenChainId, order.buyToken),
+                fill.buyFilled
+            );
+            deltas[orderFills.length + i] = IDepot.TransferDelta(
                 ownerAccountId,
                 bytes28(0),
-                TransitAccountLib.formatAccountId(order.sellTokenChainId, order.sellToken),
+                TransitAddressLib.formatTransitAddress(order.sellTokenChainId, order.sellToken),
                 fill.sellFilled
-            );
-            deltas[i * 2 + 1] = IDepot.TransferDelta(
-                bytes28(0),
-                TransitAccountLib.formatAccountId(order.receiverChainId, order.receiver),
-                TransitAccountLib.formatAccountId(order.buyTokenChainId, order.buyToken),
-                fill.buyFilled
             );
         }
     }

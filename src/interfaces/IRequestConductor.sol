@@ -3,6 +3,7 @@ pragma solidity 0.8.37;
 
 /// @title Transit Terminal RequestConductor
 /// @notice Shared state, events and errors of conductors whose actions are requested one epoch before execution.
+/// @custom:security-contact security@paxoslabs.com
 interface IRequestConductor {
 
     /// @notice A request was made and its funds reserved.
