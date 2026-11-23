@@ -5,6 +5,7 @@ import { SharedSetup } from "test/integration/SharedSetup.sol";
 import { MockERC20 } from "lib/solady/test/utils/mocks/MockERC20.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { IUserConductor } from "src/interfaces/IUserConductor.sol";
+import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 import { Turnstile } from "src/turnstile/Turnstile.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { UserConductor } from "src/conductor/UserConductor.sol";
@@ -152,6 +153,31 @@ contract TurnstileHappyPaths is SharedSetup {
     function testWithdrawalFacilitatedReceiveOnHub() public {
         _withdrawalFacilitated(HUB_CHAIN_ID);
         assertEq(usdg.balanceOf(alice), AMOUNT, "received on hub");
+    }
+
+    function testWithdrawalOfSpokeAccountOnHubByHubSameAddressReverts() public {
+        _deposit(SPOKE, alice, SPOKE, AMOUNT);
+        _relayMessages();
+        ITurnstile.WithdrawalAction memory action = _withdrawalAction(SPOKE, SPOKE);
+
+        vm.chainId(HUB_CHAIN_ID);
+        vm.prank(alice);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(action));
+
+        vm.prank(alice);
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        hubWarehouseConductor.requestWithdrawal(action);
+
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        _dispatchGeneric(
+            HUB_CHAIN_ID,
+            address(hubWarehouseConductor),
+            abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (action))
+        );
+
+        assertEq(_balance(SPOKE, alice, SPOKE), AMOUNT, "spoke account untouched");
+        assertEq(depot.freeBalanceOf(_account(SPOKE, alice), _asset(SPOKE)), AMOUNT, "nothing reserved");
     }
 
     // ========================================= FLOWS =========================================
