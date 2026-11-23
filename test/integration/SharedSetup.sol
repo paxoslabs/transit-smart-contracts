@@ -26,6 +26,7 @@ abstract contract SharedSetup is Test {
     uint64 constant ROBINHOOD_CHAIN_ID = 4663;
     uint64 constant ARBITRUM_CHAIN_ID = 42_161;
     uint32 constant ADMIN_DELAY = 48 hours;
+    uint64 constant MESSAGE_GAS = 500_000;
     address constant PREDICATE_FREEZE_MANAGER = 0x363c256D368277BBFaf6EaF65beE123a7AdbA464;
 
     address DEPLOYER = makeAddr("DEPLOYER");
@@ -258,7 +259,7 @@ abstract contract SharedSetup is Test {
     }
 
     function _relayMessages() internal {
-        uint64 chainId = uint64(block.chainid);
+        uint64 chainId = uint64(vm.getChainId());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] != IMessagingAdapter.MessageSent.selector) continue;
@@ -291,6 +292,49 @@ abstract contract SharedSetup is Test {
     function _advanceEpoch() internal {
         vm.warp(block.timestamp + 24 hours);
         depot.advanceEpoch();
+    }
+
+    function _dispatchOne(Turnstile chainTurnstile, ITurnstile.ActionType actionType, bytes memory data) internal {
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({ actionType: actionType, data: data, bridgeFee: 0, messageGas: MESSAGE_GAS });
+        chainTurnstile.dispatch(actions);
+    }
+
+    function _facilitate(
+        uint64 chainId,
+        ITurnstile.ActionType actionType,
+        bytes memory data,
+        bytes memory signature
+    )
+        internal
+    {
+        vm.chainId(chainId);
+        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
+        actions[0] = ITurnstile.Action({ actionType: actionType, data: data, bridgeFee: 0, messageGas: MESSAGE_GAS });
+        bytes[] memory signatures = new bytes[](1);
+        signatures[0] = signature;
+        vm.prank(SOLVER_ADDRESS);
+        _turnstile(chainId).facilitate(actions, signatures);
+    }
+
+    function _token(uint64 chainId) internal view returns (MockERC20) {
+        return chainId == HUB_CHAIN_ID ? usdg : spokeUsdg[chainId];
+    }
+
+    function _turnstile(uint64 chainId) internal view returns (Turnstile) {
+        return chainId == HUB_CHAIN_ID ? turnstile : spokeTurnstile[chainId];
+    }
+
+    function _account(uint64 chainId, address account) internal pure returns (bytes28) {
+        return TransitAddressLib.formatTransitAddress(chainId, account);
+    }
+
+    function _asset(uint64 assetChainId) internal view returns (bytes28) {
+        return _account(assetChainId, address(_token(assetChainId)));
+    }
+
+    function _balance(uint64 accountChainId, address account, uint64 assetChainId) internal view returns (uint256) {
+        return depot.balanceOf(_account(accountChainId, account), _asset(assetChainId));
     }
 
     function _hubAccount(address account) internal pure returns (bytes28) {

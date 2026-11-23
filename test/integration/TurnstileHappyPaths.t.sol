@@ -9,12 +9,10 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 import { Turnstile } from "src/turnstile/Turnstile.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { UserConductor } from "src/conductor/UserConductor.sol";
-import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 contract TurnstileHappyPaths is SharedSetup {
 
     uint64 constant SPOKE = ROBINHOOD_CHAIN_ID;
-    uint64 constant MESSAGE_GAS = 500_000;
     uint256 constant AMOUNT = 100e6;
 
     address alice;
@@ -255,29 +253,6 @@ contract TurnstileHappyPaths is SharedSetup {
         );
     }
 
-    function _dispatchOne(Turnstile chainTurnstile, ITurnstile.ActionType actionType, bytes memory data) internal {
-        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
-        actions[0] = ITurnstile.Action({ actionType: actionType, data: data, bridgeFee: 0, messageGas: MESSAGE_GAS });
-        chainTurnstile.dispatch(actions);
-    }
-
-    function _facilitate(
-        uint64 chainId,
-        ITurnstile.ActionType actionType,
-        bytes memory data,
-        bytes memory signature
-    )
-        internal
-    {
-        vm.chainId(chainId);
-        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
-        actions[0] = ITurnstile.Action({ actionType: actionType, data: data, bridgeFee: 0, messageGas: MESSAGE_GAS });
-        bytes[] memory signatures = new bytes[](1);
-        signatures[0] = signature;
-        vm.prank(SOLVER_ADDRESS);
-        _turnstile(chainId).facilitate(actions, signatures);
-    }
-
     function _sign(bytes32 digest) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePk, digest);
         return abi.encodePacked(r, s, v);
@@ -372,26 +347,6 @@ contract TurnstileHappyPaths is SharedSetup {
             dependsOn: bytes32(0),
             salt: bytes32(0)
         });
-    }
-
-    function _token(uint64 chainId) internal view returns (MockERC20) {
-        return chainId == HUB_CHAIN_ID ? usdg : spokeUsdg[chainId];
-    }
-
-    function _turnstile(uint64 chainId) internal view returns (Turnstile) {
-        return chainId == HUB_CHAIN_ID ? turnstile : spokeTurnstile[chainId];
-    }
-
-    function _account(uint64 chainId, address account) internal pure returns (bytes28) {
-        return TransitAddressLib.formatTransitAddress(chainId, account);
-    }
-
-    function _asset(uint64 assetChainId) internal view returns (bytes28) {
-        return _account(assetChainId, address(_token(assetChainId)));
-    }
-
-    function _balance(uint64 accountChainId, address account, uint64 assetChainId) internal view returns (uint256) {
-        return depot.balanceOf(_account(accountChainId, account), _asset(assetChainId));
     }
 
 }
