@@ -37,9 +37,6 @@ interface IUserConductor is IRequestConductor {
     /// @param amount Amount transferred.
     event TransferExecuted(bytes32 indexed requestId, uint256 amount);
 
-    /// @notice The transfer recipient is the zero address.
-    error ZeroAddress();
-
     /// @notice Request a transfer, reserving the funds from the next epoch. The sender must be the owner.
     /// @param request Transfer request.
     function requestTransfer(TransferRequest calldata request) external;

@@ -344,6 +344,28 @@ contract HubWarehouseConductorUnitTest is Test {
         assertEq(_execute(a, OWNER_ACCOUNT, false), 0, "amount returned nonzero");
     }
 
+    function test_executeWithdrawal_ConsumesRequestWithoutBurningIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        _execute(a, OWNER_ACCOUNT, false);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "amount burned");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeWithdrawal_ReturnsZeroIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        assertEq(_execute(a, OWNER_ACCOUNT, false), 0, "amount returned nonzero");
+    }
+
     function test_executeWithdrawal_EmitsConsumedEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
@@ -372,6 +394,17 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.warp(a.deadline + 1);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestExpired(requestId);
+        _execute(a, OWNER_ACCOUNT, false);
+    }
+
+    function test_executeWithdrawal_EmitsRequestVoidedEventIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestVoided(requestId);
         _execute(a, OWNER_ACCOUNT, false);
     }
 

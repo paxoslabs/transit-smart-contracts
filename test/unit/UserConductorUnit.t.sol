@@ -312,6 +312,45 @@ contract UserConductorUnitTest is Test {
         assertEq(depot.balanceOf(RECIPIENT_ACCOUNT, ASSET_ID), 0, "funds moved");
     }
 
+    function test_executeTransfer_ConsumesRequestWithoutMovingFundsIfRecipientAddressIsZero() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.to = address(0);
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "funds moved");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeTransfer_ConsumesRequestWithoutMovingFundsIfRecipientChainIdIsZero() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.toChainId = 0;
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "funds moved");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeTransfer_EmitsRequestVoidedEventIfRecipientIsInvalid() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.to = address(0);
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestVoided(requestId);
+        conductor.executeTransfer(r);
+    }
+
     function test_executeTransfer_EmitsConsumedEvent() public {
         IUserConductor.TransferRequest memory r = _transferRequest();
         _seed(OWNER_ACCOUNT, 100);
@@ -355,13 +394,6 @@ contract UserConductorUnitTest is Test {
         for (uint256 i; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != transferExecutedTopic, "TransferExecuted emitted");
         }
-    }
-
-    function test_executeTransfer_RevertIf_RecipientAddressIsZero() public {
-        IUserConductor.TransferRequest memory r = _transferRequest();
-        r.to = address(0);
-        vm.expectRevert(IUserConductor.ZeroAddress.selector);
-        conductor.executeTransfer(r);
     }
 
     function test_executeTransfer_RevertIf_RequestWasNeverMadeAndSenderIsNotFacilitatedOwner() public {

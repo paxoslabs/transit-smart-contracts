@@ -31,10 +31,10 @@ contract UserConductor is IUserConductor, RequestConductor {
 
     /// @inheritdoc IUserConductor
     function executeTransfer(TransferRequest calldata request) external {
-        if (request.to == address(0)) revert ZeroAddress();
         bytes32 requestId = digestTransferRequest(request);
         bytes28 accountId = TransitAddressLib.formatTransitAddress(request.ownerChainId, request.owner);
         bytes28 assetId = TransitAddressLib.formatTransitAddress(request.assetChainId, request.asset);
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(request.toChainId, request.to);
         _consume(accountId, requestId, assetId, request.amount);
 
         if (block.timestamp > request.deadline) {
@@ -42,8 +42,12 @@ contract UserConductor is IUserConductor, RequestConductor {
             return;
         }
 
+        if (!TransitAddressLib.isValid(toAccountId)) {
+            emit RequestVoided(requestId);
+            return;
+        }
+
         uint256 amount = _executableAmount(accountId, assetId, request.amount, request.partiallyFillable);
-        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(request.toChainId, request.to);
         IDepot(DEPOT).transferFrom(accountId, toAccountId, assetId, amount);
 
         emit TransferExecuted(requestId, amount);

@@ -21,6 +21,10 @@ interface IRequestConductor {
     /// @param requestId Request id.
     event RequestExpired(bytes32 indexed requestId);
 
+    /// @notice A request was consumed without moving funds because its recipient is invalid.
+    /// @param requestId Request id.
+    event RequestVoided(bytes32 indexed requestId);
+
     /// @notice The request was already made or already executed.
     error RequestReplay();
 

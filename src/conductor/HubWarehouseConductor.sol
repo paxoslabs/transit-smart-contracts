@@ -86,6 +86,11 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
             return 0;
         }
 
+        if (action.to == address(0)) {
+            emit RequestVoided(requestId);
+            return 0;
+        }
+
         amount = _executableAmount(accountId, assetId, action.amount, action.partiallyFillable);
         IDepot(DEPOT).burn(accountId, assetId, amount);
 
