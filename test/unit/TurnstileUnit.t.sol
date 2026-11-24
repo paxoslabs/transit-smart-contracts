@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import { Test } from "forge-std/Test.sol";
+import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
@@ -314,6 +315,37 @@ contract TurnstileUnitTest is Test {
         new Turnstile(address(authority), address(0));
     }
 
+    function test_messagingAdapter_ReturnsMessagingAdapter() public view {
+        assertEq(turnstile.messagingAdapter(), address(adapter), "messagingAdapter not returned");
+    }
+
+    function test_hubWarehouseConductor_ReturnsHubWarehouseConductor() public view {
+        assertEq(turnstile.hubWarehouseConductor(), address(conductor), "hubWarehouseConductor not returned");
+    }
+
+    function test_messageStatus_ReturnsNoneForUnknownMessage() public view {
+        assertEq(_status(keccak256("unknown")), uint8(ITurnstile.MessageStatus.None), "status not None");
+    }
+
+    function test_messageStatus_ReturnsStatusOfMessage() public {
+        bytes32[] memory hashes = _dispatch(_actions(_depositAction(_depositAction(100))), 0);
+        assertEq(_status(hashes[0]), uint8(ITurnstile.MessageStatus.Executed), "status not Executed");
+    }
+
+    function test_genericMessageWhitelist_ReturnsWhetherSelectorIsWhitelisted() public view {
+        assertTrue(
+            turnstile.genericMessageWhitelist(address(target), MockTarget.ping.selector), "whitelisted selector false"
+        );
+        assertFalse(
+            turnstile.genericMessageWhitelist(address(target), MockTarget.spin.selector), "unlisted selector true"
+        );
+    }
+
+    function test_assetWhitelisted_ReturnsWhetherAssetIsWhitelisted() public {
+        assertTrue(turnstile.assetWhitelisted(address(token)), "whitelisted asset false");
+        assertFalse(turnstile.assetWhitelisted(makeAddr("unlisted")), "unlisted asset true");
+    }
+
     function test_setMessagingAdapter_SetsMessagingAdapter() public {
         MockMessagingAdapter newAdapter = new MockMessagingAdapter(uint64(block.chainid));
         vm.prank(admin);
@@ -406,6 +438,24 @@ contract TurnstileUnitTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         vm.prank(stranger);
         turnstile.setRoutable(address(target), selectors, true);
+    }
+
+    function test_setRoutable_RevertIf_TargetHasVaultAllowance() public {
+        bytes4[] memory selectors = _selectors(IERC20.transferFrom.selector);
+        vm.expectRevert(abi.encodeWithSelector(ITurnstile.VaultApprovedTarget.selector, address(token)));
+        vm.prank(admin);
+        turnstile.setRoutable(address(token), selectors, true);
+    }
+
+    function test_setRoutable_RevertIf_SelectorIsTurnstileOnly() public {
+        bytes4[] memory selectors = _selectors(MockTarget.spin.selector);
+        vm.startPrank(admin);
+        authority.setTargetFunctionRole(address(target), selectors, Roles.TURNSTILE);
+        vm.expectRevert(
+            abi.encodeWithSelector(ITurnstile.TurnstileOnlySelector.selector, address(target), MockTarget.spin.selector)
+        );
+        turnstile.setRoutable(address(target), selectors, true);
+        vm.stopPrank();
     }
 
     function test_setAssetWhitelisted_SetsWhitelistStatusOfEachAsset() public {
@@ -607,6 +657,17 @@ contract TurnstileUnitTest is Test {
         assertEq(token.balanceOf(vault), 1100, "deposit with failed permit not transferred");
     }
 
+    function test_dispatch_Deposit_SucceedsIfDependsOnMessageIsExecuted() public {
+        bytes32[] memory hashes = _dispatch(_actions(_depositAction(_depositAction(100))), 0);
+        ITurnstile.DepositAction memory a = _depositAction(100);
+        a.salt = bytes32(uint256(99));
+        a.dependsOn = hashes[0];
+        bytes32[] memory dependentHashes = _dispatch(_actions(_depositAction(a)), 0);
+        assertEq(
+            _status(dependentHashes[0]), uint8(ITurnstile.MessageStatus.Executed), "dependent deposit not Executed"
+        );
+    }
+
     function test_dispatch_Deposit_EmitsDepositEvent() public {
         vm.expectEmit(address(turnstile));
         emit ITurnstile.Deposit(address(token), user, _accountId(user), 100);
@@ -626,6 +687,14 @@ contract TurnstileUnitTest is Test {
         a.owner = user2;
         ITurnstile.Action[] memory actions = _actions(_depositAction(a));
         vm.expectRevert(ITurnstile.NotOwner.selector);
+        _dispatch(actions, 0);
+    }
+
+    function test_dispatch_Deposit_RevertIf_DependsOnMessageIsNotExecuted() public {
+        ITurnstile.DepositAction memory a = _depositAction(100);
+        a.dependsOn = keccak256("unknown");
+        ITurnstile.Action[] memory actions = _actions(_depositAction(a));
+        vm.expectRevert(ITurnstile.DependencyNotExecuted.selector);
         _dispatch(actions, 0);
     }
 
@@ -649,6 +718,24 @@ contract TurnstileUnitTest is Test {
     function test_dispatch_Deposit_RevertIf_AmountIsZero() public {
         ITurnstile.Action[] memory actions = _actions(_depositAction(_depositAction(0)));
         vm.expectRevert(ITurnstile.ZeroAssets.selector);
+        _dispatch(actions, 0);
+    }
+
+    function test_dispatch_Deposit_RevertIf_FacilitationFeeExceedsAmount() public {
+        ITurnstile.DepositAction memory a = _depositAction(100);
+        a.facilitationFee = 101;
+        a.feeReceiverChainId = uint64(block.chainid);
+        a.feeReceiver = recipient;
+        ITurnstile.Action[] memory actions = _actions(_depositAction(a));
+        vm.expectRevert(ITurnstile.FeeExceedsAmount.selector);
+        _dispatch(actions, 0);
+    }
+
+    function test_dispatch_Deposit_RevertIf_FeeReceiverIsInvalidAndFacilitationFeeIsNonzero() public {
+        ITurnstile.DepositAction memory a = _depositAction(100);
+        a.facilitationFee = 10;
+        ITurnstile.Action[] memory actions = _actions(_depositAction(a));
+        vm.expectRevert(ITurnstile.InvalidAccount.selector);
         _dispatch(actions, 0);
     }
 
@@ -1100,6 +1187,39 @@ contract TurnstileUnitTest is Test {
             uint8(ITurnstile.MessageStatus.Failed),
             "status not Failed"
         );
+    }
+
+    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfTargetHasVaultAllowance() public {
+        MockERC20 approvedToken = new MockERC20();
+        approvedToken.mint(vault, 100);
+        vm.prank(admin);
+        turnstile.setRoutable(address(approvedToken), _selectors(IERC20.transferFrom.selector), true);
+        vm.prank(vault);
+        approvedToken.approve(address(turnstile), type(uint256).max);
+        ITurnstile.GenericAction memory a = _genericAction();
+        a.target = address(approvedToken);
+        a.data = abi.encodeCall(IERC20.transferFrom, (vault, stranger, 100));
+        bytes memory body = _genericBody(a, user);
+        _receive(ITurnstile.ActionType.Generic, body);
+        assertEq(
+            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
+            uint8(ITurnstile.MessageStatus.Failed),
+            "status not Failed"
+        );
+        assertEq(approvedToken.balanceOf(stranger), 0, "VAULT allowance spent");
+    }
+
+    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfSelectorIsTurnstileOnly() public {
+        vm.prank(admin);
+        authority.setTargetFunctionRole(address(target), _selectors(MockTarget.ping.selector), Roles.TURNSTILE);
+        bytes memory body = _genericBody(_genericAction(), user);
+        _receive(ITurnstile.ActionType.Generic, body);
+        assertEq(
+            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
+            uint8(ITurnstile.MessageStatus.Failed),
+            "status not Failed"
+        );
+        assertEq(target.callCount(), 0, "Turnstile-only selector called");
     }
 
     function test_handleReceivedMessage_RevertIf_SenderIsUnauthorized() public {
