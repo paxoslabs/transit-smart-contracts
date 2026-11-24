@@ -23,8 +23,9 @@ import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
  * @notice The single entrypoint for Transit on each chain. Users dispatch actions (deposit, withdrawal, generic call)
  * directly or through a facilitator with signatures. It takes deposits into the chain's VAULT, releases withdrawals
  * from it, and routes messages: same-chain messages execute locally, cross-chain ones go through the MessagingAdapter.
- * @dev Inbound messages are replay-protected by hash. A failed same-chain message reverts its action; a failed
- * cross-chain message is recorded as Failed for an admin retry, except out-of-gas, which reverts for a bridge retry.
+ * @dev Inbound messages are replay-protected by hash. A failed same-chain message (with the exception of Withdrawal
+ * execution) reverts its action; a failed cross-chain message is recorded as Failed for an admin retry, except
+ * out-of-gas, which reverts for a bridge retry.
  * Calls into conductors carry the sender and facilitated flag as a calldata suffix (see _buildTurnstileCallData).
  * The VAULT approves this contract, so the generic message whitelist must never include token contracts.
  * @custom:security-contact security@paxoslabs.com
@@ -550,19 +551,22 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (ok) return;
         }
 
-        // Same-chain reverts are atomic and should revert the entire action.
-        if (chainId == block.chainid) {
+        // Same-chain reverts are atomic and should revert the entire action. A failed withdrawal is the exception:
+        // reverting would roll back the request's consumption and permanently lock its reservation.
+        if (chainId == block.chainid && actionType != ActionType.Withdrawal) {
             assembly {
                 revert(add(result, 0x20), mload(result))
             }
         }
 
-        // Cross-chain out-of-gas errors must revert the entire transaction to allow bridge-level retries.
+        // Out-of-gas errors must revert the entire transaction to allow bridge-level retries, and so a same-chain
+        // caller cannot force a withdrawal release to fail by underfunding gas.
         // The EIP-150 internal transaction gas limit of 63/64 is used a heuristic out-of-gas indicator, but
         // is subject to false positives, such as on assertion failure in solidity pre-0.8.
         if (gasleft() <= gasBefore / 63) revert OutOfGas();
 
-        // Cross-chain internal errors are tracked internally to allow contract-level retries.
+        // Cross-chain internal errors and same-chain withdrawal release failures are tracked internally to allow
+        // contract-level retries.
         messageStatus[messageHash] = MessageStatus.Failed;
         emit MessageFailed(chainId, actionType, messageHash, body);
     }

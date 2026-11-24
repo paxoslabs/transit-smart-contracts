@@ -76,6 +76,44 @@ contract MessageRetry is SharedSetup {
         assertEq(uint8(spoke.messageStatus(messageHash)), uint8(ITurnstile.MessageStatus.Executed), "marked executed");
     }
 
+    function testHubChainWithdrawalFailedReleaseConsumesRequest() public {
+        (bytes memory body, bytes32 requestId) = _failHubChainWithdrawal();
+
+        bytes32 messageHash = turnstile.digestMessage(HUB_CHAIN_ID, ITurnstile.ActionType.Withdrawal, body);
+        assertEq(
+            hubWarehouseConductor.requestEffectiveAtEpoch(_hubAccount(alice), requestId),
+            hubWarehouseConductor.EXECUTED(),
+            "request not consumed"
+        );
+        (uint256 effective, uint256 pending,) = depot.reservation(_hubAccount(alice), _asset(HUB_CHAIN_ID));
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+        assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID), 0, "not burned on hub");
+        assertEq(usdg.balanceOf(VAULT), AMOUNT, "vault released funds");
+        assertEq(usdg.balanceOf(alice), 0, "alice paid while vault allowance is missing");
+        assertEq(
+            uint8(turnstile.messageStatus(messageHash)), uint8(ITurnstile.MessageStatus.Failed), "not marked failed"
+        );
+    }
+
+    function testHubChainWithdrawalFailedReleaseIsRetried() public {
+        (bytes memory body,) = _failHubChainWithdrawal();
+
+        vm.prank(VAULT);
+        usdg.approve(address(turnstile), type(uint256).max);
+        _adminCall(
+            accessManager,
+            address(turnstile),
+            abi.encodeCall(Turnstile.retry, (HUB_CHAIN_ID, ITurnstile.ActionType.Withdrawal, body))
+        );
+
+        bytes32 messageHash = turnstile.digestMessage(HUB_CHAIN_ID, ITurnstile.ActionType.Withdrawal, body);
+        assertEq(usdg.balanceOf(alice), AMOUNT, "not released on retry");
+        assertEq(
+            uint8(turnstile.messageStatus(messageHash)), uint8(ITurnstile.MessageStatus.Executed), "not marked executed"
+        );
+    }
+
     function testDepositArrivingWhileDepotPausedIsRetried() public {
         MockERC20 token = spokeUsdg[SPOKE];
         vm.prank(PAUSER_ADDRESS);
@@ -228,6 +266,37 @@ contract MessageRetry is SharedSetup {
 
         assertEq(uint8(turnstile.messageStatus(messageHash)), uint8(ITurnstile.MessageStatus.Failed), "still failed");
         assertEq(userConductor.requestEffectiveAtEpoch(_account(SPOKE, alice), requestId), 0, "request never recorded");
+    }
+
+    function _failHubChainWithdrawal() internal returns (bytes memory body, bytes32 requestId) {
+        _deposit(alice, HUB_CHAIN_ID, usdg, HUB_CHAIN_ID, AMOUNT);
+        ITurnstile.WithdrawalAction memory action = ITurnstile.WithdrawalAction({
+            ownerChainId: HUB_CHAIN_ID,
+            owner: alice,
+            to: alice,
+            assetChainId: HUB_CHAIN_ID,
+            asset: address(usdg),
+            amount: AMOUNT,
+            deadline: type(uint256).max,
+            partiallyFillable: false,
+            dependsOn: bytes32(0),
+            salt: bytes32(0)
+        });
+        vm.prank(alice);
+        hubWarehouseConductor.requestWithdrawal(action);
+        _advanceEpoch();
+
+        vm.prank(VAULT);
+        usdg.approve(address(turnstile), 0);
+        vm.prank(alice);
+        _dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(action));
+
+        requestId = hubWarehouseConductor.hashWithdrawalAction(action);
+        body = abi.encode(
+            ITurnstile.WithdrawalMessage({
+                asset: address(usdg), amount: AMOUNT, to: alice, salt: turnstile.hashWithdrawalAction(action)
+            })
+        );
     }
 
 }

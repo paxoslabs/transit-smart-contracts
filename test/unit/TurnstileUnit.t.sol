@@ -12,7 +12,13 @@ import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
-import { MockERC20, MockMessagingAdapter, MockHubWarehouseConductor, MockTarget } from "test/mocks/TurnstileMocks.sol";
+import {
+    MockERC20,
+    MockGasBurningERC20,
+    MockMessagingAdapter,
+    MockHubWarehouseConductor,
+    MockTarget
+} from "test/mocks/TurnstileMocks.sol";
 
 contract TurnstileUnitTest is Test {
 
@@ -854,11 +860,24 @@ contract TurnstileUnitTest is Test {
         _dispatch(actions, 1);
     }
 
-    function test_dispatch_Withdrawal_RevertIf_VaultTransferFailsWhenAssetChainIsCurrentChain() public {
+    function test_dispatch_Withdrawal_MarksMessageFailedIfVaultTransferFailsWhenAssetChainIsCurrentChain() public {
         conductor.setWithdrawalAmount(5000);
         ITurnstile.Action[] memory actions = _actions(_withdrawalAction(_withdrawalAction(uint64(block.chainid))));
-        vm.expectRevert(ITurnstile.WithdrawalFailed.selector);
-        _dispatch(actions, 0);
+        bytes32[] memory hashes = _dispatch(actions, 0);
+        assertEq(
+            uint8(turnstile.messageStatus(hashes[0])),
+            uint8(ITurnstile.MessageStatus.Failed),
+            "message not marked failed"
+        );
+    }
+
+    function test_dispatch_Withdrawal_RevertIf_VaultTransferRunsOutOfGasWhenAssetChainIsCurrentChain() public {
+        conductor.setWithdrawalAmount(30);
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction(uint64(block.chainid));
+        a.asset = address(new MockGasBurningERC20());
+        vm.expectRevert(ITurnstile.OutOfGas.selector);
+        vm.prank(user);
+        turnstile.dispatch{ gas: 10_000_000 }(_actions(_withdrawalAction(a)));
     }
 
     function test_dispatch_Generic_SendsGenericMessageToHubChainViaMessagingAdapter() public {
