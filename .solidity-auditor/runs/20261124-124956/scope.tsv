@@ -1,0 +1,14 @@
+name	transit-contracts
+mode	default
+files	./src/AddressFreezeList.sol ./src/depot/Depot.sol ./src/turnstile/Turnstile.sol ./src/conductor/SpotSwapConductor.sol ./src/conductor/SwapConductor.sol ./src/conductor/DelayedSettlementSwapConductor.sol ./src/conductor/ConductorGatedByTurnstile.sol ./src/conductor/UserConductor.sol ./src/conductor/RequestConductor.sol ./src/conductor/HubWarehouseConductor.sol ./src/messaging/CCIPMessagingAdapter.sol ./src/messaging/MessagingAdapter.sol ./src/helpers/Roles.sol ./src/helpers/TransitAddressLib.sol ./src/helpers/Typehashes.sol
+passes_planned	3
+mem_before	0
+pass_1_agents	12/12
+mem_after	17
+mem_sha	81b4e5f
+pass_2_agents	12/12
+mem_after	31
+mem_sha	81b4e5f
+pass_3_agents	12/12
+mem_after	42
+mem_sha	81b4e5f
