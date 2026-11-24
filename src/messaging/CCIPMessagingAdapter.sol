@@ -5,6 +5,7 @@ import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceive
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCodec.sol";
+import { FinalityCodec } from "@chainlink/contracts-ccip/libraries/FinalityCodec.sol";
 import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
 
@@ -25,6 +26,23 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         MessagingAdapter(_authority, _localTurnstile, _hubChainId)
         CCIPReceiver(_router)
     { }
+
+    function getCCVsAndFinalityConfig(
+        uint64,
+        bytes calldata
+    )
+        external
+        pure
+        override
+        returns (
+            address[] memory requiredCCVs,
+            address[] memory optionalCCVs,
+            uint8 optionalThreshold,
+            bytes4 allowedFinalityConfig
+        )
+    {
+        return (new address[](0), new address[](0), 0, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+    }
 
     function _quote(
         uint64,
