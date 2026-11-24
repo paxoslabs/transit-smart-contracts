@@ -10,32 +10,32 @@ contract TransitAddressLibUnitTest is Test {
         assertEq(
             TransitAddressLib.formatTransitAddress(1, 0x1111111111111111111111111111111111111111),
             bytes28(0x00000000000000011111111111111111111111111111111111111111),
-            "account id does not match literal encoding"
+            "transit address does not match literal encoding"
         );
     }
 
     function test_formatTransitAddress_PlacesChainIdInTopEightBytes(uint64 chainId, address account) public pure {
-        bytes28 accountId = TransitAddressLib.formatTransitAddress(chainId, account);
-        assertEq(uint64(uint224(accountId) >> 160), chainId, "chain id not in top 8 bytes");
+        bytes28 transitAddress = TransitAddressLib.formatTransitAddress(chainId, account);
+        assertEq(uint64(uint224(transitAddress) >> 160), chainId, "chain id not in top 8 bytes");
     }
 
     function test_formatTransitAddress_PlacesAddressInBottomTwentyBytes(uint64 chainId, address account) public pure {
-        bytes28 accountId = TransitAddressLib.formatTransitAddress(chainId, account);
-        assertEq(address(uint160(uint224(accountId))), account, "address not in bottom 20 bytes");
+        bytes28 transitAddress = TransitAddressLib.formatTransitAddress(chainId, account);
+        assertEq(address(uint160(uint224(transitAddress))), account, "address not in bottom 20 bytes");
     }
 
     function test_formatTransitAddress_ReturnsZeroForZeroChainIdAndZeroAddress() public pure {
-        assertEq(TransitAddressLib.formatTransitAddress(0, address(0)), bytes28(0), "account id not zero");
+        assertEq(TransitAddressLib.formatTransitAddress(0, address(0)), bytes28(0), "transit address not zero");
     }
 
-    function test_parseTransitAddress_ReturnsChainIdFromTopEightBytes(bytes28 accountId) public pure {
-        (uint64 chainId,) = TransitAddressLib.parseTransitAddress(accountId);
-        assertEq(chainId, uint64(uint224(accountId) >> 160), "chain id not from top 8 bytes");
+    function test_parseTransitAddress_ReturnsChainIdFromTopEightBytes(bytes28 transitAddress) public pure {
+        (uint64 chainId,) = TransitAddressLib.parseTransitAddress(transitAddress);
+        assertEq(chainId, uint64(uint224(transitAddress) >> 160), "chain id not from top 8 bytes");
     }
 
-    function test_parseTransitAddress_ReturnsAddressFromBottomTwentyBytes(bytes28 accountId) public pure {
-        (, address account) = TransitAddressLib.parseTransitAddress(accountId);
-        assertEq(account, address(uint160(uint224(accountId))), "address not from bottom 20 bytes");
+    function test_parseTransitAddress_ReturnsAddressFromBottomTwentyBytes(bytes28 transitAddress) public pure {
+        (, address account) = TransitAddressLib.parseTransitAddress(transitAddress);
+        assertEq(account, address(uint160(uint224(transitAddress))), "address not from bottom 20 bytes");
     }
 
     function test_parseTransitAddress_InvertsFormatTransitAddress(uint64 chainId, address account) public pure {
@@ -49,7 +49,7 @@ contract TransitAddressLibUnitTest is Test {
         vm.assume(chainId != 0 && account != address(0));
         assertTrue(
             TransitAddressLib.isValid(TransitAddressLib.formatTransitAddress(chainId, account)),
-            "nonzero account id invalid"
+            "nonzero transit address invalid"
         );
     }
 
@@ -65,8 +65,8 @@ contract TransitAddressLibUnitTest is Test {
         );
     }
 
-    function test_isValid_ReturnsFalseForZeroAccountId() public pure {
-        assertFalse(TransitAddressLib.isValid(bytes28(0)), "zero account id valid");
+    function test_isValid_ReturnsFalseForZeroTransitAddress() public pure {
+        assertFalse(TransitAddressLib.isValid(bytes28(0)), "zero transit address valid");
     }
 
 }
