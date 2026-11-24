@@ -208,10 +208,17 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // - reference the same order for both pairs
         // - contain missmatched buy/sell tokens
         // - fill an amount of 0 on either order
+        // - name an invalid receiver on either order
         if (
             fill.orderIndexes[0] == fill.orderIndexes[1] || first.sellTokenChainId != second.buyTokenChainId
                 || first.sellToken != second.buyToken || first.buyTokenChainId != second.sellTokenChainId
                 || first.buyToken != second.sellToken || fill.amounts[0] == 0 || fill.amounts[1] == 0
+                || !TransitAddressLib.isValid(
+                    TransitAddressLib.formatTransitAddress(first.receiverChainId, first.receiver)
+                )
+                || !TransitAddressLib.isValid(
+                    TransitAddressLib.formatTransitAddress(second.receiverChainId, second.receiver)
+                )
         ) {
             revert BadPair(index);
         }
