@@ -81,12 +81,9 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         _receive(chainIdForRemoteId[message.sourceChainSelector], bytes32(message.sender), message.data);
     }
 
-    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the Fast Confirmation
-    /// Rule: the message is sent once the source block reaches the `safe` head rather than full finality. V2 extraArgs
-    /// cannot request finality. V3 has no ordering flag; messages don't need ordering. Each lane must allow this
-    /// finality or the send reverts. V3's gasLimit is uint32, so a larger gasLimit reverts.
-    /// NOTE: a reorg past an FCR-confirmed block (requires FCR's assumptions to fail) after a deposit or withdrawal
-    /// message is sent would leave the hub balance or the spoke release unbacked.
+    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting full finality, which
+    /// every lane allows. V3 has no ordering flag; messages don't need ordering. V3's gasLimit is uint32, so a larger
+    /// gasLimit reverts.
     function _buildMessage(
         PeerConfig memory peer,
         uint64 gasLimit,
@@ -101,7 +98,9 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             data: payload,
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(SafeCastLib.toUint32(gasLimit))
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+                SafeCastLib.toUint32(gasLimit), FinalityCodec.WAIT_FOR_FINALITY_FLAG
+            )
         });
     }
 

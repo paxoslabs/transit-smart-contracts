@@ -116,12 +116,12 @@ contract CCIPMessagingAdapterUnitTest is Test {
         assertEq(router.lastFeeToken(), address(0), "fee token not native");
     }
 
-    function test_send_SetsExtraArgsV3WithFastConfirmationRule() public {
+    function test_send_SetsExtraArgsV3WithFullFinality() public {
         _send(GAS_LIMIT);
         assertEq(
             router.lastExtraArgs(),
-            ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(uint32(GAS_LIMIT)),
-            "extraArgs not V3 with gas limit and Fast Confirmation Rule"
+            ExtraArgsCodec._getBasicEncodedExtraArgsV3(uint32(GAS_LIMIT), FinalityCodec.WAIT_FOR_FINALITY_FLAG),
+            "extraArgs not V3 with gas limit and full finality"
         );
     }
 
@@ -156,7 +156,9 @@ contract CCIPMessagingAdapterUnitTest is Test {
             data: payload,
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(uint32(GAS_LIMIT))
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+                uint32(GAS_LIMIT), FinalityCodec.WAIT_FOR_FINALITY_FLAG
+            )
         });
         assertEq(
             adapter.quote(REMOTE_CHAIN, GAS_LIMIT, payload),
@@ -203,7 +205,9 @@ contract CCIPMessagingAdapterUnitTest is Test {
         _send(GAS_LIMIT);
         (,,, bytes4 allowedFinality) = adapter.getCCVsAndFinalityConfig(REMOTE_SELECTOR, abi.encode(peerAddress));
         bytes4 requestedFinality = _requestedFinality(router.lastExtraArgs());
-        assertEq(requestedFinality, FinalityCodec.WAIT_FOR_SAFE_FLAG, "requested finality not WAIT_FOR_SAFE_FLAG");
+        assertEq(
+            requestedFinality, FinalityCodec.WAIT_FOR_FINALITY_FLAG, "requested finality not WAIT_FOR_FINALITY_FLAG"
+        );
         assertTrue(
             requestedFinality == FinalityCodec.WAIT_FOR_FINALITY_FLAG
                 || (requestedFinality & allowedFinality) == requestedFinality,
