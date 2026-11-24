@@ -305,6 +305,18 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
+        // If either party is frozen by now, reclaim both legs and undo the transaction. By now in _release, all funds
+        // will have been repaid so nobody will be penalized
+        if (
+            IDepot(DEPOT).addressFreezeList().isFrozen(legs[0].accountId)
+                || IDepot(DEPOT).addressFreezeList().isFrozen(legs[1].accountId)
+        ) {
+            _reclaimLeg(legs[0]);
+            _reclaimLeg(legs[1]);
+            emit Reclaimed(escrowId);
+            return;
+        }
+
         _releaseLeg(legs, 0);
         _releaseLeg(legs, 1);
 
