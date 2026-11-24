@@ -41,6 +41,8 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             bytes4 allowedFinalityConfig
         )
     {
+        // No CCIP lane allows `safe` at time of writing (2026-11), and sends request full finality. Accepting `safe`
+        // lets a peer be redeployed to send `safe` once lanes allow it, without redeploying every receiving adapter.
         return (new address[](0), new address[](0), 0, FinalityCodec.WAIT_FOR_SAFE_FLAG);
     }
 
