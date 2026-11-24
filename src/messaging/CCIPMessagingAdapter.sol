@@ -37,7 +37,9 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (uint256 bridgeFee)
     {
-        return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
+        return
+            IRouterClient(getRouter())
+                .getFee(SafeCastLib.toUint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
     }
 
     function _send(
@@ -53,7 +55,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         // The router wraps and keeps all of msg.value (underpayment reverts), so overpayment is not refunded and no
         // ETH comes back to this adapter. Overpaid fees go to Chainlink's fee aggregator and are not recoverable.
         return IRouterClient(getRouter()).ccipSend{ value: msg.value }(
-            uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
+            SafeCastLib.toUint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
         );
     }
 
