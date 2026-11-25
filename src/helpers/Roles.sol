@@ -18,5 +18,6 @@ library Roles {
     uint64 internal constant EPOCH = 5;
     uint64 internal constant TURNSTILE = 6;
     uint64 internal constant FREEZE_MANAGER = 7;
+    uint64 internal constant UNPAUSER = 8;
 
 }

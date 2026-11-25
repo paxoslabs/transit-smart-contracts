@@ -1,605 +1,936 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { dispatchOne } from "../helpers/DispatchOne.sol";
-import { Test } from "forge-std/Test.sol";
-import { ERC20 } from "solady/tokens/ERC20.sol";
-import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
-import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
+import { Test, stdError } from "forge-std/Test.sol";
+import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { Depot } from "src/depot/Depot.sol";
+import { IDepot } from "src/interfaces/IDepot.sol";
+import { AddressFreezeList } from "src/AddressFreezeList.sol";
 import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
-import { RequestConductor } from "../../src/conductor/RequestConductor.sol";
-import { HubWarehouseConductor } from "../../src/conductor/HubWarehouseConductor.sol";
-import { Depot } from "../../src/depot/Depot.sol";
-import { AddressFreezeList } from "../../src/AddressFreezeList.sol";
-import { SpotSwapConductor } from "../../src/conductor/SpotSwapConductor.sol";
-import { ISpotSwapConductor } from "../../src/interfaces/ISpotSwapConductor.sol";
-import { SwapConductor } from "../../src/conductor/SwapConductor.sol";
-import { UserConductor } from "../../src/conductor/UserConductor.sol";
-import { IMessagingAdapter } from "../../src/interfaces/IMessagingAdapter.sol";
-import { Turnstile } from "../../src/turnstile/Turnstile.sol";
-import { ITurnstile } from "../../src/interfaces/ITurnstile.sol";
-import { MockMessagingAdapter } from "../mocks/MockMessagingAdapter.sol";
-import { MockERC20 } from "../../lib/solady/test/utils/mocks/MockERC20.sol";
-import { Roles } from "../../src/helpers/Roles.sol";
-import { TransitAddressLib } from "../../src/helpers/TransitAddressLib.sol";
-import { IRequestConductor } from "../../src/interfaces/IRequestConductor.sol";
-import { ISwapConductor } from "../../src/interfaces/ISwapConductor.sol";
-import { IUserConductor } from "../../src/interfaces/IUserConductor.sol";
+import { Roles } from "src/helpers/Roles.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 
 contract DepotUnitTest is Test {
 
-    uint64 constant HUB_CHAIN_ID = 1;
+    address admin = makeAddr("admin");
+    address pauser = makeAddr("pauser");
+    address conductor = makeAddr("conductor");
+    address epochKeeper = makeAddr("epochKeeper");
+    address stranger = makeAddr("stranger");
+
+    bytes28 ALICE = TransitAddressLib.formatTransitAddress(1, makeAddr("alice"));
+    bytes28 BOB = TransitAddressLib.formatTransitAddress(1, makeAddr("bob"));
+    bytes28 CAROL = TransitAddressLib.formatTransitAddress(1, makeAddr("carol"));
+    bytes28 ASSET = TransitAddressLib.formatTransitAddress(1, makeAddr("asset"));
+    bytes28 ASSET2 = TransitAddressLib.formatTransitAddress(1, makeAddr("asset2"));
+    bytes28 INVALID_ZERO_CHAIN = TransitAddressLib.formatTransitAddress(0, makeAddr("invalid"));
+    bytes28 INVALID_ZERO_ADDRESS = TransitAddressLib.formatTransitAddress(1, address(0));
 
     AccessManager authority;
+    AddressFreezeList freezeList;
     Depot depot;
-    UserConductor userConductor;
-    HubWarehouseConductor hubWarehouseConductor;
-    SpotSwapConductor spotSwapConductor;
-    Turnstile turnstile;
-    ERC20 usdc;
-    ERC20 usdg;
-    MockMessagingAdapter local;
-
-    address admin = makeAddr("admin");
-    address vault = makeAddr("vault");
-    address alice = makeAddr("alice");
-    uint256 alicePk;
-    address bob = makeAddr("bob");
-    address backend = makeAddr("backend");
-    uint256 requestSalt;
 
     function setUp() public {
-        vm.chainId(HUB_CHAIN_ID);
-        (, alicePk) = makeAddrAndKey("alice");
-
         authority = new AccessManager(admin);
-        turnstile = new Turnstile(address(authority), vault);
-        depot = new Depot(address(authority), new AddressFreezeList(address(authority)));
-        local = new MockMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN_ID);
-        userConductor = new UserConductor(address(depot), address(turnstile));
-        hubWarehouseConductor = new HubWarehouseConductor(address(authority), address(depot), address(turnstile));
-        spotSwapConductor =
-            new SpotSwapConductor(address(authority), address(depot), _account(backend), address(turnstile));
-        usdc = ERC20(address(new MockERC20("USD Coin", "USDC", 6)));
-        usdg = ERC20(address(new MockERC20("Global Dollar", "USDG", 6)));
+        freezeList = new AddressFreezeList(address(authority));
+        depot = new Depot(address(authority), freezeList);
 
-        bytes4[] memory receiveSels = new bytes4[](1);
-        receiveSels[0] = Turnstile.handleReceivedMessage.selector;
+        bytes4[] memory pauserSelectors = new bytes4[](2);
+        pauserSelectors[0] = Depot.pause.selector;
+        pauserSelectors[1] = Depot.unpause.selector;
 
-        bytes4[] memory solverSels = new bytes4[](1);
-        solverSels[0] = SpotSwapConductor.settle.selector;
+        bytes4[] memory adminSelectors = new bytes4[](1);
+        adminSelectors[0] = Depot.setAddressFreezeList.selector;
 
-        bytes4[] memory facilitateSels = new bytes4[](1);
-        facilitateSels[0] = Turnstile.facilitate.selector;
+        bytes4[] memory conductorSelectors = new bytes4[](7);
+        conductorSelectors[0] = Depot.transferFrom.selector;
+        conductorSelectors[1] = Depot.transferAmong.selector;
+        conductorSelectors[2] = Depot.mint.selector;
+        conductorSelectors[3] = Depot.burn.selector;
+        conductorSelectors[4] = Depot.forceTransferFrom.selector;
+        conductorSelectors[5] = Depot.reserve.selector;
+        conductorSelectors[6] = Depot.release.selector;
 
-        bytes4[] memory epochSels = new bytes4[](1);
-        epochSels[0] = Depot.advanceEpoch.selector;
+        bytes4[] memory epochSelectors = new bytes4[](1);
+        epochSelectors[0] = Depot.advanceEpoch.selector;
 
-        bytes4[] memory turnstileAdminSels = new bytes4[](4);
-        turnstileAdminSels[0] = Turnstile.setMessagingAdapter.selector;
-        turnstileAdminSels[1] = Turnstile.setRoutable.selector;
-        turnstileAdminSels[2] = Turnstile.setHubWarehouseConductor.selector;
-        turnstileAdminSels[3] = Turnstile.setAssetWhitelisted.selector;
-
-        bytes4[] memory routedSels = new bytes4[](2);
-        routedSels[0] = UserConductor.requestTransfer.selector;
-        routedSels[1] = UserConductor.executeTransfer.selector;
-
-        bytes4[] memory swapRoutedSels = new bytes4[](2);
-        swapRoutedSels[0] = SpotSwapConductor.preApprove.selector;
-        swapRoutedSels[1] = SwapConductor.requestOrderCancellation.selector;
+        bytes4[] memory freezeSelectors = new bytes4[](1);
+        freezeSelectors[0] = AddressFreezeList.freeze.selector;
 
         vm.startPrank(admin);
-        authority.setTargetFunctionRole(address(turnstile), receiveSels, Roles.MESSAGING_ADAPTER);
-        authority.setTargetFunctionRole(address(spotSwapConductor), solverSels, Roles.SOLVER);
-        authority.setTargetFunctionRole(address(turnstile), facilitateSels, Roles.SOLVER);
-        authority.setTargetFunctionRole(address(depot), epochSels, Roles.EPOCH);
-        authority.grantRole(Roles.EPOCH, address(spotSwapConductor), 0);
-        authority.grantRole(Roles.MESSAGING_ADAPTER, address(local), 0);
-        authority.grantRole(Roles.SOLVER, backend, 0);
-        authority.setTargetFunctionRole(address(turnstile), turnstileAdminSels, Roles.ADMIN);
-        turnstile.setAssetWhitelisted(_list(address(usdc)), true);
-        authority.grantRole(Roles.TURNSTILE, address(turnstile), 0);
-        bytes4[] memory userConductorSels = new bytes4[](6);
-        userConductorSels[0] = Depot.reserve.selector;
-        userConductorSels[1] = Depot.release.selector;
-        userConductorSels[2] = Depot.transferFrom.selector;
-        userConductorSels[3] = Depot.burn.selector;
-        userConductorSels[4] = Depot.transferAmong.selector;
-        userConductorSels[5] = Depot.mint.selector;
-        authority.setTargetFunctionRole(address(depot), userConductorSels, Roles.CONDUCTOR);
-        authority.grantRole(Roles.CONDUCTOR, address(userConductor), 0);
-        authority.grantRole(Roles.CONDUCTOR, address(hubWarehouseConductor), 0);
-        bytes4[] memory hubWarehouseTurnstileSels = new bytes4[](2);
-        hubWarehouseTurnstileSels[0] = HubWarehouseConductor.receiveDeposit.selector;
-        hubWarehouseTurnstileSels[1] = HubWarehouseConductor.executeWithdrawal.selector;
-        authority.setTargetFunctionRole(address(hubWarehouseConductor), hubWarehouseTurnstileSels, Roles.TURNSTILE);
-        turnstile.setMessagingAdapter(address(local));
-        turnstile.setHubWarehouseConductor(address(hubWarehouseConductor));
-        authority.grantRole(Roles.CONDUCTOR, address(spotSwapConductor), 0);
-        turnstile.setRoutable(address(userConductor), routedSels, true);
-        turnstile.setRoutable(address(spotSwapConductor), swapRoutedSels, true);
-        bytes4[] memory hubWarehouseRoutedSels = new bytes4[](1);
-        hubWarehouseRoutedSels[0] = HubWarehouseConductor.requestWithdrawal.selector;
-        turnstile.setRoutable(address(hubWarehouseConductor), hubWarehouseRoutedSels, true);
+        authority.setTargetFunctionRole(address(depot), pauserSelectors, Roles.PAUSER);
+        authority.setTargetFunctionRole(address(depot), adminSelectors, Roles.ADMIN);
+        authority.setTargetFunctionRole(address(depot), conductorSelectors, Roles.CONDUCTOR);
+        authority.setTargetFunctionRole(address(depot), epochSelectors, Roles.EPOCH);
+        authority.setTargetFunctionRole(address(freezeList), freezeSelectors, Roles.FREEZE_MANAGER);
+        authority.grantRole(Roles.PAUSER, pauser, 0);
+        authority.grantRole(Roles.CONDUCTOR, conductor, 0);
+        authority.grantRole(Roles.EPOCH, epochKeeper, 0);
+        authority.grantRole(Roles.FREEZE_MANAGER, admin, 0);
         vm.stopPrank();
-
-        vm.prank(vault);
-        SafeTransferLib.safeApprove(address(usdc), address(turnstile), type(uint256).max);
     }
 
-    function _list(address asset) internal pure returns (address[] memory assets) {
-        assets = new address[](1);
-        assets[0] = asset;
+    function _mint(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
+        vm.prank(conductor);
+        depot.mint(accountId, assetId, amount);
     }
 
-    function _deposit(address user, uint256 amount) internal {
-        deal(address(usdc), user, amount);
-        vm.startPrank(user);
-        SafeTransferLib.safeApprove(address(usdc), address(turnstile), amount);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Deposit,
-            abi.encode(
-                ITurnstile.DepositAction({
-                    ownerChainId: HUB_CHAIN_ID,
-                    owner: user,
-                    asset: address(usdc),
-                    amount: amount,
-                    toChainId: HUB_CHAIN_ID,
-                    to: user,
-                    facilitationFee: 0,
-                    feeReceiverChainId: 0,
-                    feeReceiver: address(0),
-                    deadline: type(uint256).max,
-                    dependsOn: bytes32(0),
-                    salt: bytes32(0),
-                    permit: ITurnstile.Permit({ deadline: 0, v: 0, r: bytes32(0), s: bytes32(0) })
-                })
-            ),
-            0
-        );
-        vm.stopPrank();
+    function _reserve(bytes28 accountId, bytes28 assetId, uint256 amount) internal {
+        vm.prank(conductor);
+        depot.reserve(accountId, assetId, amount);
+    }
+
+    function _roll(bytes28 accountId, bytes28 assetId) internal {
+        vm.prank(conductor);
+        depot.release(accountId, assetId, 0);
     }
 
     function _advanceEpoch() internal {
-        vm.warp(block.timestamp + 24 hours);
+        vm.prank(epochKeeper);
         depot.advanceEpoch();
     }
 
-    function _transferRequest(
-        address owner,
-        address to,
+    function _freeze(bytes28 accountId) internal {
+        (, address account) = TransitAddressLib.parseTransitAddress(accountId);
+        vm.prank(admin);
+        freezeList.freeze(account);
+    }
+
+    function _pause() internal {
+        vm.prank(pauser);
+        depot.pause();
+    }
+
+    function _delta(
+        bytes28 fromAccountId,
+        bytes28 toAccountId,
+        bytes28 assetId,
         uint256 amount
     )
         internal
-        returns (IUserConductor.TransferRequest memory)
+        pure
+        returns (IDepot.TransferDelta memory)
     {
-        return IUserConductor.TransferRequest({
-            ownerChainId: HUB_CHAIN_ID,
-            owner: owner,
-            toChainId: HUB_CHAIN_ID,
-            to: to,
-            assetChainId: HUB_CHAIN_ID,
-            asset: address(usdc),
-            amount: amount,
-            deadline: type(uint256).max,
-            partiallyFillable: true,
-            salt: bytes32(++requestSalt)
-        });
+        return IDepot.TransferDelta(fromAccountId, toAccountId, assetId, amount);
     }
 
-    function _withdrawalAction(address owner, uint256 amount) internal returns (ITurnstile.WithdrawalAction memory) {
-        return ITurnstile.WithdrawalAction({
-            ownerChainId: HUB_CHAIN_ID,
-            owner: owner,
-            to: owner,
-            assetChainId: HUB_CHAIN_ID,
-            asset: address(usdc),
-            amount: amount,
-            deadline: type(uint256).max,
-            partiallyFillable: true,
-            dependsOn: bytes32(0),
-            salt: bytes32(++requestSalt)
-        });
+    function _deltas(IDepot.TransferDelta memory a) internal pure returns (IDepot.TransferDelta[] memory deltas) {
+        deltas = new IDepot.TransferDelta[](1);
+        deltas[0] = a;
     }
 
-    function _order(uint256 sellAmount, bool partiallyFillable) internal returns (ISpotSwapConductor.Order memory) {
-        return ISpotSwapConductor.Order({
-            ownerChainId: HUB_CHAIN_ID,
-            owner: alice,
-            sellTokenChainId: HUB_CHAIN_ID,
-            sellToken: address(usdc),
-            buyTokenChainId: HUB_CHAIN_ID,
-            buyToken: address(usdc),
-            sellAmount: sellAmount,
-            buyAmount: sellAmount,
-            receiverChainId: HUB_CHAIN_ID,
-            receiver: alice,
-            expiresAt: type(uint256).max,
-            partiallyFillable: partiallyFillable,
-            salt: bytes32(uint256(++requestSalt))
-        });
-    }
-
-    function _generic(address target, bytes memory data) internal returns (ITurnstile.GenericAction memory) {
-        return _generic(alice, target, data);
-    }
-
-    function _generic(
-        address owner,
-        address target,
-        bytes memory data
+    function _deltas(
+        IDepot.TransferDelta memory a,
+        IDepot.TransferDelta memory b
     )
         internal
-        returns (ITurnstile.GenericAction memory)
+        pure
+        returns (IDepot.TransferDelta[] memory deltas)
     {
-        return ITurnstile.GenericAction({
-            ownerChainId: HUB_CHAIN_ID,
-            owner: owner,
-            target: target,
-            data: data,
-            deadline: block.timestamp,
-            dependsOn: bytes32(0),
-            salt: bytes32(++requestSalt)
-        });
+        deltas = new IDepot.TransferDelta[](2);
+        deltas[0] = a;
+        deltas[1] = b;
     }
 
-    function _facilitatedCancellation(bytes32 orderHash) internal returns (ITurnstile.GenericAction memory) {
-        return ITurnstile.GenericAction({
-            ownerChainId: HUB_CHAIN_ID,
-            owner: alice,
-            target: address(spotSwapConductor),
-            data: abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash)),
-            deadline: type(uint256).max,
-            dependsOn: bytes32(0),
-            salt: bytes32(++requestSalt)
-        });
+    function test_constructor_SetsAuthority() public view {
+        assertEq(depot.authority(), address(authority), "authority not set");
     }
 
-    function _signFacilitated(ITurnstile.GenericAction memory message, uint256 pk)
-        internal
-        view
-        returns (bytes memory)
-    {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, turnstile.hashGenericAction(message));
-        return abi.encodePacked(r, s, v);
+    function test_constructor_SetsEpochToOne() public view {
+        assertEq(depot.settlementEpoch(), 1, "settlementEpoch not 1");
     }
 
-    function _facilitate(ITurnstile.GenericAction memory message, bytes memory signature) internal {
-        ITurnstile.Action[] memory actions = new ITurnstile.Action[](1);
-        actions[0] = ITurnstile.Action({
-            actionType: ITurnstile.ActionType.Generic, data: abi.encode(message), bridgeFee: 0, messageGas: 0
-        });
-        vm.prank(backend);
-        turnstile.facilitate(actions, _toArray(signature));
+    function test_constructor_SetsLastEpochAdvancedAt() public {
+        vm.warp(1000);
+        Depot fresh = new Depot(address(authority), freezeList);
+        assertEq(fresh.lastEpochAdvancedAt(), 1000, "lastEpochAdvancedAt not current timestamp");
     }
 
-    function _toArray(bytes memory signature) internal pure returns (bytes[] memory signatures) {
-        signatures = new bytes[](1);
-        signatures[0] = signature;
+    function test_constructor_SetsFreezeList() public view {
+        assertEq(address(depot.addressFreezeList()), address(freezeList), "addressFreezeList not set");
     }
 
-    function _settle(
-        ISpotSwapConductor.Order memory order,
-        bytes memory signature,
-        uint256 amount,
-        bytes memory revertData
-    )
-        internal
-    {
-        ISpotSwapConductor.OrderFill[] memory orderFills = new ISpotSwapConductor.OrderFill[](1);
-        orderFills[0] = ISpotSwapConductor.OrderFill(order, signature, ISpotSwapConductor.Fill(amount, amount));
-        uint256 epoch = depot.settlementEpoch();
-        vm.prank(backend);
-        if (revertData.length != 0) vm.expectRevert(revertData);
-        spotSwapConductor.settle(epoch, orderFills, new ISpotSwapConductor.Fee[](0));
+    function test_constructor_EmitsEpochAdvancedEvent() public {
+        vm.expectEmit();
+        emit IDepot.EpochAdvanced(1);
+        new Depot(address(authority), freezeList);
     }
 
-    // ---------------------------------------------------------------- transfer
+    function test_constructor_EmitsAddressFreezeListSetEvent() public {
+        vm.expectEmit();
+        emit IDepot.AddressFreezeListSet(freezeList);
+        new Depot(address(authority), freezeList);
+    }
 
-    function testRequestTransferReservesThenExecutes() public {
-        _deposit(alice, 100e6);
-        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
+    function test_constructor_RevertIf_FreezeListHasNoCode() public {
+        vm.expectRevert(IDepot.NoCode.selector);
+        new Depot(address(authority), AddressFreezeList(makeAddr("noCode")));
+    }
 
-        bytes32 requestId = userConductor.digestTransferRequest(request);
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(userConductor), abi.encodeCall(UserConductor.requestTransfer, (request)))),
-            0
-        );
+    function test_balanceOf_ReturnsBalance() public {
+        _mint(ALICE, ASSET, 100);
+        assertEq(depot.balanceOf(ALICE, ASSET), 100, "balance not returned");
+    }
 
-        assertEq(
-            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
-            depot.settlementEpoch() + 1,
-            "request: effectiveAtEpoch not pending next epoch"
-        );
-        assertEq(_depotBalance(alice), 100e6, "request: balance moved early");
-        assertEq(_depotBalance(bob), 0, "request: bob credited early");
-
-        vm.prank(bob);
-        vm.expectRevert(IRequestConductor.NotEffective.selector);
-        userConductor.executeTransfer(request);
-
+    function test_balanceOf_IncludesReserved() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 40);
         _advanceEpoch();
-
-        vm.prank(bob);
-        userConductor.executeTransfer(request);
-
-        assertEq(
-            userConductor.requestEffectiveAtEpoch(_account(alice), requestId),
-            userConductor.EXECUTED(),
-            "execute: effectiveAtEpoch not executed"
-        );
-        assertEq(_depotBalance(alice), 40e6, "execute: alice not debited");
-        assertEq(_depotBalance(bob), 60e6, "execute: bob not credited");
-
-        vm.prank(bob);
-        vm.expectRevert(IRequestConductor.RequestReplay.selector);
-        userConductor.executeTransfer(request);
+        _roll(ALICE, ASSET);
+        assertEq(depot.balanceOf(ALICE, ASSET), 100, "balance excludes reserved amount");
     }
 
-    function testRequestTransferReplayReverts() public {
-        _deposit(alice, 100e6);
-        IUserConductor.TransferRequest memory request = _transferRequest(alice, bob, 60e6);
-
-        bytes memory data = abi.encodeCall(UserConductor.requestTransfer, (request));
-
-        vm.prank(alice);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
-
-        vm.prank(alice);
-        vm.expectRevert(IRequestConductor.RequestReplay.selector);
-        dispatchOne(turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(userConductor), data)), 0);
-    }
-
-    // ---------------------------------------------------------------- withdrawal
-
-    function testRequestWithdrawalReservesThenExecutes() public {
-        _deposit(alice, 100e6);
-        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
-
-        bytes32 requestId = hubWarehouseConductor.hashWithdrawalAction(request);
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(
-                    address(hubWarehouseConductor), abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request))
-                )
-            ),
-            0
-        );
-
-        assertEq(
-            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
-            depot.settlementEpoch() + 1,
-            "request: effectiveAtEpoch not pending next epoch"
-        );
-        assertEq(usdc.balanceOf(alice), 0, "request: alice received usdc early");
-
+    function test_reservation_ReturnsStoredReservation() public {
+        _reserve(ALICE, ASSET, 10);
         _advanceEpoch();
-
-        vm.prank(bob);
-        dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(request), 0);
-
-        assertEq(
-            hubWarehouseConductor.requestEffectiveAtEpoch(_account(alice), requestId),
-            hubWarehouseConductor.EXECUTED(),
-            "execute: effectiveAtEpoch not executed"
-        );
-        assertEq(_depotBalance(alice), 60e6, "execute: alice depot balance not burned");
-        assertEq(usdc.balanceOf(alice), 40e6, "execute: alice did not receive usdc");
+        _reserve(ALICE, ASSET, 5);
+        (uint256 effective, uint256 pending, uint256 pendingEpoch) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 10, "effective wrong");
+        assertEq(pending, 5, "pending wrong");
+        assertEq(pendingEpoch, 3, "pendingEpoch wrong");
     }
 
-    function testRequestWithdrawalReplayReverts() public {
-        _deposit(alice, 100e6);
-        ITurnstile.WithdrawalAction memory request = _withdrawalAction(alice, 40e6);
-
-        bytes memory data = abi.encodeCall(HubWarehouseConductor.requestWithdrawal, (request));
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
-        );
-
-        vm.prank(alice);
-        vm.expectRevert(IRequestConductor.RequestReplay.selector);
-        dispatchOne(
-            turnstile, ITurnstile.ActionType.Generic, abi.encode(_generic(address(hubWarehouseConductor), data)), 0
-        );
-    }
-
-    // ---------------------------------------------------------------- orders
-
-    function testPreApproveAllowsEmptySignatureFill() public {
-        _deposit(alice, 100e6);
-        ISpotSwapConductor.Order memory order = _order(100e6, false);
-        bytes32 orderHash = spotSwapConductor.hashOrder(order);
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
-            0
-        );
-
-        assertTrue(spotSwapConductor.preApproved(orderHash), "preApprove: hash not marked");
-
-        _settle(order, "", 100e6, "");
-
-        assertEq(spotSwapConductor.filledAmount(orderHash), 100e6, "fill: amount not recorded");
-    }
-
-    function testFillWithoutPreApproveReverts() public {
-        _deposit(alice, 100e6);
-        ISpotSwapConductor.Order memory order = _order(100e6, false);
-        bytes32 orderHash = spotSwapConductor.hashOrder(order);
-
-        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.NotPreApproved.selector, orderHash));
-    }
-
-    function testRequestOrderCancellationTakesEffectNextEpoch() public {
-        _deposit(alice, 100e6);
-        ISpotSwapConductor.Order memory order = _order(100e6, true);
-        bytes32 orderHash = spotSwapConductor.hashOrder(order);
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
-            0
-        );
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(
-                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
-                )
-            ),
-            0
-        );
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash),
-            depot.settlementEpoch() + 1,
-            "cancel: not effective next epoch"
-        );
-
-        _settle(order, "", 60e6, "");
-
+    function test_reservation_ReturnsStoredReservationWithoutRolling() public {
+        _reserve(ALICE, ASSET, 10);
         _advanceEpoch();
-
-        _settle(order, "", 40e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
+        (uint256 effective, uint256 pending, uint256 pendingEpoch) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 0, "effective rolled");
+        assertEq(pending, 10, "pending rolled");
+        assertEq(pendingEpoch, 2, "pendingEpoch changed");
     }
 
-    // ---------------------------------------------------------------- facilitated cancel
-
-    function _preApprovedOrder() internal returns (ISpotSwapConductor.Order memory order, bytes32 orderHash) {
-        _deposit(alice, 100e6);
-        order = _order(100e6, false);
-        orderHash = spotSwapConductor.hashOrder(order);
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(_generic(address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))),
-            0
-        );
+    function test_freeBalanceOf_ReturnsBalanceLessEffectiveReservation() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        _roll(ALICE, ASSET);
+        assertEq(depot.freeBalanceOf(ALICE, ASSET), 70, "effective reservation not subtracted");
     }
 
-    function testFacilitatedOrderCancellationIsImmediateAndPaysFee() public {
-        (ISpotSwapConductor.Order memory order, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
-
-        _facilitate(message, _signFacilitated(message, alicePk));
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash),
-            depot.settlementEpoch(),
-            "facilitate: cancel not immediate"
-        );
-
-        _settle(order, "", 100e6, abi.encodeWithSelector(ISwapConductor.Cancelled.selector, orderHash));
+    function test_freeBalanceOf_ReturnsFullBalanceBeforePendingEpoch() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        assertEq(depot.freeBalanceOf(ALICE, ASSET), 100, "pending reservation subtracted early");
     }
 
-    function testFacilitatedOrderCancellationReplayReverts() public {
-        (, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
-        bytes memory sig = _signFacilitated(message, alicePk);
-
-        _facilitate(message, sig);
-
-        vm.expectRevert(ITurnstile.MessageReplay.selector);
-        _facilitate(message, sig);
+    function test_freeBalanceOf_ReturnsBalanceLessReservationAfterEpochAdvance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        assertEq(depot.freeBalanceOf(ALICE, ASSET), 70, "arrived pending reservation not subtracted");
     }
 
-    function testFacilitatedOrderCancellationOverridesPendingUserCancel() public {
-        (, bytes32 orderHash) = _preApprovedOrder();
-
-        vm.prank(alice);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(
-                    address(spotSwapConductor), abi.encodeCall(SwapConductor.requestOrderCancellation, (orderHash))
-                )
-            ),
-            0
-        );
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash),
-            depot.settlementEpoch() + 1,
-            "setup: user cancel not pending"
-        );
-
-        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
-        _facilitate(message, _signFacilitated(message, alicePk));
-
-        assertEq(
-            spotSwapConductor.cancelledFrom(_account(alice), orderHash),
-            depot.settlementEpoch(),
-            "facilitate: did not take earliest epoch"
-        );
+    function test_freeBalanceOf_ReturnsZeroIfReservationExceedsBalance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 150);
+        _advanceEpoch();
+        assertEq(depot.freeBalanceOf(ALICE, ASSET), 0, "free balance not floored at zero");
     }
 
-    function testFacilitatedOrderCancellationBadSignatureReverts() public {
-        (, bytes32 orderHash) = _preApprovedOrder();
-        ITurnstile.GenericAction memory message = _facilitatedCancellation(orderHash);
-        (, uint256 wrongPk) = makeAddrAndKey("notTheSigner");
-        bytes memory sig = _signFacilitated(message, wrongPk);
-
-        vm.expectRevert(ITurnstile.NotOwner.selector);
-        _facilitate(message, sig);
+    function test_settlementEpoch_ReturnsCurrentEpoch() public {
+        _advanceEpoch();
+        _advanceEpoch();
+        assertEq(depot.settlementEpoch(), 3, "settlementEpoch wrong");
     }
 
-    // ---------------------------------------------------------------- auth
-
-    function testPreApproveForAnotherOwnerReverts() public {
-        ISpotSwapConductor.Order memory order = _order(100e6, false);
-
-        vm.prank(bob);
-        vm.expectRevert(ISwapConductor.NotOwner.selector);
-        dispatchOne(
-            turnstile,
-            ITurnstile.ActionType.Generic,
-            abi.encode(
-                _generic(bob, address(spotSwapConductor), abi.encodeCall(SpotSwapConductor.preApprove, (order)))
-            ),
-            0
-        );
+    function test_lastEpochAdvancedAt_ReturnsLastAdvanceTimestamp() public {
+        vm.warp(block.timestamp + 1 hours);
+        _advanceEpoch();
+        assertEq(depot.lastEpochAdvancedAt(), block.timestamp, "lastEpochAdvancedAt wrong");
     }
 
-    function _depotBalance(address user) internal view returns (uint256) {
-        return depot.balanceOf(_account(user), TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, address(usdc)));
+    function test_addressFreezeList_ReturnsFreezeList() public view {
+        assertEq(address(depot.addressFreezeList()), address(freezeList), "addressFreezeList wrong");
     }
 
-    function _account(address user) internal pure returns (bytes28) {
-        return TransitAddressLib.formatTransitAddress(HUB_CHAIN_ID, user);
+    function test_pause_Pauses() public {
+        _pause();
+        assertTrue(depot.paused(), "not paused");
     }
 
-    function testReserveAboveUint112CapReverts() public {
-        bytes28 acct = _account(alice);
-        bytes28 asset = _account(address(usdc));
-        vm.prank(address(userConductor));
-        depot.reserve(acct, asset, type(uint112).max);
-        (, uint112 pending,) = depot.reservation(acct, asset);
-        assertEq(pending, type(uint112).max, "reserve: cap amount not recorded as pending");
+    function test_pause_EmitsPausedEvent() public {
+        vm.expectEmit(address(depot));
+        emit Pausable.Paused(pauser);
+        _pause();
+    }
 
-        vm.prank(address(userConductor));
-        vm.expectRevert(SafeCastLib.Overflow.selector);
-        depot.reserve(acct, asset, 1);
+    function test_pause_RevertIf_SenderIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.pause();
+    }
+
+    function test_pause_RevertIf_ContractIsAlreadyPaused() public {
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        _pause();
+    }
+
+    function test_unpause_Unpauses() public {
+        _pause();
+        vm.prank(pauser);
+        depot.unpause();
+        assertFalse(depot.paused(), "still paused");
+    }
+
+    function test_unpause_EmitsUnpausedEvent() public {
+        _pause();
+        vm.expectEmit(address(depot));
+        emit Pausable.Unpaused(pauser);
+        vm.prank(pauser);
+        depot.unpause();
+    }
+
+    function test_unpause_RevertIf_SenderIsUnauthorized() public {
+        _pause();
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.unpause();
+    }
+
+    function test_unpause_RevertIf_ContractIsNotPaused() public {
+        vm.expectRevert(Pausable.ExpectedPause.selector);
+        vm.prank(pauser);
+        depot.unpause();
+    }
+
+    function test_setAddressFreezeList_SetsFreezeList() public {
+        AddressFreezeList newList = new AddressFreezeList(address(authority));
+        vm.prank(admin);
+        depot.setAddressFreezeList(newList);
+        assertEq(address(depot.addressFreezeList()), address(newList), "addressFreezeList not set");
+    }
+
+    function test_setAddressFreezeList_EmitsAddressFreezeListSetEvent() public {
+        AddressFreezeList newList = new AddressFreezeList(address(authority));
+        vm.expectEmit(address(depot));
+        emit IDepot.AddressFreezeListSet(newList);
+        vm.prank(admin);
+        depot.setAddressFreezeList(newList);
+    }
+
+    function test_setAddressFreezeList_RevertIf_SenderIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.setAddressFreezeList(freezeList);
+    }
+
+    function test_setAddressFreezeList_RevertIf_AddressHasNoCode() public {
+        vm.expectRevert(IDepot.NoCode.selector);
+        vm.prank(admin);
+        depot.setAddressFreezeList(AddressFreezeList(makeAddr("noCode")));
+    }
+
+    function test_transferFrom_MovesBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 40);
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "sender balance wrong");
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "recipient balance wrong");
+    }
+
+    function test_transferFrom_AllowsEntireFreeBalance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 70);
+        assertEq(depot.balanceOf(BOB, ASSET), 70, "recipient balance wrong");
+        assertEq(depot.freeBalanceOf(ALICE, ASSET), 0, "sender free balance not zero");
+    }
+
+    function test_transferFrom_AllowsReservedBalanceBeforeEpochAdvance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 100);
+        assertEq(depot.balanceOf(BOB, ASSET), 100, "recipient balance wrong");
+    }
+
+    function test_transferFrom_AllowsFrozenRecipient() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(BOB);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 100);
+        assertEq(depot.balanceOf(BOB, ASSET), 100, "frozen recipient balance wrong");
+    }
+
+    function test_transferFrom_EmitsTransferEvent() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, ALICE, BOB, ASSET, 40);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_transferFrom_RevertIf_SenderIsUnauthorized() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.transferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_transferFrom_RevertIf_ContractIsPaused() public {
+        _mint(ALICE, ASSET, 100);
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_transferFrom_RevertIf_FromIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferFrom(INVALID_ZERO_CHAIN, BOB, ASSET, 0);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferFrom(INVALID_ZERO_ADDRESS, BOB, ASSET, 0);
+    }
+
+    function test_transferFrom_RevertIf_ToIsInvalid() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, INVALID_ZERO_CHAIN, ASSET, 40);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, INVALID_ZERO_ADDRESS, ASSET, 40);
+    }
+
+    function test_transferFrom_RevertIf_FromIsFrozen() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.AccountFrozen.selector, ALICE));
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_transferFrom_RevertIf_AmountExceedsBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 101);
+    }
+
+    function test_transferFrom_RevertIf_EffectiveReservationBlocks() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        _roll(ALICE, ASSET);
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 71);
+    }
+
+    function test_transferFrom_RevertIf_ReservationBlocksAfterEpochAdvance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.transferFrom(ALICE, BOB, ASSET, 71);
+    }
+
+    function test_transferAmong_TransfersAssetsBetweenAccounts() public {
+        _mint(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40), _delta(BOB, CAROL, ASSET, 15)));
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "ALICE balance wrong");
+        assertEq(depot.balanceOf(BOB, ASSET), 25, "BOB balance wrong");
+        assertEq(depot.balanceOf(CAROL, ASSET), 15, "CAROL balance wrong");
+    }
+
+    function test_transferAmong_TransfersAssetsAmongAccounts() public {
+        _mint(BOB, ASSET, 100);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(bytes28(0), ALICE, ASSET, 40), _delta(BOB, bytes28(0), ASSET, 40)));
+        assertEq(depot.balanceOf(ALICE, ASSET), 40, "mint not applied");
+        assertEq(depot.balanceOf(BOB, ASSET), 60, "burn not applied");
+    }
+
+    function test_transferAmong_AcceptsEmptyDeltas() public {
+        vm.prank(conductor);
+        depot.transferAmong(new IDepot.TransferDelta[](0));
+    }
+
+    function test_transferAmong_TransfersMultipleAssets() public {
+        _mint(ALICE, ASSET, 100);
+        _mint(BOB, ASSET2, 50);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40), _delta(BOB, ALICE, ASSET2, 20)));
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "ALICE ASSET balance wrong");
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "BOB ASSET balance wrong");
+        assertEq(depot.balanceOf(ALICE, ASSET2), 20, "ALICE ASSET2 balance wrong");
+        assertEq(depot.balanceOf(BOB, ASSET2), 30, "BOB ASSET2 balance wrong");
+    }
+
+    function test_transferAmong_AllowsSpendingCreditFromEarlierDelta() public {
+        _mint(ALICE, ASSET, 40);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40), _delta(BOB, CAROL, ASSET, 40)));
+        assertEq(depot.balanceOf(BOB, ASSET), 0, "BOB balance wrong");
+        assertEq(depot.balanceOf(CAROL, ASSET), 40, "CAROL balance wrong");
+    }
+
+    function test_transferAmong_AllowsFrozenRecipient() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(BOB);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40)));
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "frozen recipient balance wrong");
+    }
+
+    function test_transferAmong_EmitsTransferEventPerDelta() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, ALICE, BOB, ASSET, 40);
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, BOB, CAROL, ASSET, 15);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40), _delta(BOB, CAROL, ASSET, 15)));
+    }
+
+    function test_transferAmong_RevertIf_SenderIsUnauthorized() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_ContractIsPaused() public {
+        _mint(ALICE, ASSET, 100);
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_DeltaIsEmpty() public {
+        vm.expectRevert(IDepot.EmptyDelta.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(bytes28(0), bytes28(0), ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_AmountIsZero() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(IDepot.ZeroAmount.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 0)));
+    }
+
+    function test_transferAmong_RevertIf_AssetIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAsset.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, INVALID_ZERO_CHAIN, 40)));
+        vm.expectRevert(IDepot.InvalidAsset.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, INVALID_ZERO_ADDRESS, 40)));
+    }
+
+    function test_transferAmong_RevertIf_FromIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(INVALID_ZERO_CHAIN, BOB, ASSET, 40)));
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(INVALID_ZERO_ADDRESS, BOB, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_ToIsInvalid() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, INVALID_ZERO_CHAIN, ASSET, 40)));
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, INVALID_ZERO_ADDRESS, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_FromIsFrozen() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.AccountFrozen.selector, ALICE));
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_AmountExceedsFreeBalance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(ALICE, BOB, ASSET, 71)));
+    }
+
+    function test_transferAmong_RevertIf_SpendingCreditFromLaterDelta() public {
+        _mint(ALICE, ASSET, 40);
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(BOB, CAROL, ASSET, 40), _delta(ALICE, BOB, ASSET, 40)));
+    }
+
+    function test_transferAmong_RevertIf_AssetDoesNotNetToZero() public {
+        _mint(BOB, ASSET2, 40);
+        vm.expectRevert(IDepot.NotZeroSum.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(bytes28(0), ALICE, ASSET, 40), _delta(BOB, bytes28(0), ASSET2, 40)));
+    }
+
+    function test_transferAmong_RevertIf_MintsExceedBurns() public {
+        _mint(BOB, ASSET, 40);
+        vm.expectRevert(IDepot.NotZeroSum.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(bytes28(0), ALICE, ASSET, 40), _delta(BOB, bytes28(0), ASSET, 30)));
+    }
+
+    function test_transferAmong_RevertIf_BurnsExceedMints() public {
+        _mint(BOB, ASSET, 40);
+        vm.expectRevert(IDepot.NotZeroSum.selector);
+        vm.prank(conductor);
+        depot.transferAmong(_deltas(_delta(bytes28(0), ALICE, ASSET, 30), _delta(BOB, bytes28(0), ASSET, 40)));
+    }
+
+    function test_mint_IncreasesBalance() public {
+        _mint(ALICE, ASSET, 100);
+        assertEq(depot.balanceOf(ALICE, ASSET), 100, "balance not increased");
+    }
+
+    function test_mint_AllowsFrozenRecipient() public {
+        _freeze(ALICE);
+        _mint(ALICE, ASSET, 100);
+        assertEq(depot.balanceOf(ALICE, ASSET), 100, "frozen recipient balance wrong");
+    }
+
+    function test_mint_EmitsTransferEventFromZero() public {
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, bytes28(0), ALICE, ASSET, 100);
+        _mint(ALICE, ASSET, 100);
+    }
+
+    function test_mint_RevertIf_SenderIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.mint(ALICE, ASSET, 100);
+    }
+
+    function test_mint_RevertIf_ContractIsPaused() public {
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        _mint(ALICE, ASSET, 100);
+    }
+
+    function test_mint_RevertIf_AccountIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        _mint(INVALID_ZERO_CHAIN, ASSET, 100);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        _mint(INVALID_ZERO_ADDRESS, ASSET, 100);
+    }
+
+    function test_mint_RevertIf_AssetIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAsset.selector);
+        _mint(ALICE, INVALID_ZERO_CHAIN, 100);
+        vm.expectRevert(IDepot.InvalidAsset.selector);
+        _mint(ALICE, INVALID_ZERO_ADDRESS, 100);
+    }
+
+    function test_burn_DecreasesBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 40);
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "balance not decreased");
+    }
+
+    function test_burn_EmitsTransferEventToZero() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, ALICE, bytes28(0), ASSET, 40);
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 40);
+    }
+
+    function test_burn_RevertIf_SenderIsUnauthorized() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.burn(ALICE, ASSET, 40);
+    }
+
+    function test_burn_RevertIf_ContractIsPaused() public {
+        _mint(ALICE, ASSET, 100);
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 40);
+    }
+
+    function test_burn_RevertIf_AccountIsInvalid() public {
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.burn(INVALID_ZERO_CHAIN, ASSET, 0);
+        vm.expectRevert(IDepot.InvalidAccount.selector);
+        vm.prank(conductor);
+        depot.burn(INVALID_ZERO_ADDRESS, ASSET, 0);
+    }
+
+    function test_burn_RevertIf_AccountIsFrozen() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.AccountFrozen.selector, ALICE));
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 40);
+    }
+
+    function test_burn_RevertIf_AmountExceedsBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 101);
+    }
+
+    function test_burn_RevertIf_AmountExceedsFreeBalance() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectRevert(IDepot.InsufficientBalance.selector);
+        vm.prank(conductor);
+        depot.burn(ALICE, ASSET, 71);
+    }
+
+    function test_forceTransferFrom_MovesBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 40);
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "sender balance wrong");
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "recipient balance wrong");
+    }
+
+    function test_forceTransferFrom_MintsFromZero() public {
+        vm.prank(conductor);
+        depot.forceTransferFrom(bytes28(0), BOB, ASSET, 40);
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "mint not applied");
+    }
+
+    function test_forceTransferFrom_BurnsToZero() public {
+        _mint(ALICE, ASSET, 100);
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, bytes28(0), ASSET, 40);
+        assertEq(depot.balanceOf(ALICE, ASSET), 60, "burn not applied");
+    }
+
+    function test_forceTransferFrom_SucceedsWhilePaused() public {
+        _mint(ALICE, ASSET, 100);
+        _pause();
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 40);
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "transfer not applied while paused");
+    }
+
+    function test_forceTransferFrom_AllowsFrozenSender() public {
+        _mint(ALICE, ASSET, 100);
+        _freeze(ALICE);
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 40);
+        assertEq(depot.balanceOf(BOB, ASSET), 40, "transfer from frozen account not applied");
+    }
+
+    function test_forceTransferFrom_IgnoresReservation() public {
+        _mint(ALICE, ASSET, 100);
+        _reserve(ALICE, ASSET, 100);
+        _advanceEpoch();
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 100);
+        assertEq(depot.balanceOf(BOB, ASSET), 100, "transfer of reserved balance not applied");
+    }
+
+    function test_forceTransferFrom_AllowsInvalidAccounts() public {
+        vm.startPrank(conductor);
+        depot.forceTransferFrom(bytes28(0), INVALID_ZERO_CHAIN, ASSET, 40);
+        depot.forceTransferFrom(INVALID_ZERO_CHAIN, INVALID_ZERO_ADDRESS, ASSET, 40);
+        vm.stopPrank();
+        assertEq(depot.balanceOf(INVALID_ZERO_CHAIN, ASSET), 0, "invalid sender balance wrong");
+        assertEq(depot.balanceOf(INVALID_ZERO_ADDRESS, ASSET), 40, "invalid recipient balance wrong");
+    }
+
+    function test_forceTransferFrom_EmitsTransferEvent() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectEmit(address(depot));
+        emit IDepot.Transfer(conductor, ALICE, BOB, ASSET, 40);
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_forceTransferFrom_RevertIf_SenderIsUnauthorized() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 40);
+    }
+
+    function test_forceTransferFrom_RevertIf_AmountExceedsBalance() public {
+        _mint(ALICE, ASSET, 100);
+        vm.expectRevert(stdError.arithmeticError);
+        vm.prank(conductor);
+        depot.forceTransferFrom(ALICE, BOB, ASSET, 101);
+    }
+
+    function test_advanceEpoch_IncrementsEpoch() public {
+        _advanceEpoch();
+        assertEq(depot.settlementEpoch(), 2, "settlementEpoch not incremented");
+    }
+
+    function test_advanceEpoch_SetsLastEpochAdvancedAt() public {
+        vm.warp(block.timestamp + 1 hours);
+        _advanceEpoch();
+        assertEq(depot.lastEpochAdvancedAt(), block.timestamp, "lastEpochAdvancedAt not current timestamp");
+    }
+
+    function test_advanceEpoch_EmitsEpochAdvancedEvent() public {
+        vm.expectEmit(address(depot));
+        emit IDepot.EpochAdvanced(2);
+        _advanceEpoch();
+    }
+
+    function test_advanceEpoch_SucceedsWhilePaused() public {
+        _pause();
+        _advanceEpoch();
+        assertEq(depot.settlementEpoch(), 2, "settlementEpoch not incremented while paused");
+    }
+
+    function test_advanceEpoch_AllowsAuthorizedBefore24h() public {
+        vm.warp(block.timestamp + 24 hours - 1);
+        _advanceEpoch();
+        assertEq(depot.settlementEpoch(), 2, "authorized sender could not advance");
+    }
+
+    function test_advanceEpoch_AllowsAnyoneAfter24h() public {
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(stranger);
+        depot.advanceEpoch();
+        assertEq(depot.settlementEpoch(), 2, "any sender could not advance");
+    }
+
+    function test_advanceEpoch_RevertIf_SenderIsUnauthorizedBefore24h() public {
+        vm.warp(block.timestamp + 24 hours - 1);
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.advanceEpoch();
+    }
+
+    function test_reserve_AddsAmountToPendingReservation() public {
+        _reserve(ALICE, ASSET, 30);
+        (, uint256 pending,) = depot.reservation(ALICE, ASSET);
+        assertEq(pending, 30, "pending not increased");
+    }
+
+    function test_reserve_SetsPendingEpochToNextSettlementEpoch() public {
+        _reserve(ALICE, ASSET, 30);
+        (,, uint256 pendingEpoch) = depot.reservation(ALICE, ASSET);
+        assertEq(pendingEpoch, depot.settlementEpoch() + 1, "pendingEpoch not settlementEpoch + 1");
+    }
+
+    function test_reserve_RollsPendingAfterEpochAdvance() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        _reserve(ALICE, ASSET, 20);
+        (uint256 effective, uint256 pending,) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 30, "arrived pending not rolled into effective");
+        assertEq(pending, 20, "pending not replaced by new amount");
+    }
+
+    function test_reserve_AccumulatesWithinEpoch() public {
+        _reserve(ALICE, ASSET, 30);
+        _reserve(ALICE, ASSET, 20);
+        (uint256 effective, uint256 pending,) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 0, "effective changed within epoch");
+        assertEq(pending, 50, "pending not accumulated");
+    }
+
+    function test_reserve_AllowsExceedingBalance() public {
+        _mint(ALICE, ASSET, 10);
+        _reserve(ALICE, ASSET, 100);
+        (, uint256 pending,) = depot.reservation(ALICE, ASSET);
+        assertEq(pending, 100, "reservation in excess of balance not recorded");
+    }
+
+    function test_reserve_EmitsReservedEvent() public {
+        vm.expectEmit(address(depot));
+        emit IDepot.Reserved(ALICE, ASSET, 30, 2);
+        _reserve(ALICE, ASSET, 30);
+    }
+
+    function test_reserve_RevertIf_SenderIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.reserve(ALICE, ASSET, 30);
+    }
+
+    function test_reserve_RevertIf_ContractIsPaused() public {
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        _reserve(ALICE, ASSET, 30);
+    }
+
+    function test_release_DecreasesEffective() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        _roll(ALICE, ASSET);
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 10);
+        (uint256 effective,,) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 20, "effective not decreased");
+    }
+
+    function test_release_RollsPendingAfterEpochAdvance() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 10);
+        (uint256 effective, uint256 pending,) = depot.reservation(ALICE, ASSET);
+        assertEq(effective, 20, "arrived pending not rolled before release");
+        assertEq(pending, 0, "pending not cleared by roll");
+    }
+
+    function test_release_EmitsReleaseEvent() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectEmit(address(depot));
+        emit IDepot.Release(ALICE, ASSET, 10);
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 10);
+    }
+
+    function test_release_RevertIf_SenderIsUnauthorized() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        depot.release(ALICE, ASSET, 10);
+    }
+
+    function test_release_RevertIf_ContractIsPaused() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        _pause();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 10);
+    }
+
+    function test_release_RevertIf_AmountExceedsEffective() public {
+        _reserve(ALICE, ASSET, 30);
+        _advanceEpoch();
+        vm.expectRevert(abi.encodeWithSelector(IDepot.ReleaseExceedsReserved.selector, 31, 30));
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 31);
+    }
+
+    function test_release_RevertIf_AmountIsStillPending() public {
+        _reserve(ALICE, ASSET, 30);
+        vm.expectRevert(abi.encodeWithSelector(IDepot.ReleaseExceedsReserved.selector, 30, 0));
+        vm.prank(conductor);
+        depot.release(ALICE, ASSET, 30);
     }
 
 }
