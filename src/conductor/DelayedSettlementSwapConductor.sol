@@ -87,8 +87,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
     /// @dev internal function used in reclaim loop
     function _reclaim(uint256 escrowId) internal {
+        uint256 deadline = escrowDeadline[escrowId];
+        // Skip closed or nonexistent escrows instead of reverting, so one front-run id can't revert a whole batch
+        if (deadline == 0) return;
         // Cannot reclaim until escrowDeadline has passed
-        if (block.timestamp <= escrowDeadline[escrowId]) revert SettlementPeriodActive();
+        if (block.timestamp <= deadline) revert SettlementPeriodActive();
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
