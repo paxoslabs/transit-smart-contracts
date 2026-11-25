@@ -177,7 +177,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         vm.prank(owner);
         conductor.requestWithdrawal(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(
             conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId),
             depot.settlementEpoch() + 1,
@@ -187,7 +187,7 @@ contract HubWarehouseConductorUnitTest is Test {
 
     function test_requestWithdrawal_EmitsRequestedEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Requested(OWNER_ACCOUNT, requestId, depot.settlementEpoch() + 1);
         vm.prank(owner);
@@ -234,7 +234,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _requestAndAdvance(a);
         vm.prank(owner);
         conductor.cancelWithdrawal(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -245,7 +245,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _relay(abi.encodeCall(IHubWarehouseConductor.requestWithdrawal, (a)), remoteAccount, false);
         _advanceEpoch();
         _relay(abi.encodeCall(IHubWarehouseConductor.cancelWithdrawal, (a)), remoteAccount, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(
             conductor.requestEffectiveAtEpoch(remoteAccount, requestId), conductor.EXECUTED(), "relayed cancel failed"
         );
@@ -254,7 +254,7 @@ contract HubWarehouseConductorUnitTest is Test {
     function test_cancelWithdrawal_EmitsConsumedEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
         vm.prank(owner);
@@ -264,7 +264,7 @@ contract HubWarehouseConductorUnitTest is Test {
     function test_cancelWithdrawal_EmitsRequestCancelledEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestCancelled(requestId);
         vm.prank(owner);
@@ -479,7 +479,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
         _execute(a, OWNER_ACCOUNT, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -513,7 +513,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _requestAndAdvance(a);
         vm.warp(a.deadline + 1);
         _execute(a, OWNER_ACCOUNT, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
         assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "amount burned");
     }
@@ -532,7 +532,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
         _execute(a, OWNER_ACCOUNT, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
         assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "amount burned");
         (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
@@ -552,7 +552,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
         _execute(a, OWNER_ACCOUNT, false);
@@ -562,7 +562,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IHubWarehouseConductor.WithdrawalExecuted(requestId, 100);
         _execute(a, OWNER_ACCOUNT, false);
@@ -572,7 +572,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.warp(a.deadline + 1);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestExpired(requestId);
@@ -584,7 +584,7 @@ contract HubWarehouseConductorUnitTest is Test {
         a.to = address(0);
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestVoided(requestId);
         _execute(a, OWNER_ACCOUNT, false);
@@ -630,7 +630,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _execute(a, OWNER_ACCOUNT, false);
     }
 
-    function test_hashWithdrawalAction_ReturnsHashOfTypehashAndAction() public view {
+    function test_withdrawalRequestId_ReturnsHashOfTypehashAndAction() public view {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         bytes32 expected = keccak256(
             abi.encode(
@@ -647,7 +647,7 @@ contract HubWarehouseConductorUnitTest is Test {
                 a.salt
             )
         );
-        assertEq(conductor.hashWithdrawalAction(a), expected, "hash wrong");
+        assertEq(conductor.withdrawalRequestId(a), expected, "request id wrong");
     }
 
 }

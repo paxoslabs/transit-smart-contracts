@@ -66,6 +66,6 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @notice Hash of a withdrawal action, used as its request id.
     /// @param action Withdrawal action.
     /// @return Request id.
-    function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) external pure returns (bytes32);
+    function withdrawalRequestId(ITurnstile.WithdrawalAction memory action) external pure returns (bytes32);
 
 }

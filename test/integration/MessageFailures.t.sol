@@ -25,7 +25,7 @@ contract MessageFailures is SharedSetup {
 
     function test_dispatch_KeepsRequestPendingIfHubChainReleaseReverts() public {
         ITurnstile.WithdrawalAction memory action = _requestHubChainWithdrawal(type(uint256).max);
-        bytes32 requestId = hubWarehouseConductor.hashWithdrawalAction(action);
+        bytes32 requestId = hubWarehouseConductor.withdrawalRequestId(action);
         uint256 effectiveAtEpoch = hubWarehouseConductor.requestEffectiveAtEpoch(_hubAccount(alice), requestId);
 
         vm.prank(alice);
@@ -56,7 +56,7 @@ contract MessageFailures is SharedSetup {
 
         assertEq(
             hubWarehouseConductor.requestEffectiveAtEpoch(
-                _hubAccount(alice), hubWarehouseConductor.hashWithdrawalAction(action)
+                _hubAccount(alice), hubWarehouseConductor.withdrawalRequestId(action)
             ),
             hubWarehouseConductor.EXECUTED(),
             "request not consumed"
@@ -84,7 +84,7 @@ contract MessageFailures is SharedSetup {
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID), 0, "not burned on hub");
         assertEq(
             hubWarehouseConductor.requestEffectiveAtEpoch(
-                _hubAccount(alice), hubWarehouseConductor.hashWithdrawalAction(action)
+                _hubAccount(alice), hubWarehouseConductor.withdrawalRequestId(action)
             ),
             hubWarehouseConductor.EXECUTED(),
             "request not consumed"

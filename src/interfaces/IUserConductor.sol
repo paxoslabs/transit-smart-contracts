@@ -52,6 +52,6 @@ interface IUserConductor is IRequestConductor {
     /// @notice Hash of a transfer request, used as its request id.
     /// @param request Transfer request.
     /// @return Request id.
-    function digestTransferRequest(TransferRequest memory request) external pure returns (bytes32);
+    function transferRequestId(TransferRequest memory request) external pure returns (bytes32);
 
 }

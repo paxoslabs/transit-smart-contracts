@@ -35,7 +35,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
         _request(
             TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
-            hashWithdrawalAction(action),
+            withdrawalRequestId(action),
             TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
             action.amount
         );
@@ -45,7 +45,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     function cancelWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
         _cancel(
             TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
-            hashWithdrawalAction(action),
+            withdrawalRequestId(action),
             TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
             action.amount
         );
@@ -85,7 +85,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         restricted
         returns (uint256 amount)
     {
-        bytes32 requestId = hashWithdrawalAction(action);
+        bytes32 requestId = withdrawalRequestId(action);
         bytes28 accountId = TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner);
         bytes28 assetId = TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset);
         _consume(accountId, requestId, assetId, action.amount);
@@ -107,7 +107,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     }
 
     /// @inheritdoc IHubWarehouseConductor
-    function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
+    function withdrawalRequestId(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
         return keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action));
     }
 
