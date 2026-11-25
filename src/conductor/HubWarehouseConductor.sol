@@ -33,6 +33,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
 
     /// @inheritdoc IHubWarehouseConductor
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
+        if (action.conductor != address(this)) revert WrongConductor();
         _request(
             TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
             withdrawalRequestId(action),
@@ -85,6 +86,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         restricted
         returns (uint256 amount)
     {
+        if (action.conductor != address(this)) revert WrongConductor();
         bytes32 requestId = withdrawalRequestId(action);
         bytes28 accountId = TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner);
         bytes28 assetId = TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset);

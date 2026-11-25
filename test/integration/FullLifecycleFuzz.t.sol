@@ -168,6 +168,7 @@ contract FullLifecycleFuzz is SharedSetup {
             amount: amount,
             deadline: type(uint256).max,
             partiallyFillable: false,
+            conductor: address(hubWarehouseConductor),
             dependsOn: bytes32(0),
             salt: bytes32(0)
         });

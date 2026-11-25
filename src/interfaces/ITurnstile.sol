@@ -125,6 +125,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @param deadline Withdrawal request submission deadline.
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
     /// full amount.
+    /// @param conductor HubWarehouseConductor that may request and execute the action.
     /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
     /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
@@ -137,6 +138,7 @@ interface ITurnstile is IMessagingReceiver {
         uint256 amount;
         uint256 deadline;
         bool partiallyFillable;
+        address conductor;
         bytes32 dependsOn;
         bytes32 salt;
     }

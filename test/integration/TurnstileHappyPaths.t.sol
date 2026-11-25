@@ -344,6 +344,7 @@ contract TurnstileHappyPaths is SharedSetup {
             amount: AMOUNT,
             deadline: type(uint256).max,
             partiallyFillable: false,
+            conductor: address(hubWarehouseConductor),
             dependsOn: bytes32(0),
             salt: bytes32(0)
         });

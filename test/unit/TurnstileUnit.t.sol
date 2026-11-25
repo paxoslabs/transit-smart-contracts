@@ -1323,7 +1323,7 @@ contract TurnstileUnitTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "WithdrawalAction(uint64 ownerChainId,address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 deadline,bool partiallyFillable,bytes32 dependsOn,bytes32 salt)"
+                    "WithdrawalAction(uint64 ownerChainId,address owner,address to,uint64 assetChainId,address asset,uint256 amount,uint256 deadline,bool partiallyFillable,address conductor,bytes32 dependsOn,bytes32 salt)"
                 ),
                 a
             )

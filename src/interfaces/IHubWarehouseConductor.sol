@@ -23,7 +23,11 @@ interface IHubWarehouseConductor is IRequestConductor {
         bytes28 indexed toAccountId, bytes28 indexed feeReceiverAccountId, bytes28 indexed assetId, uint256 amount
     );
 
-    /// @notice Request a withdrawal, reserving the funds from the next epoch. The sender must be the owner.
+    /// @notice The withdrawal action is bound to a different conductor.
+    error WrongConductor();
+
+    /// @notice Request a withdrawal, reserving the funds from the next epoch. The sender must be the owner, and the
+    /// action must be bound to this conductor.
     /// @param action Withdrawal action.
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
 
@@ -56,6 +60,7 @@ interface IHubWarehouseConductor is IRequestConductor {
         external;
 
     /// @notice Execute an effective withdrawal request, burning up to the executable amount. Called by the Turnstile.
+    /// The action must be bound to this conductor.
     /// @dev Must never be in the Turnstile's genericMessageWhitelist: generic calls also arrive from the Turnstile and
     /// pass `restricted`, but only a Withdrawal dispatch sends the release message for the returned amount. A generic
     /// call would burn the owner's balance with no payout, and anyone could do it to any effective request.

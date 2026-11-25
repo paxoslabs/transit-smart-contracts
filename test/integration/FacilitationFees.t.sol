@@ -120,6 +120,7 @@ contract FacilitationFees is SharedSetup {
             amount: AMOUNT - FEE,
             deadline: type(uint256).max,
             partiallyFillable: false,
+            conductor: address(hubWarehouseConductor),
             dependsOn: bytes32(0),
             salt: bytes32(0)
         });

@@ -103,6 +103,7 @@ contract HubWarehouseConductorUnitTest is Test {
         a.amount = 100;
         a.deadline = block.timestamp + 1 hours;
         a.partiallyFillable = true;
+        a.conductor = address(conductor);
         a.salt = bytes32(uint256(2));
     }
 
@@ -198,6 +199,14 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         vm.expectRevert(IRequestConductor.NotOwner.selector);
         vm.prank(stranger);
+        conductor.requestWithdrawal(a);
+    }
+
+    function test_requestWithdrawal_RevertIf_ActionIsBoundToAnotherConductor() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.conductor = stranger;
+        vm.expectRevert(IHubWarehouseConductor.WrongConductor.selector);
+        vm.prank(owner);
         conductor.requestWithdrawal(a);
     }
 
@@ -597,6 +606,14 @@ contract HubWarehouseConductorUnitTest is Test {
         conductor.executeWithdrawal(a);
     }
 
+    function test_executeWithdrawal_RevertIf_ActionIsBoundToAnotherConductor() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.conductor = stranger;
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        vm.expectRevert(IHubWarehouseConductor.WrongConductor.selector);
+        _execute(a, OWNER_ACCOUNT, true);
+    }
+
     function test_executeWithdrawal_RevertIf_RequestWasNeverMade() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         vm.expectRevert(IRequestConductor.NotEffective.selector);
@@ -643,6 +660,7 @@ contract HubWarehouseConductorUnitTest is Test {
                 a.amount,
                 a.deadline,
                 a.partiallyFillable,
+                a.conductor,
                 a.dependsOn,
                 a.salt
             )
