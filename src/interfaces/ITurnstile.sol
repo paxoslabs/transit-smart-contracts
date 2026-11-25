@@ -21,7 +21,6 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice Execution status of messages.
     enum MessageStatus {
         None,
-        Failed,
         Executed
     }
 
@@ -205,19 +204,6 @@ interface ITurnstile is IMessagingReceiver {
     /// @param allowed Whether calldata is whitelisted.
     event GenericMessageWhitelistUpdated(address indexed target, bytes4[] selectors, bool allowed);
 
-    /// @notice Message execution failed.
-    /// @param sourceChainId Message's source EVM chainId.
-    /// @param actionType Message's ActionType.
-    /// @param messageHash Message's hash.
-    /// @param body Message's body.
-    event MessageFailed(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash, bytes body);
-
-    /// @notice Message has been retried after previous failure.
-    /// @param sourceChainId Message's source EVM chainId.
-    /// @param actionType Message's ActionType.
-    /// @param messageHash Message's hash.
-    event MessageRetried(uint64 indexed sourceChainId, ActionType indexed actionType, bytes32 messageHash);
-
     /// @notice A message with an identical hash has already been processed.
     error MessageReplay();
 
@@ -255,17 +241,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @notice A permit failed and the existing allowance does not cover the amount.
     error PermitFailedAndAllowanceTooLow();
 
-    /// @notice Releasing a withdrawal from the VAULT failed.
-    error WithdrawalFailed();
-
-    /// @notice An encoded call ran out of gas.
-    error OutOfGas();
-
     /// @notice Message encodes a call which has not been authorized.
     error NotWhitelisted();
-
-    /// @notice A retry was attempted of a message that had not failed.
-    error NotFailed();
 
     /// @notice A contract required to process a message or action has not been set.
     error NoHandler();
@@ -396,11 +373,5 @@ interface ITurnstile is IMessagingReceiver {
     /// @param actions List of actions (`bridgeFee` is ignored).
     /// @return bridgeFees List of cross-chain bridge fees.
     function quote(Action[] calldata actions) external view returns (uint256[] memory bridgeFees);
-
-    /// @notice Retry a previously failed message.
-    /// @param sourceChainId Message's source EVM chainId.
-    /// @param actionType Message's ActionType.
-    /// @param body Message's body.
-    function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external;
 
 }

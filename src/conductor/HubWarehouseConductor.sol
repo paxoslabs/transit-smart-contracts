@@ -63,8 +63,8 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
             return;
         }
         IDepot(DEPOT).mint(toAccountId, assetId, amount);
-        // The fee should never fail. If it does (e.g. a frozen recipient), the whole deposit reverts and the message is
-        // left Failed for an admin to retry, so the fee is only ever taken alongside a credited deposit.
+        // The fee should never fail. If it does (e.g. a frozen recipient), the whole deposit reverts. A cross-chain
+        // deposit message can then be retried at the bridge level.
         if (facilitationFee != 0) {
             IDepot(DEPOT).transferFrom(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
         }

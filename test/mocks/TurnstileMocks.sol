@@ -20,15 +20,6 @@ contract MockERC20 is ERC20 {
 
 }
 
-contract MockGasBurningERC20 {
-
-    function transferFrom(address, address, uint256) external pure returns (bool) {
-        while (true) { }
-        return true;
-    }
-
-}
-
 contract MockMessagingAdapter {
 
     uint64 public HUB_CHAIN_ID;

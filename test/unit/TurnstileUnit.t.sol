@@ -14,7 +14,6 @@ import { Roles } from "src/helpers/Roles.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import {
     MockERC20,
-    MockGasBurningERC20,
     MockMessagingAdapter,
     MockHubWarehouseConductor,
     MockTarget
@@ -69,12 +68,11 @@ contract TurnstileUnitTest is Test {
     function _deployTurnstile() internal returns (Turnstile t) {
         t = new Turnstile(address(authority), vault);
 
-        bytes4[] memory adminSelectors = new bytes4[](5);
+        bytes4[] memory adminSelectors = new bytes4[](4);
         adminSelectors[0] = Turnstile.setMessagingAdapter.selector;
         adminSelectors[1] = Turnstile.setHubWarehouseConductor.selector;
         adminSelectors[2] = Turnstile.setRoutable.selector;
         adminSelectors[3] = Turnstile.setAssetWhitelisted.selector;
-        adminSelectors[4] = Turnstile.retry.selector;
 
         bytes4[] memory pauserSelectors = new bytes4[](2);
         pauserSelectors[0] = Turnstile.pause.selector;
@@ -268,12 +266,6 @@ contract TurnstileUnitTest is Test {
         signatures = new bytes[](2);
         signatures[0] = a;
         signatures[1] = b;
-    }
-
-    function _failGenericMessage() internal returns (bytes memory body) {
-        body = _genericBody(_genericAction(), user);
-        target.setShouldRevert(true);
-        _receive(ITurnstile.ActionType.Generic, body);
     }
 
     function _domainSeparator() internal view returns (bytes32) {
@@ -867,24 +859,11 @@ contract TurnstileUnitTest is Test {
         _dispatch(actions, 1);
     }
 
-    function test_dispatch_Withdrawal_MarksMessageFailedIfVaultTransferFailsWhenAssetChainIsCurrentChain() public {
+    function test_dispatch_Withdrawal_RevertIf_VaultTransferFailsWhenAssetChainIsCurrentChain() public {
         conductor.setWithdrawalAmount(5000);
         ITurnstile.Action[] memory actions = _actions(_withdrawalAction(_withdrawalAction(uint64(block.chainid))));
-        bytes32[] memory hashes = _dispatch(actions, 0);
-        assertEq(
-            uint8(turnstile.messageStatus(hashes[0])),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "message not marked failed"
-        );
-    }
-
-    function test_dispatch_Withdrawal_RevertIf_VaultTransferRunsOutOfGasWhenAssetChainIsCurrentChain() public {
-        conductor.setWithdrawalAmount(30);
-        ITurnstile.WithdrawalAction memory a = _withdrawalAction(uint64(block.chainid));
-        a.asset = address(new MockGasBurningERC20());
-        vm.expectRevert(ITurnstile.OutOfGas.selector);
-        vm.prank(user);
-        turnstile.dispatch{ gas: 10_000_000 }(_actions(_withdrawalAction(a)));
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        _dispatch(actions, 0);
     }
 
     function test_dispatch_Generic_SendsGenericMessageToHubChainViaMessagingAdapter() public {
@@ -1160,62 +1139,37 @@ contract TurnstileUnitTest is Test {
         assertEq(_lastBytes32(conductor.lastCall()), bytes32(_suffix(fromAccountId, false)), "suffix wrong");
     }
 
-    function test_handleReceivedMessage_SetsStatusOfMessageToFailedIfExecutionReverts() public {
-        bytes memory body = _failGenericMessage();
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
-    }
-
-    function test_handleReceivedMessage_EmitsMessageFailedEventIfExecutionReverts() public {
+    function test_handleReceivedMessage_RevertIf_ExecutionReverts() public {
         bytes memory body = _genericBody(_genericAction(), user);
         target.setShouldRevert(true);
-        bytes32 messageHash = turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-        vm.expectEmit(address(turnstile));
-        emit ITurnstile.MessageFailed(REMOTE_CHAIN, ITurnstile.ActionType.Generic, messageHash, body);
+        vm.expectRevert(MockTarget.Boom.selector);
         _receive(ITurnstile.ActionType.Generic, body);
     }
 
-    function test_handleReceivedMessage_Withdrawal_SetsStatusOfMessageToFailedIfVaultTransferFails() public {
+    function test_handleReceivedMessage_Withdrawal_RevertIf_VaultTransferFails() public {
         bytes memory body = _withdrawalMessageBody(5000);
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
         _receive(ITurnstile.ActionType.Withdrawal, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Withdrawal, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
     }
 
-    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfDeadlineHasPassed() public {
+    function test_handleReceivedMessage_Generic_RevertIf_DeadlineHasPassed() public {
         vm.warp(1000);
         ITurnstile.GenericAction memory a = _genericAction();
         a.deadline = block.timestamp - 1;
         bytes memory body = _genericBody(a, user);
+        vm.expectRevert(ITurnstile.Expired.selector);
         _receive(ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
     }
 
-    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfTargetAndSelectorAreNotWhitelisted()
-        public
-    {
+    function test_handleReceivedMessage_Generic_RevertIf_TargetAndSelectorAreNotWhitelisted() public {
         ITurnstile.GenericAction memory a = _genericAction();
         a.data = abi.encodeCall(MockTarget.spin, ());
         bytes memory body = _genericBody(a, user);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
         _receive(ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
     }
 
-    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfTargetHasVaultAllowance() public {
+    function test_handleReceivedMessage_Generic_RevertIf_TargetHasVaultAllowance() public {
         MockERC20 approvedToken = new MockERC20();
         approvedToken.mint(vault, 100);
         vm.prank(admin);
@@ -1226,25 +1180,17 @@ contract TurnstileUnitTest is Test {
         a.target = address(approvedToken);
         a.data = abi.encodeCall(IERC20.approve, (stranger, 100));
         bytes memory body = _genericBody(a, user);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
         _receive(ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
         assertEq(approvedToken.allowance(address(turnstile), stranger), 0, "Turnstile approved stranger");
     }
 
-    function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfSelectorIsTurnstileOnly() public {
+    function test_handleReceivedMessage_Generic_RevertIf_SelectorIsTurnstileOnly() public {
         vm.prank(admin);
         authority.setTargetFunctionRole(address(target), _selectors(MockTarget.ping.selector), Roles.TURNSTILE);
         bytes memory body = _genericBody(_genericAction(), user);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
         _receive(ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
         assertEq(target.callCount(), 0, "Turnstile-only selector called");
     }
 
@@ -1286,81 +1232,6 @@ contract TurnstileUnitTest is Test {
         );
         vm.expectRevert(ITurnstile.NoHandler.selector);
         _receive(ITurnstile.ActionType.Deposit, body);
-    }
-
-    function test_handleReceivedMessage_RevertIf_ExecutionRunsOutOfGas() public {
-        vm.prank(admin);
-        turnstile.setRoutable(address(target), _selectors(MockTarget.spin.selector), true);
-        ITurnstile.GenericAction memory a = _genericAction();
-        a.data = abi.encodeCall(MockTarget.spin, ());
-        bytes memory payload = abi.encode(ITurnstile.ActionType.Generic, _genericBody(a, user));
-        vm.expectRevert(ITurnstile.OutOfGas.selector);
-        vm.prank(address(adapter));
-        turnstile.handleReceivedMessage{ gas: 10_000_000 }(REMOTE_CHAIN, payload);
-    }
-
-    function test_retry_ExecutesFailedMessageAgain() public {
-        bytes memory body = _failGenericMessage();
-        target.setShouldRevert(false);
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-        assertEq(target.callCount(), 1, "target not called on retry");
-    }
-
-    function test_retry_SetsStatusOfMessageToExecutedOnSuccess() public {
-        bytes memory body = _failGenericMessage();
-        target.setShouldRevert(false);
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Executed),
-            "status not Executed"
-        );
-    }
-
-    function test_retry_SetsStatusOfMessageToFailedIfExecutionRevertsAgain() public {
-        bytes memory body = _failGenericMessage();
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-        assertEq(
-            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            uint8(ITurnstile.MessageStatus.Failed),
-            "status not Failed"
-        );
-    }
-
-    function test_retry_EmitsMessageRetriedEvent() public {
-        bytes memory body = _failGenericMessage();
-        target.setShouldRevert(false);
-        bytes32 messageHash = turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-        vm.expectEmit(address(turnstile));
-        emit ITurnstile.MessageRetried(REMOTE_CHAIN, ITurnstile.ActionType.Generic, messageHash);
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-    }
-
-    function test_retry_RevertIf_SenderIsUnauthorized() public {
-        bytes memory body = _failGenericMessage();
-        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
-        vm.prank(stranger);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-    }
-
-    function test_retry_RevertIf_ContractIsPaused() public {
-        bytes memory body = _failGenericMessage();
-        vm.prank(pauser);
-        turnstile.pause();
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
-    }
-
-    function test_retry_RevertIf_MessageStatusIsNotFailed() public {
-        bytes memory body = _genericBody(_genericAction(), user);
-        vm.expectRevert(ITurnstile.NotFailed.selector);
-        vm.prank(admin);
-        turnstile.retry(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body);
     }
 
     function test_quote_ReturnsMessagingAdapterQuoteForEachAction() public {

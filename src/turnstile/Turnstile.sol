@@ -23,9 +23,8 @@ import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
  * @notice The single entrypoint for Transit on each chain. Users dispatch actions (deposit, withdrawal, generic call)
  * directly or through a facilitator with signatures. It takes deposits into the chain's VAULT, releases withdrawals
  * from it, and routes messages: same-chain messages execute locally, cross-chain ones go through the MessagingAdapter.
- * @dev Inbound messages are replay-protected by hash. A failed same-chain message (with the exception of Withdrawal
- * execution) reverts its action; a failed cross-chain message is recorded as Failed for an admin retry, except
- * out-of-gas, which reverts for a bridge retry.
+ * @dev Inbound messages are replay-protected by hash. A failed message reverts: same-chain it reverts its action,
+ * cross-chain it reverts the delivery for a bridge retry.
  * Calls into conductors carry the sender and facilitated flag as a calldata suffix (see _buildTurnstileCallData).
  * The VAULT approves this contract, so the generic message whitelist must never include token contracts.
  * @custom:security-contact security@paxoslabs.com
@@ -246,18 +245,6 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
                 );
             }
         }
-    }
-
-    /// @inheritdoc ITurnstile
-    function retry(uint64 sourceChainId, ActionType actionType, bytes calldata body) external restricted {
-        bytes32 messageHash = digestMessage(sourceChainId, actionType, body);
-        if (messageStatus[messageHash] != MessageStatus.Failed) revert NotFailed();
-        delete messageStatus[messageHash];
-
-        // _handleMessage will attempt to _execute locally if destChainId == block.chainid which this ensures, so this
-        // will never send another crosschain message
-        _handleMessage(sourceChainId, uint64(block.chainid), 0, actionType, body, 0, false);
-        emit MessageRetried(sourceChainId, actionType, messageHash);
     }
 
     // ========================================= ADAPTER ========================================
@@ -491,12 +478,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         internal
         whenNotPaused
     {
-        bytes32 messageHash = digestMessage(chainId, actionType, body);
-
         address target;
         bytes memory data;
-        bytes memory result;
-        uint256 gasBefore;
 
         if (actionType == ActionType.Deposit) {
             DepositMessage memory message = abi.decode(body, (DepositMessage));
@@ -519,57 +502,29 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             );
         } else if (actionType == ActionType.Withdrawal) {
             WithdrawalMessage memory message = abi.decode(body, (WithdrawalMessage));
-            // Released directly from the VAULT, which has approved this Turnstile. A failed transfer falls through to
-            // the shared failure handling below as a WithdrawalFailed result.
-            gasBefore = gasleft();
-            if (SafeTransferLib.trySafeTransferFrom(message.asset, VAULT, message.to, message.amount)) {
-                emit WithdrawalReleased(message.to, message.asset, message.amount);
-                return;
-            }
-            result = abi.encodeWithSelector(WithdrawalFailed.selector);
+            // Released directly from the VAULT, which has approved this Turnstile.
+            SafeTransferLib.safeTransferFrom(message.asset, VAULT, message.to, message.amount);
+            emit WithdrawalReleased(message.to, message.asset, message.amount);
+            return;
         } else {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
 
-            if (block.timestamp > message.deadline) {
-                result = abi.encodeWithSelector(Expired.selector);
-            } else if (!_isRoutable(message.target, bytes4(message.data))) {
-                result = abi.encodeWithSelector(NotWhitelisted.selector);
-            } else {
-                target = message.target;
-                // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
-                data = _buildTurnstileCallData(
-                    message.data, TransitAddressLib.formatTransitAddress(chainId, message.sender), facilitated
-                );
-            }
+            if (block.timestamp > message.deadline) revert Expired();
+            if (!_isRoutable(message.target, bytes4(message.data))) revert NotWhitelisted();
+            target = message.target;
+            // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
+            data = _buildTurnstileCallData(
+                message.data, TransitAddressLib.formatTransitAddress(chainId, message.sender), facilitated
+            );
         }
 
-        // If result is set, it's an encoded pre-call error, so skip the call.
-        if (result.length == 0) {
-            if (target == address(0)) revert NoHandler();
-            gasBefore = gasleft();
-            bool ok;
-            (ok, result) = target.call(data);
-            if (ok) return;
-        }
-
-        // Same-chain reverts are atomic and should revert the entire action. A failed withdrawal is the exception:
-        // reverting would roll back the request's consumption and permanently lock its reservation.
-        if (chainId == block.chainid && actionType != ActionType.Withdrawal) {
+        if (target == address(0)) revert NoHandler();
+        (bool ok, bytes memory result) = target.call(data);
+        if (!ok) {
             assembly {
                 revert(add(result, 0x20), mload(result))
             }
         }
-
-        // Out-of-gas errors must revert the entire transaction to allow bridge-level retries, and so a same-chain
-        // caller cannot force a withdrawal release to fail by underfunding gas.
-        // The EIP-150 internal transaction gas limit of 63/64 is used a heuristic out-of-gas indicator, but
-        // is subject to false positives, such as on assertion failure in solidity pre-0.8.
-        if (gasleft() <= gasBefore / 63) revert OutOfGas();
-
-        // Cross-chain internal errors and same-chain withdrawal release failures are tracked internally to allow
-        // contract-level retries.
-        messageStatus[messageHash] = MessageStatus.Failed;
-        emit MessageFailed(chainId, actionType, messageHash, body);
     }
 
     /// @dev Applies an EIP-2612 permit for this Turnstile. If the permit fails (e.g. front-run), succeeds as long as
