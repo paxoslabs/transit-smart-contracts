@@ -1164,6 +1164,16 @@ contract TurnstileUnitTest is Test {
         _receive(ITurnstile.ActionType.Generic, body);
     }
 
+    function test_handleReceivedMessage_Generic_RevertIf_DataIsShorterThanSelector() public {
+        vm.prank(admin);
+        turnstile.setRoutable(address(target), _selectors(bytes4(0xab000000)), true);
+        ITurnstile.GenericAction memory a = _genericAction();
+        a.data = hex"ab";
+        bytes memory body = _genericBody(a, user);
+        vm.expectRevert(ITurnstile.NotWhitelisted.selector);
+        _receive(ITurnstile.ActionType.Generic, body);
+    }
+
     function test_handleReceivedMessage_Generic_RevertIf_TargetHasVaultAllowance() public {
         MockERC20 approvedToken = new MockERC20();
         approvedToken.mint(vault, 100);

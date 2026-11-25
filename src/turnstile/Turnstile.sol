@@ -510,7 +510,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             GenericMessage memory message = abi.decode(body, (GenericMessage));
 
             if (block.timestamp > message.deadline) revert Expired();
-            if (!_isRoutable(message.target, bytes4(message.data))) revert NotWhitelisted();
+            if (message.data.length < 4 || !_isRoutable(message.target, bytes4(message.data))) {
+                revert NotWhitelisted();
+            }
             target = message.target;
             // The chainId comes from the bridge, not the message, so a spoke cannot spoof another chain's accounts.
             data = _buildTurnstileCallData(
