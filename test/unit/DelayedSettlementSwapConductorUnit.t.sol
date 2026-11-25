@@ -950,6 +950,36 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         conductor.reclaim(new uint256[](0));
     }
 
+    function test_reclaim_SkipsNonexistentEscrow() public {
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = conductor.escrowCount() + 1;
+        vm.recordLogs();
+        conductor.reclaim(escrowIds);
+        assertEq(vm.getRecordedLogs().length, 0, "nonexistent escrow emitted an event");
+    }
+
+    function test_reclaim_SkipsClosedEscrow() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        vm.recordLogs();
+        conductor.reclaim(escrowIds);
+        assertEq(vm.getRecordedLogs().length, 0, "closed escrow emitted an event");
+        assertEq(depot.balanceOf(PENALTY, ASSET_A), 1, "closed escrow penalized twice");
+    }
+
+    function test_reclaim_ReclaimsRestOfBatchAfterSkippedEscrow() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](2);
+        escrowIds[0] = escrowId + 1;
+        escrowIds[1] = escrowId;
+        conductor.reclaim(escrowIds);
+        _assertEscrowDeleted(escrowId);
+    }
+
     function test_reclaim_EmitsReclaimedEvent() public {
         uint256 escrowId = _escrowedBothCollateralized();
         vm.warp(conductor.escrowDeadline(escrowId) + 1);
