@@ -13,6 +13,7 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { DelayedSettlementSwapConductor } from "src/conductor/DelayedSettlementSwapConductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
+import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
 import { IConductor } from "src/interfaces/IConductor.sol";
 
@@ -67,11 +68,13 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         conductor = new DelayedSettlementSwapConductor(address(authority), address(depot), SURPLUS, PENALTY, turnstile);
         CONDUCTOR_ACCOUNT = TransitAddressLib.formatTransitAddress(uint64(block.chainid), address(conductor));
 
-        bytes4[] memory depotSelectors = new bytes4[](4);
+        bytes4[] memory depotSelectors = new bytes4[](6);
         depotSelectors[0] = Depot.transferFrom.selector;
         depotSelectors[1] = Depot.transferAmong.selector;
         depotSelectors[2] = Depot.mint.selector;
         depotSelectors[3] = Depot.advanceEpoch.selector;
+        depotSelectors[4] = Depot.reserve.selector;
+        depotSelectors[5] = Depot.release.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(depot), depotSelectors, Roles.CONDUCTOR);
@@ -289,6 +292,22 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         _seed(ACCOUNT_B, ASSET_B, 51);
         escrowId = conductor.escrowCount() + 1;
         _settle(orders, _signatures(orders), _pairedFills(_pairedFill(100, 50)));
+    }
+
+    function _facilitatedExecuteRepay(uint256 escrowId, uint256 side, bytes28 accountId) internal {
+        _relay(abi.encodeCall(IDelayedSettlementSwapConductor.executeRepay, (escrowId, side)), accountId, true);
+    }
+
+    function _advanceEpoch() internal {
+        vm.prank(seeder);
+        depot.advanceEpoch();
+    }
+
+    /// @dev Requests repayment of leg 0 by ownerA and advances the epoch so the request is effective.
+    function _effectiveRepayRequest(uint256 escrowId) internal {
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        _advanceEpoch();
     }
 
     function _assertEscrowDeleted(uint256 escrowId) internal view {
@@ -766,26 +785,135 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         _settleAt(epoch, orders, signatures, _pairedFills(_pairedFill(100, 50)));
     }
 
-    function test_repay_TransfersDebtAmountFromLegAccountToConductorAccount() public {
+    function test_requestRepay_ReservesDebtFromNextEpoch() public {
         uint256 escrowId = _escrowedBothCollateralized();
         vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        conductor.requestRepay(escrowId, 0);
+        assertEq(depot.freeBalanceOf(ACCOUNT_A, ASSET_A), 100, "debt reserved in current epoch");
+        _advanceEpoch();
+        assertEq(depot.freeBalanceOf(ACCOUNT_A, ASSET_A), 0, "debt not reserved from next epoch");
+    }
+
+    function test_requestRepay_SetsRequestEffectiveAtEpochToNextEpoch() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(ACCOUNT_A, conductor.repayRequestId(escrowId, 0)),
+            depot.settlementEpoch() + 1,
+            "effective epoch wrong"
+        );
+    }
+
+    function test_requestRepay_EmitsRequestedEvent() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.Requested(ACCOUNT_A, conductor.repayRequestId(escrowId, 0), depot.settlementEpoch() + 1);
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+    }
+
+    function test_requestRepay_RevertIf_EscrowDeadlineHasPassed() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        vm.expectRevert(IDelayedSettlementSwapConductor.SettlementPeriodOver.selector);
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+    }
+
+    function test_requestRepay_RevertIf_SenderIsNotLegOwner() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.expectRevert(IConductor.NotOwner.selector);
+        vm.prank(stranger);
+        conductor.requestRepay(escrowId, 0);
+    }
+
+    function test_requestRepay_RevertIf_LegHasNothingOwed() public {
+        uint256 escrowId = _escrowed();
+        vm.expectRevert(IDelayedSettlementSwapConductor.NothingOwed.selector);
+        vm.prank(ownerB);
+        conductor.requestRepay(escrowId, 1);
+    }
+
+    function test_requestRepay_RevertIf_RepayIsAlreadyRequested() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+    }
+
+    function test_executeRepay_RepaysEffectiveRequestForAnyCaller() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _effectiveRepayRequest(escrowId);
+        vm.prank(stranger);
+        conductor.executeRepay(escrowId, 0);
+        (,,,, uint256 debt,,) = conductor.escrowLegs(escrowId, 0);
+        assertEq(debt, 0, "debt not zeroed");
         assertEq(depot.balanceOf(CONDUCTOR_ACCOUNT, ASSET_A), 101, "debt amount not transferred");
     }
 
-    function test_repay_SetsDebtOfLegToZero() public {
+    function test_executeRepay_RepaysEffectiveRequestAfterEscrowDeadline() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _effectiveRepayRequest(escrowId);
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        conductor.executeRepay(escrowId, 0);
+        (,,,, uint256 debt,,) = conductor.escrowLegs(escrowId, 0);
+        assertEq(debt, 0, "debt not zeroed after deadline");
+    }
+
+    function test_executeRepay_ReleasesReservationOfRequest() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _seed(ACCOUNT_A, ASSET_A, 10);
+        _effectiveRepayRequest(escrowId);
+        conductor.executeRepay(escrowId, 0);
+        assertEq(depot.freeBalanceOf(ACCOUNT_A, ASSET_A), 10, "reservation not released");
+    }
+
+    function test_executeRepay_ConsumesRepayRequest() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _effectiveRepayRequest(escrowId);
+        conductor.executeRepay(escrowId, 0);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(ACCOUNT_A, conductor.repayRequestId(escrowId, 0)),
+            conductor.EXECUTED(),
+            "request not consumed"
+        );
+    }
+
+    function test_executeRepay_RevertIf_RequestIsNotEffective() public {
         uint256 escrowId = _escrowedBothCollateralized();
         vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        conductor.requestRepay(escrowId, 0);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        conductor.executeRepay(escrowId, 0);
+    }
+
+    function test_executeRepay_RevertIf_OwnerIsNotFacilitatedAndHasNoRequest() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(ownerA);
+        conductor.executeRepay(escrowId, 0);
+    }
+
+    function test_executeRepay_TransfersDebtAmountFromLegAccountToConductorAccount() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
+        assertEq(depot.balanceOf(CONDUCTOR_ACCOUNT, ASSET_A), 101, "debt amount not transferred");
+    }
+
+    function test_executeRepay_SetsDebtOfLegToZero() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         (,,,, uint256 debt,,) = conductor.escrowLegs(escrowId, 0);
         assertEq(debt, 0, "debt not zeroed");
     }
 
-    function test_repay_DoesNotReleaseEscrowWhileCounterpartyLegIsUnpaid() public {
+    function test_executeRepay_DoesNotReleaseEscrowWhileCounterpartyLegIsUnpaid() public {
         uint256 escrowId = _escrowedBothCollateralized();
         vm.recordLogs();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 releasedTopic = keccak256("Released(uint256)");
         for (uint256 i; i < logs.length; i++) {
@@ -795,15 +923,14 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         assertEq(accountId, ACCOUNT_A, "escrow released");
     }
 
-    function test_repay_ReleasesEscrowWhenBothLegsArePaid() public {
+    function test_executeRepay_ReleasesEscrowWhenBothLegsArePaid() public {
         uint256 escrowId = _escrowed();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         assertEq(depot.balanceOf(RECEIVER_B, ASSET_A), 100, "counterparty receiver not paid");
         assertEq(depot.balanceOf(RECEIVER_A, ASSET_B), 50, "receiver not paid");
     }
 
-    function test_repay_PaysCounterpartyReceiverAmountLessFeeOnRelease() public {
+    function test_executeRepay_PaysCounterpartyReceiverAmountLessFeeOnRelease() public {
         IDelayedSettlementSwapConductor.DelayedSettlementOrder memory a = _collateralizedOrderA();
         a.sellAmount = 110;
         IDelayedSettlementSwapConductor.DelayedSettlementOrder[] memory orders = _orders(a, _orderB());
@@ -812,13 +939,12 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         IDelayedSettlementSwapConductor.PairedFill memory fill = _pairedFill(110, 50);
         fill.fees = [uint256(10), uint256(0)];
         _settle(orders, _signatures(orders), _pairedFills(fill));
-        vm.prank(ownerA);
-        conductor.repay(1, 0);
+        _facilitatedExecuteRepay(1, 0, ACCOUNT_A);
         assertEq(depot.balanceOf(RECEIVER_B, ASSET_A), 100, "receiver paid without fee deducted");
         assertEq(depot.balanceOf(RECEIVER_A, ASSET_B), 50, "receiver not paid in full");
     }
 
-    function test_repay_PaysFeeToSurplusRecipientAccountOnRelease() public {
+    function test_executeRepay_PaysFeeToSurplusRecipientAccountOnRelease() public {
         IDelayedSettlementSwapConductor.DelayedSettlementOrder memory a = _collateralizedOrderA();
         a.sellAmount = 110;
         IDelayedSettlementSwapConductor.DelayedSettlementOrder[] memory orders = _orders(a, _orderB());
@@ -827,88 +953,76 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         IDelayedSettlementSwapConductor.PairedFill memory fill = _pairedFill(110, 50);
         fill.fees = [uint256(10), uint256(0)];
         _settle(orders, _signatures(orders), _pairedFills(fill));
-        vm.prank(ownerA);
-        conductor.repay(1, 0);
+        _facilitatedExecuteRepay(1, 0, ACCOUNT_A);
         assertEq(depot.balanceOf(SURPLUS, ASSET_A), 10, "fee not paid to surplus recipient");
     }
 
-    function test_repay_ReturnsCollateralToLegAccountOnRelease() public {
+    function test_executeRepay_ReturnsCollateralToLegAccountOnRelease() public {
         uint256 escrowId = _escrowed();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         assertEq(depot.balanceOf(ACCOUNT_A, ASSET_A), 1, "collateral not returned");
     }
 
-    function test_repay_DeletesEscrowLegsAndDeadlineOnRelease() public {
+    function test_executeRepay_DeletesEscrowLegsAndDeadlineOnRelease() public {
         uint256 escrowId = _escrowed();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         _assertEscrowDeleted(escrowId);
     }
 
-    function test_repay_EmitsRepaidEvent() public {
+    function test_executeRepay_EmitsRepaidEvent() public {
         uint256 escrowId = _escrowed();
         vm.expectEmit(address(conductor));
         emit IDelayedSettlementSwapConductor.Repaid(escrowId, 0);
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
     }
 
-    function test_repay_EmitsReleasedEventWhenBothLegsArePaid() public {
+    function test_executeRepay_EmitsReleasedEventWhenBothLegsArePaid() public {
         uint256 escrowId = _escrowed();
         vm.expectEmit(address(conductor));
         emit IDelayedSettlementSwapConductor.Released(escrowId);
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
     }
 
-    function test_repay_RevertIf_EscrowDeadlineHasPassed() public {
+    function test_executeRepay_RevertIf_EscrowDeadlineHasPassed() public {
         uint256 escrowId = _escrowed();
         vm.warp(conductor.escrowDeadline(escrowId) + 1);
         vm.expectRevert(IDelayedSettlementSwapConductor.SettlementPeriodOver.selector);
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
     }
 
-    function test_repay_RevertIf_EscrowDoesNotExist() public {
-        vm.expectRevert(IDelayedSettlementSwapConductor.SettlementPeriodOver.selector);
-        vm.prank(ownerA);
-        conductor.repay(999, 0);
+    function test_executeRepay_RevertIf_EscrowDoesNotExist() public {
+        vm.expectRevert(IDelayedSettlementSwapConductor.NothingOwed.selector);
+        _facilitatedExecuteRepay(999, 0, ACCOUNT_A);
     }
 
-    function test_repay_RevertIf_SenderIsNotLegOwner() public {
+    function test_executeRepay_RevertIf_SenderIsNotLegOwner() public {
         uint256 escrowId = _escrowed();
-        vm.expectRevert(IConductor.NotOwner.selector);
-        vm.prank(stranger);
-        conductor.repay(escrowId, 0);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _facilitatedExecuteRepay(escrowId, 0, TransitAddressLib.formatTransitAddress(uint64(block.chainid), stranger));
     }
 
-    function test_repay_RevertIf_LegAccountIsFrozen() public {
+    function test_executeRepay_RevertIf_LegAccountIsFrozen() public {
         uint256 escrowId = _escrowed();
         _freeze(ownerA);
         vm.expectRevert(abi.encodeWithSelector(IDepot.AccountFrozen.selector, ACCOUNT_A));
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
     }
 
-    function test_repay_RevertIf_LegHasNothingOwed() public {
+    function test_executeRepay_RevertIf_LegHasNothingOwed() public {
         uint256 escrowId = _escrowed();
         vm.expectRevert(IDelayedSettlementSwapConductor.NothingOwed.selector);
-        vm.prank(ownerB);
-        conductor.repay(escrowId, 1);
+        _facilitatedExecuteRepay(escrowId, 1, ACCOUNT_B);
     }
 
-    function test_repay_RevertIf_SideIsOutOfBounds() public {
+    function test_executeRepay_RevertIf_SideIsOutOfBounds() public {
         uint256 escrowId = _escrowed();
         vm.expectRevert(stdError.indexOOBError);
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 2);
+        _facilitatedExecuteRepay(escrowId, 2, ACCOUNT_A);
     }
 
     function test_reclaim_ReturnsAmountAndCollateralToPaidLegAccount() public {
         uint256 escrowId = _escrowedBothCollateralized();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         vm.warp(conductor.escrowDeadline(escrowId) + 1);
         uint256[] memory escrowIds = new uint256[](1);
         escrowIds[0] = escrowId;
@@ -918,8 +1032,7 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
 
     function test_reclaim_ReturnsAmountAndCollateralToFrozenPaidLegAccount() public {
         uint256 escrowId = _escrowedBothCollateralized();
-        vm.prank(ownerA);
-        conductor.repay(escrowId, 0);
+        _facilitatedExecuteRepay(escrowId, 0, ACCOUNT_A);
         _freeze(ownerA);
         vm.warp(conductor.escrowDeadline(escrowId) + 1);
         uint256[] memory escrowIds = new uint256[](1);
@@ -989,6 +1102,90 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         vm.expectEmit(address(conductor));
         emit IDelayedSettlementSwapConductor.Reclaimed(escrowId);
         conductor.reclaim(escrowIds);
+    }
+
+    function test_reclaim_SkipsEscrowWithRepayRequestNotYetEffective() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        uint256 deadline = conductor.escrowDeadline(escrowId);
+        vm.warp(deadline + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        assertEq(conductor.escrowDeadline(escrowId), deadline, "escrow reclaimed before request was effective");
+    }
+
+    function test_reclaim_RepaysEffectiveRequestBeforeReclaiming() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _effectiveRepayRequest(escrowId);
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        assertEq(depot.balanceOf(ACCOUNT_A, ASSET_A), 101, "requesting leg not treated as paid");
+        assertEq(depot.balanceOf(PENALTY, ASSET_A), 0, "requesting leg penalized");
+        assertEq(depot.balanceOf(PENALTY, ASSET_B), 1, "unpaid leg not penalized");
+    }
+
+    function test_reclaim_ReleasesEscrowIfEffectiveRequestPaysAllDebt() public {
+        uint256 escrowId = _escrowed();
+        _effectiveRepayRequest(escrowId);
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        vm.expectEmit(address(conductor));
+        emit IDelayedSettlementSwapConductor.Released(escrowId);
+        conductor.reclaim(escrowIds);
+        assertEq(depot.balanceOf(RECEIVER_B, ASSET_A), 100, "counterparty receiver not paid");
+        assertEq(depot.balanceOf(RECEIVER_A, ASSET_B), 50, "receiver not paid");
+    }
+
+    function test_reclaim_PenalizesLegWhoseEffectiveRequestItCannotPay() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        vm.prank(seeder);
+        depot.transferFrom(ACCOUNT_A, PENALTY, ASSET_A, 100);
+        _advanceEpoch();
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        assertEq(depot.balanceOf(PENALTY, ASSET_A), 101, "unpayable leg collateral not penalized");
+        _assertEscrowDeleted(escrowId);
+    }
+
+    function test_reclaim_ReleasesReservationOfRequestItCannotPay() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        vm.prank(ownerA);
+        conductor.requestRepay(escrowId, 0);
+        vm.prank(seeder);
+        depot.transferFrom(ACCOUNT_A, PENALTY, ASSET_A, 100);
+        _advanceEpoch();
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        _seed(ACCOUNT_A, ASSET_A, 10);
+        assertEq(depot.freeBalanceOf(ACCOUNT_A, ASSET_A), 10, "reservation not released");
+        assertEq(
+            conductor.requestEffectiveAtEpoch(ACCOUNT_A, conductor.repayRequestId(escrowId, 0)),
+            conductor.EXECUTED(),
+            "request not consumed"
+        );
+    }
+
+    function test_reclaim_PenalizesFrozenLegWithEffectiveRequest() public {
+        uint256 escrowId = _escrowedBothCollateralized();
+        _effectiveRepayRequest(escrowId);
+        _freeze(ownerA);
+        vm.warp(conductor.escrowDeadline(escrowId) + 1);
+        uint256[] memory escrowIds = new uint256[](1);
+        escrowIds[0] = escrowId;
+        conductor.reclaim(escrowIds);
+        assertEq(depot.balanceOf(PENALTY, ASSET_A), 1, "frozen leg collateral not penalized");
+        assertEq(depot.balanceOf(ACCOUNT_A, ASSET_A), 100, "frozen leg debt taken");
     }
 
     function test_reclaim_RevertIf_SettlementPeriodIsStillActive() public {

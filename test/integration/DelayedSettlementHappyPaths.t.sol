@@ -92,7 +92,9 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         _relayMessages();
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
-        delayedSettlementSwapConductor.repay(1, 0);
+        delayedSettlementSwapConductor.requestRepay(1, 0);
+        _advanceEpoch();
+        delayedSettlementSwapConductor.executeRepay(1, 0);
 
         assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), COLLATERAL, "alice collateral returned");
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");
@@ -112,7 +114,7 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
         vm.expectRevert(IDelayedSettlementSwapConductor.SettlementPeriodOver.selector);
-        delayedSettlementSwapConductor.repay(1, 0);
+        delayedSettlementSwapConductor.requestRepay(1, 0);
 
         uint256[] memory escrowIds = new uint256[](1);
         escrowIds[0] = 1;
@@ -141,11 +143,14 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         _relayMessages();
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
-        delayedSettlementSwapConductor.repay(1, 0);
+        delayedSettlementSwapConductor.requestRepay(1, 0);
+        vm.prank(bob);
+        delayedSettlementSwapConductor.requestRepay(1, 1);
+        _advanceEpoch();
+        delayedSettlementSwapConductor.executeRepay(1, 0);
         assertTrue(delayedSettlementSwapConductor.escrowDeadline(1) != 0, "escrow open until bob repays");
 
-        vm.prank(bob);
-        delayedSettlementSwapConductor.repay(1, 1);
+        delayedSettlementSwapConductor.executeRepay(1, 1);
 
         assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), COLLATERAL, "alice collateral returned");
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");
@@ -164,7 +169,9 @@ contract DelayedSettlementHappyPaths is SharedSetup {
 
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
-        delayedSettlementSwapConductor.repay(1, 0);
+        delayedSettlementSwapConductor.requestRepay(1, 0);
+        _advanceEpoch();
+        delayedSettlementSwapConductor.executeRepay(1, 0);
 
         vm.warp(block.timestamp + PERIOD + 1);
         uint256[] memory escrowIds = new uint256[](1);
@@ -178,8 +185,8 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         assertEq(_balance(HUB_CHAIN_ID, PENALTY_RECIPIENT, HUB_CHAIN_ID, usdc), COLLATERAL, "bob collateral forfeited");
     }
 
-    /// @dev alice owns a Robinhood account and never signs: she pre-approves and later repays with Generic messages
-    /// from Robinhood.
+    /// @dev alice owns a Robinhood account and never signs: she pre-approves and later requests repayment with Generic
+    /// messages from Robinhood.
     function testSpokeOwnerPreApprovesAndRepaysFromSpoke() public {
         _deposit(alice, SPOKE, robinhoodUsdg, SPOKE, COLLATERAL);
         _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, AMOUNT);
@@ -197,8 +204,11 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         assertEq(_balance(SPOKE, alice, SPOKE), 0, "alice posted collateral");
 
         _deposit(alice, SPOKE, robinhoodUsdg, SPOKE, AMOUNT);
-        _genericFromSpoke(abi.encodeCall(DelayedSettlementSwapConductor.repay, (1, 0)));
+        _genericFromSpoke(abi.encodeCall(DelayedSettlementSwapConductor.requestRepay, (1, 0)));
         _relayMessages();
+        vm.chainId(HUB_CHAIN_ID);
+        _advanceEpoch();
+        delayedSettlementSwapConductor.executeRepay(1, 0);
 
         assertEq(_balance(SPOKE, alice, SPOKE), COLLATERAL, "alice collateral returned");
         assertEq(_balance(SPOKE, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");

@@ -8,9 +8,9 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /**
  * @title RequestConductor
- * @notice Base for conductors whose user actions (withdrawals, transfers) must be requested one epoch before they
- * execute. A request reserves the funds in the Depot so they cannot be spent elsewhere; once the epoch arrives anyone
- * may execute it, which releases the reservation and consumes the request.
+ * @notice Base for conductors whose user actions (withdrawals, transfers, repays) must be requested one epoch before
+ * they execute. A request reserves the funds in the Depot so they cannot be spent elsewhere; once the epoch arrives
+ * anyone may execute it, which releases the reservation and consumes the request.
  * @dev The delay keeps user-initiated outflows from invalidating a solver batch already in flight. A facilitated owner
  * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
  * @custom:security-contact security@paxoslabs.com
