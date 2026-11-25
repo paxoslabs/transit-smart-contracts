@@ -45,6 +45,10 @@ interface IUserConductor is IRequestConductor {
     /// @param request Transfer request.
     function executeTransfer(TransferRequest calldata request) external;
 
+    /// @notice Cancel an effective transfer request, releasing its reservation. The sender must be the owner.
+    /// @param request Transfer request.
+    function cancelTransfer(TransferRequest calldata request) external;
+
     /// @notice Hash of a transfer request, used as its request id.
     /// @param request Transfer request.
     /// @return Request id.

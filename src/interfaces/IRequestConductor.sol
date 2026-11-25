@@ -25,6 +25,10 @@ interface IRequestConductor {
     /// @param requestId Request id.
     event RequestVoided(bytes32 indexed requestId);
 
+    /// @notice A request was consumed by its owner without moving funds.
+    /// @param requestId Request id.
+    event RequestCancelled(bytes32 indexed requestId);
+
     /// @notice The request was already made or already executed.
     error RequestReplay();
 

@@ -12,12 +12,7 @@ import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
-import {
-    MockERC20,
-    MockMessagingAdapter,
-    MockHubWarehouseConductor,
-    MockTarget
-} from "test/mocks/TurnstileMocks.sol";
+import { MockERC20, MockMessagingAdapter, MockHubWarehouseConductor, MockTarget } from "test/mocks/TurnstileMocks.sol";
 
 contract TurnstileUnitTest is Test {
 

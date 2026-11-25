@@ -54,6 +54,16 @@ contract UserConductor is IUserConductor, RequestConductor {
     }
 
     /// @inheritdoc IUserConductor
+    function cancelTransfer(TransferRequest calldata request) external {
+        _cancel(
+            TransitAddressLib.formatTransitAddress(request.ownerChainId, request.owner),
+            digestTransferRequest(request),
+            TransitAddressLib.formatTransitAddress(request.assetChainId, request.asset),
+            request.amount
+        );
+    }
+
+    /// @inheritdoc IUserConductor
     function digestTransferRequest(TransferRequest memory request) public pure returns (bytes32) {
         return keccak256(abi.encode(Typehashes.TRANSFER_REQUEST, request));
     }

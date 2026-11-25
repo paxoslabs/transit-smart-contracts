@@ -42,6 +42,16 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     }
 
     /// @inheritdoc IHubWarehouseConductor
+    function cancelWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
+        _cancel(
+            TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
+            hashWithdrawalAction(action),
+            TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
+            action.amount
+        );
+    }
+
+    /// @inheritdoc IHubWarehouseConductor
     function receiveDeposit(
         uint64 sourceChainId,
         address asset,

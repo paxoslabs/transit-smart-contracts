@@ -50,6 +50,13 @@ abstract contract RequestConductor is IRequestConductor, ConductorGatedByTurnsti
         emit Consumed(ownerAccountId, requestId);
     }
 
+    function _cancel(bytes28 ownerAccountId, bytes32 requestId, bytes28 assetId, uint256 amount) internal {
+        if (_senderAccountId() != ownerAccountId) revert NotOwner();
+        if (requestEffectiveAtEpoch[ownerAccountId][requestId] == 0) revert NotEffective();
+        _consume(ownerAccountId, requestId, assetId, amount);
+        emit RequestCancelled(requestId);
+    }
+
     function _executableAmount(
         bytes28 accountId,
         bytes28 assetId,

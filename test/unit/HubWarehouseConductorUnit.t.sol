@@ -112,6 +112,15 @@ contract HubWarehouseConductorUnitTest is Test {
         _advanceEpoch();
     }
 
+    function _relay(bytes memory data, bytes28 accountId, bool facilitated) internal {
+        vm.prank(turnstile);
+        (bool ok, bytes memory result) =
+            address(conductor).call(abi.encodePacked(data, accountId, facilitated ? FACILITATED_FLAG : bytes4(0)));
+        if (!ok) {
+            assembly { revert(add(result, 32), mload(result)) }
+        }
+    }
+
     function _execute(
         ITurnstile.WithdrawalAction memory a,
         bytes28 accountId,
@@ -190,6 +199,117 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.expectRevert(IRequestConductor.RequestReplay.selector);
         vm.prank(owner);
         conductor.requestWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_ReleasesReservationOfCancelledRequest() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_cancelWithdrawal_KeepsOwnerBalance() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "owner balance burned");
+    }
+
+    function test_cancelWithdrawal_SetsRequestEffectiveAtEpochToExecuted() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
+    }
+
+    function test_cancelWithdrawal_AcceptsOwnerRelayedThroughTurnstile() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.ownerChainId = REMOTE_CHAIN;
+        bytes28 remoteAccount = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        _relay(abi.encodeCall(IHubWarehouseConductor.requestWithdrawal, (a)), remoteAccount, false);
+        _advanceEpoch();
+        _relay(abi.encodeCall(IHubWarehouseConductor.cancelWithdrawal, (a)), remoteAccount, false);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(remoteAccount, requestId), conductor.EXECUTED(), "relayed cancel failed"
+        );
+    }
+
+    function test_cancelWithdrawal_EmitsConsumedEvent() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_EmitsRequestCancelledEvent() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestCancelled(requestId);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_SenderIsNotRequestOwner() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.prank(stranger);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasNeverMade() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasNeverMadeAndSenderIsFacilitatedOwner() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _relay(abi.encodeCall(IHubWarehouseConductor.cancelWithdrawal, (a)), OWNER_ACCOUNT, true);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestEpochHasNotArrived() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.prank(owner);
+        conductor.requestWithdrawal(a);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasAlreadyCancelled() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasAlreadyExecuted() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        _execute(a, OWNER_ACCOUNT, false);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
     }
 
     function test_receiveDeposit_MintsSourceChainAssetToRecipient() public {
@@ -434,6 +554,16 @@ contract HubWarehouseConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
         _execute(a, OWNER_ACCOUNT, false);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        _execute(a, OWNER_ACCOUNT, false);
+    }
+
+    function test_executeWithdrawal_RevertIf_RequestWasCancelled() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
         vm.expectRevert(IRequestConductor.RequestReplay.selector);
         _execute(a, OWNER_ACCOUNT, false);
     }

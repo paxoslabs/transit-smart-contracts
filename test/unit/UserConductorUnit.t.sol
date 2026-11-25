@@ -420,6 +420,127 @@ contract UserConductorUnitTest is Test {
         conductor.executeTransfer(r);
     }
 
+    function test_executeTransfer_RevertIf_RequestWasCancelled() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        conductor.executeTransfer(r);
+    }
+
+    function test_cancelTransfer_ReleasesReservationOfCancelledRequest() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_cancelTransfer_KeepsOwnerBalance() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "owner balance moved");
+    }
+
+    function test_cancelTransfer_SetsRequestEffectiveAtEpochToExecuted() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
+    }
+
+    function test_cancelTransfer_AcceptsOwnerRelayedThroughTurnstile() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.ownerChainId = REMOTE_CHAIN;
+        bytes28 remoteAccount = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        _relay(abi.encodeCall(IUserConductor.requestTransfer, (r)), remoteAccount, false);
+        _advanceEpoch();
+        _relay(abi.encodeCall(IUserConductor.cancelTransfer, (r)), remoteAccount, false);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(remoteAccount, requestId), conductor.EXECUTED(), "relayed cancel failed"
+        );
+    }
+
+    function test_cancelTransfer_EmitsConsumedEvent() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_EmitsRequestCancelledEvent() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.digestTransferRequest(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestCancelled(requestId);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_SenderIsNotRequestOwner() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.prank(stranger);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasNeverMade() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasNeverMadeAndSenderIsFacilitatedOwner() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _relay(abi.encodeCall(IUserConductor.cancelTransfer, (r)), OWNER_ACCOUNT, true);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestEpochHasNotArrived() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.prank(owner);
+        conductor.requestTransfer(r);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasAlreadyCancelled() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasAlreadyExecuted() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
     function test_digestTransferRequest_ReturnsHashOfTypehashAndRequest() public view {
         IUserConductor.TransferRequest memory r = _transferRequest();
         bytes32 expected = keccak256(

@@ -18,6 +18,10 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param action Withdrawal action.
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
 
+    /// @notice Cancel an effective withdrawal request, releasing its reservation. The sender must be the owner.
+    /// @param action Withdrawal action.
+    function cancelWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
+
     /// @notice Credit a deposit received by the Turnstile. Mints to the recipient, then transfers the facilitation fee
     /// from the recipient to the fee receiver. A frozen sender's deposit is minted whole to its own account, with no
     /// fee.
