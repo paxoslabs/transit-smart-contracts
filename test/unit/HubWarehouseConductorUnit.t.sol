@@ -13,7 +13,8 @@ import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.sol";
 import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
+import { IConductor } from "src/interfaces/IConductor.sol";
 
 contract HubWarehouseConductorUnitTest is Test {
 
@@ -196,7 +197,7 @@ contract HubWarehouseConductorUnitTest is Test {
 
     function test_requestWithdrawal_RevertIf_SenderIsNotActionOwner() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.requestWithdrawal(a);
     }
@@ -274,7 +275,7 @@ contract HubWarehouseConductorUnitTest is Test {
     function test_cancelWithdrawal_RevertIf_SenderIsNotRequestOwner() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _requestAndAdvance(a);
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.cancelWithdrawal(a);
     }

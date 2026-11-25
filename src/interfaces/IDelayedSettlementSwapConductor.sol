@@ -2,12 +2,13 @@
 pragma solidity 0.8.37;
 
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
+import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /// @title Transit Terminal DelayedSettlementSwapConductor
 /// @notice Order types and entrypoints for swaps where one side may settle its payment after a delay, backed by
 /// collateral.
 /// @custom:security-contact security@paxoslabs.com
-interface IDelayedSettlementSwapConductor is ISwapConductor {
+interface IDelayedSettlementSwapConductor is ISwapConductor, IRequestConductor {
 
     /// @notice A user's signed order.
     /// @param ownerChainId Owner's account chainId.
@@ -163,12 +164,19 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
     /// @param order Order to approve; the sender must be its owner.
     function preApprove(DelayedSettlementOrder calldata order) external;
 
-    /// @notice Repay a leg of an escrow in full. Releases the escrow once both sides are paid.
+    /// @notice Request to repay a leg of an escrow in full, reserving its debt from the next epoch.
     /// @param escrowId Escrow id.
     /// @param side Side to repay (0 or 1); the sender must own it.
-    function repay(uint256 escrowId, uint256 side) external;
+    function requestRepay(uint256 escrowId, uint256 side) external;
 
-    /// @notice Unwind escrows whose settlement period ended without full repayment.
+    /// @notice Repay a leg of an escrow in full. Releases the escrow once both sides are paid. Anyone may execute an
+    /// effective repay request; a facilitated owner may repay without a request before the escrow deadline.
+    /// @param escrowId Escrow id.
+    /// @param side Side to repay (0 or 1).
+    function executeRepay(uint256 escrowId, uint256 side) external;
+
+    /// @notice Unwind escrows whose settlement period ended without full repayment. Effective repay requests are
+    /// executed first when their account can pay; escrows with a repay request not yet effective are skipped.
     /// @param escrowIds Escrows to reclaim.
     function reclaim(uint256[] calldata escrowIds) external;
 
@@ -184,6 +192,12 @@ interface IDelayedSettlementSwapConductor is ISwapConductor {
         PairedFill[] calldata fills
     )
         external;
+
+    /// @notice Request id of a leg's repay request.
+    /// @param escrowId Escrow id.
+    /// @param side Side (0 or 1).
+    /// @return Request id.
+    function repayRequestId(uint256 escrowId, uint256 side) external pure returns (bytes32);
 
     /// @notice EIP-712 hash of an order, used as its id.
     /// @param order Order to hash.

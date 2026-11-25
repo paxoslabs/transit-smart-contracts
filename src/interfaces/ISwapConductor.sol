@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+import { IConductor } from "src/interfaces/IConductor.sol";
+
 /// @title Transit Terminal SwapConductor
 /// @notice Shared state, events and errors of swap conductors: fill progress, pre-approvals and owner cancellations.
 /// @custom:security-contact security@paxoslabs.com
-interface ISwapConductor {
+interface ISwapConductor is IConductor {
 
     /// @notice An owner requested an order's cancellation.
     /// @param ownerAccountId Account that cancelled.
@@ -33,9 +35,6 @@ interface ISwapConductor {
     /// @notice Lengths of parallel arrays do not match.
     error LengthMismatch();
 
-    /// @notice The sender is not the order's owner.
-    error NotOwner();
-
     /// @notice An order has expired.
     error Expired(bytes32 id);
 
@@ -53,10 +52,6 @@ interface ISwapConductor {
 
     /// @notice An account is not a valid transit address.
     error InvalidAccount();
-
-    /// @notice The Depot ledger settlements are applied to.
-    /// @return Depot address.
-    function DEPOT() external view returns (address);
 
     /// @notice Account credited with settlement fees.
     /// @return Surplus recipient account id.

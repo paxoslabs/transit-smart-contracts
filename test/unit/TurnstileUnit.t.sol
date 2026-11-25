@@ -7,7 +7,7 @@ import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessMa
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { Turnstile } from "src/turnstile/Turnstile.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
 import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { AccessManager } from "@openzeppelin/contracts/access/manager/AccessManager.sol";
 import { Roles } from "src/helpers/Roles.sol";

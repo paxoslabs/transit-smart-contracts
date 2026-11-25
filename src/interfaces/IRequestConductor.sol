@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
+import { IConductor } from "src/interfaces/IConductor.sol";
+
 /// @title Transit Terminal RequestConductor
 /// @notice Shared state, events and errors of conductors whose actions are requested one epoch before execution.
 /// @custom:security-contact security@paxoslabs.com
-interface IRequestConductor {
+interface IRequestConductor is IConductor {
 
     /// @notice A request was made and its funds reserved.
     /// @param accountId Requesting account.
@@ -35,16 +37,9 @@ interface IRequestConductor {
     /// @notice The request is not effective yet, or was never made.
     error NotEffective();
 
-    /// @notice The sender is not the request's owner.
-    error NotOwner();
-
     /// @notice Sentinel stored in requestEffectiveAtEpoch once a request has been consumed.
     /// @return type(uint256).max.
     function EXECUTED() external view returns (uint256);
-
-    /// @notice The Depot ledger requests reserve from.
-    /// @return Depot address.
-    function DEPOT() external view returns (address);
 
     /// @notice Epoch from which a request may be executed. Two special values: 0 means no request was made, and
     /// EXECUTED (type(uint256).max) means it has been consumed. Any other value is a pending request's epoch.

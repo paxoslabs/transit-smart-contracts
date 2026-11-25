@@ -16,7 +16,7 @@ import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { IMessagingAdapter } from "src/interfaces/IMessagingAdapter.sol";
 import { IMessagingReceiver } from "src/interfaces/IMessagingReceiver.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
 
 /**
  * @title Turnstile
@@ -568,10 +568,10 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         }
     }
 
-    /// @dev Every message-execution or conductor call must build its calldata here. ConductorGatedByTurnstile reads
+    /// @dev Every message-execution or conductor call must build its calldata here. Conductor reads
     /// the sender from the last 32 bytes whenever msg.sender is the Turnstile, so a call without this suffix would
     /// have its trailing arguments misread as the sender. Token calls and typed calls to the MessagingAdapter (not
-    /// ConductorGatedByTurnstile) are exempt.
+    /// Conductor) are exempt.
     function _buildTurnstileCallData(
         bytes memory data,
         bytes28 accountId,

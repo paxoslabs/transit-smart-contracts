@@ -13,7 +13,8 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { SpotSwapConductor } from "src/conductor/SpotSwapConductor.sol";
 import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
+import { IConductor } from "src/interfaces/IConductor.sol";
 
 contract SpotSwapConductorUnitTest is Test {
 
@@ -379,7 +380,7 @@ contract SpotSwapConductorUnitTest is Test {
     }
 
     function test_preApprove_RevertIf_SenderIsNotOrderOwner() public {
-        vm.expectRevert(ISwapConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.preApprove(_orderA());
     }

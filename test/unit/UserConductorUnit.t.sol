@@ -11,7 +11,8 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { UserConductor } from "src/conductor/UserConductor.sol";
 import { IUserConductor } from "src/interfaces/IUserConductor.sol";
 import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
+import { IConductor } from "src/interfaces/IConductor.sol";
 
 contract UserConductorUnitTest is Test {
 
@@ -191,7 +192,7 @@ contract UserConductorUnitTest is Test {
 
     function test_requestTransfer_RevertIf_SenderIsNotRequestOwner() public {
         IUserConductor.TransferRequest memory r = _transferRequest();
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.requestTransfer(r);
     }
@@ -494,7 +495,7 @@ contract UserConductorUnitTest is Test {
     function test_cancelTransfer_RevertIf_SenderIsNotRequestOwner() public {
         IUserConductor.TransferRequest memory r = _transferRequest();
         _requestAndAdvance(r);
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.cancelTransfer(r);
     }

@@ -171,10 +171,11 @@ abstract contract SharedSetup is Test {
         spotSels[1] = SwapConductor.requestOrderCancellation.selector;
         turnstile.setRoutable(address(spotSwapConductor), spotSels, true);
 
-        bytes4[] memory delayedSels = new bytes4[](3);
+        bytes4[] memory delayedSels = new bytes4[](4);
         delayedSels[0] = DelayedSettlementSwapConductor.preApprove.selector;
         delayedSels[1] = SwapConductor.requestOrderCancellation.selector;
-        delayedSels[2] = DelayedSettlementSwapConductor.repay.selector;
+        delayedSels[2] = DelayedSettlementSwapConductor.executeRepay.selector;
+        delayedSels[3] = DelayedSettlementSwapConductor.requestRepay.selector;
         turnstile.setRoutable(address(delayedSettlementSwapConductor), delayedSels, true);
     }
 

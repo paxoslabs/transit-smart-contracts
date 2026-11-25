@@ -6,6 +6,8 @@ import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
+import { RequestConductor } from "src/conductor/RequestConductor.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 
 /**
@@ -16,7 +18,7 @@ import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettleme
  * this time. A pair with no collateralized order is fully funded at fill and is released in the same settle.
  * @custom:security-contact security@paxoslabs.com
  */
-contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor {
+contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, SwapConductor, RequestConductor {
 
     /// @inheritdoc IDelayedSettlementSwapConductor
     uint256 public constant FILL_RATIO = 100;
@@ -40,7 +42,8 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         bytes28 _penaltyRecipientAccountId,
         address _turnstile
     )
-        SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
+        SwapConductor(_authority, _surplusRecipientAccountId)
+        Conductor(_depot, _turnstile)
     {
         if (!TransitAddressLib.isValid(_penaltyRecipientAccountId)) revert InvalidAccount();
         PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;
@@ -62,21 +65,39 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     }
 
     /// @inheritdoc IDelayedSettlementSwapConductor
-    function repay(uint256 escrowId, uint256 side) external {
+    function requestRepay(uint256 escrowId, uint256 side) external {
         if (block.timestamp > escrowDeadline[escrowId]) revert SettlementPeriodOver();
-        // side will revert with out of bounds if > 1
         Leg storage leg = escrowLegs[escrowId][side];
-        if (_senderAccountId() != leg.accountId) revert NotOwner();
         uint256 amount = leg.debt;
+        // Ensures every pending repay request reserves a non-zero debt
         if (amount == 0) revert NothingOwed();
-        leg.debt = 0;
+        _request(leg.accountId, repayRequestId(escrowId, side), leg.assetId, amount);
+    }
 
-        IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
-        emit Repaid(escrowId, side);
+    /// @inheritdoc IDelayedSettlementSwapConductor
+    function executeRepay(uint256 escrowId, uint256 side) external {
+        Leg storage leg = escrowLegs[escrowId][side];
+        uint256 amount = leg.debt;
+        // Guards the facilitated path, which skips requestRepay, against a zero repay and a false Repaid event
+        if (amount == 0) revert NothingOwed();
+        bytes32 requestId = repayRequestId(escrowId, side);
+        if (requestEffectiveAtEpoch[leg.accountId][requestId] == 0 && block.timestamp > escrowDeadline[escrowId]) {
+            revert SettlementPeriodOver();
+        }
+        _consume(leg.accountId, requestId, leg.assetId, amount);
+        _repayLeg(escrowId, side);
 
         // since side must be 0 or 1: 1 - side results in whichever number side is not
-        Leg storage counterparty = escrowLegs[escrowId][1 - side];
-        if (counterparty.debt == 0) _release(escrowId);
+        if (escrowLegs[escrowId][1 - side].debt == 0) _release(escrowId);
+    }
+
+    /// @dev Moves the leg's full debt from its account into the escrow account and marks the leg paid.
+    function _repayLeg(uint256 escrowId, uint256 side) internal {
+        Leg storage leg = escrowLegs[escrowId][side];
+        uint256 amount = leg.debt;
+        leg.debt = 0;
+        IDepot(DEPOT).transferFrom(leg.accountId, _conductorAccountId(), leg.assetId, amount);
+        emit Repaid(escrowId, side);
     }
 
     /// @inheritdoc IDelayedSettlementSwapConductor
@@ -93,7 +114,14 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         if (deadline == 0) return;
         // Cannot reclaim until escrowDeadline has passed
         if (block.timestamp <= deadline) revert SettlementPeriodActive();
+        if (!_repayRequestResolvable(escrowId, 0) || !_repayRequestResolvable(escrowId, 1)) return;
+        _resolveRepayRequest(escrowId, 0);
+        _resolveRepayRequest(escrowId, 1);
         Leg[2] memory legs = escrowLegs[escrowId];
+        if (legs[0].debt == 0 && legs[1].debt == 0) {
+            _release(escrowId);
+            return;
+        }
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
 
@@ -102,6 +130,31 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         _reclaimLeg(legs[1]);
 
         emit Reclaimed(escrowId);
+    }
+
+    /// @dev True when reclaim can settle the leg's repay request now: no request, already consumed, or effective at
+    /// the current settlement epoch.
+    function _repayRequestResolvable(uint256 escrowId, uint256 side) internal view returns (bool) {
+        uint256 effectiveAtEpoch =
+            requestEffectiveAtEpoch[escrowLegs[escrowId][side].accountId][repayRequestId(escrowId, side)];
+        return effectiveAtEpoch == EXECUTED || IDepot(DEPOT).settlementEpoch() >= effectiveAtEpoch;
+    }
+
+    /// @dev Acts on a pending repay request: consumes it, releasing its reservation, then repays the leg when its
+    /// account is unfrozen and its free balance covers the debt. The request must be effective (see
+    /// _repayRequestResolvable).
+    function _resolveRepayRequest(uint256 escrowId, uint256 side) internal {
+        Leg storage leg = escrowLegs[escrowId][side];
+        bytes32 requestId = repayRequestId(escrowId, side);
+        uint256 effectiveAtEpoch = requestEffectiveAtEpoch[leg.accountId][requestId];
+        if (effectiveAtEpoch == 0 || effectiveAtEpoch == EXECUTED) return;
+        _consume(leg.accountId, requestId, leg.assetId, leg.debt);
+        IDepot depot = IDepot(DEPOT);
+        if (
+            depot.addressFreezeList().isFrozen(leg.accountId)
+                || depot.freeBalanceOf(leg.accountId, leg.assetId) < leg.debt
+        ) return;
+        _repayLeg(escrowId, side);
     }
 
     /// @dev Helper used to reclaim a single leg. Run for both legs upon _reclaim
@@ -355,6 +408,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     }
 
     // ========================================= VIEWS =========================================
+
+    /// @inheritdoc IDelayedSettlementSwapConductor
+    function repayRequestId(uint256 escrowId, uint256 side) public pure returns (bytes32) {
+        return keccak256(abi.encode(escrowId, side));
+    }
 
     /// @inheritdoc IDelayedSettlementSwapConductor
     function hashOrder(DelayedSettlementOrder memory order) public view returns (bytes32) {

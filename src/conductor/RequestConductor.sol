@@ -3,32 +3,25 @@ pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
-import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 
 /**
  * @title RequestConductor
- * @notice Base for conductors whose user actions (withdrawals, transfers) must be requested one epoch before they
- * execute. A request reserves the funds in the Depot so they cannot be spent elsewhere; once the epoch arrives anyone
- * may execute it, which releases the reservation and consumes the request.
+ * @notice Base for conductors whose user actions (withdrawals, transfers, repays) must be requested one epoch before
+ * they execute. A request reserves the funds in the Depot so they cannot be spent elsewhere; once the epoch arrives
+ * anyone may execute it, which releases the reservation and consumes the request.
  * @dev The delay keeps user-initiated outflows from invalidating a solver batch already in flight. A facilitated owner
  * may skip the request and execute immediately, as the facilitator is trusted to coordinate with solvers.
  * @custom:security-contact security@paxoslabs.com
  */
-abstract contract RequestConductor is IRequestConductor, ConductorGatedByTurnstile {
+abstract contract RequestConductor is IRequestConductor, Conductor {
 
     /// @inheritdoc IRequestConductor
     uint256 public constant EXECUTED = type(uint256).max;
 
     /// @inheritdoc IRequestConductor
-    address public immutable DEPOT;
-
-    /// @inheritdoc IRequestConductor
     mapping(bytes28 accountId => mapping(bytes32 requestId => uint256 effectiveAtEpoch)) public requestEffectiveAtEpoch;
-
-    constructor(address _depot, address _turnstile) ConductorGatedByTurnstile(_turnstile) {
-        DEPOT = _depot;
-    }
 
     function _request(bytes28 ownerAccountId, bytes32 requestId, bytes28 assetId, uint256 amount) internal {
         bytes28 senderAccountId = _senderAccountId();
