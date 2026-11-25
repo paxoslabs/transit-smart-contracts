@@ -17,6 +17,8 @@ import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
  */
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
+    mapping(uint64 chainId => bytes4) public requestedFinality;
+
     constructor(
         address _authority,
         address _localTurnstile,
@@ -26,6 +28,13 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         MessagingAdapter(_authority, _localTurnstile, _hubChainId)
         CCIPReceiver(_router)
     { }
+
+    /// @dev Receivers accept only WAIT_FOR_FINALITY_FLAG (0x00000000) and WAIT_FOR_SAFE_FLAG (0x00010000). Any other
+    /// value reverts on delivery, and the message stays stuck at the bridge. WAIT_FOR_SAFE_FLAG sends revert unless the
+    /// lane allows `safe`.
+    function setRequestedFinality(uint64 chainId, bytes4 finality) external restricted {
+        requestedFinality[chainId] = finality;
+    }
 
     function getCCVsAndFinalityConfig(
         uint64,
@@ -42,12 +51,13 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         )
     {
         // No CCIP lane allows `safe` at time of writing (2026-11), and sends request full finality. Accepting `safe`
-        // lets a peer be redeployed to send `safe` once lanes allow it, without redeploying every receiving adapter.
+        // lets a peer's requestedFinality be set to `safe` once lanes allow it, without redeploying every receiving
+        // adapter.
         return (new address[](0), new address[](0), 0, FinalityCodec.WAIT_FOR_SAFE_FLAG);
     }
 
     function _quote(
-        uint64,
+        uint64 chainId,
         uint64 gasLimit,
         PeerConfig memory peer,
         bytes calldata payload
@@ -57,13 +67,12 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (uint256 bridgeFee)
     {
-        return
-            IRouterClient(getRouter())
-                .getFee(SafeCastLib.toUint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
+        return IRouterClient(getRouter())
+            .getFee(SafeCastLib.toUint64(peer.remoteId), _buildMessage(chainId, peer, gasLimit, payload));
     }
 
     function _send(
-        uint64,
+        uint64 chainId,
         uint64 gasLimit,
         PeerConfig memory peer,
         bytes calldata payload
@@ -75,7 +84,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         // The router wraps and keeps all of msg.value (underpayment reverts), so overpayment is not refunded and no
         // ETH comes back to this adapter. Overpaid fees go to Chainlink's fee aggregator and are not recoverable.
         return IRouterClient(getRouter()).ccipSend{ value: msg.value }(
-            SafeCastLib.toUint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
+            SafeCastLib.toUint64(peer.remoteId), _buildMessage(chainId, peer, gasLimit, payload)
         );
     }
 
@@ -83,16 +92,17 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         _receive(chainIdForRemoteId[message.sourceChainSelector], bytes32(message.sender), message.data);
     }
 
-    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting full finality, which
-    /// every lane allows. V3 has no ordering flag; messages don't need ordering. V3's gasLimit is uint32, so a larger
-    /// gasLimit reverts.
+    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the chain's
+    /// requestedFinality (default full finality, which every lane allows). V3 has no ordering flag; messages don't need
+    /// ordering. V3's gasLimit is uint32, so a larger gasLimit reverts.
     function _buildMessage(
+        uint64 chainId,
         PeerConfig memory peer,
         uint64 gasLimit,
         bytes calldata payload
     )
         internal
-        pure
+        view
         returns (Client.EVM2AnyMessage memory)
     {
         return Client.EVM2AnyMessage({
@@ -101,7 +111,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
             extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(
-                SafeCastLib.toUint32(gasLimit), FinalityCodec.WAIT_FOR_FINALITY_FLAG
+                SafeCastLib.toUint32(gasLimit), requestedFinality[chainId]
             )
         });
     }

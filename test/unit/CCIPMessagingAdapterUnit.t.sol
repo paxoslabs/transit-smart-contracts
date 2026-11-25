@@ -7,6 +7,7 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceiver.sol";
 import { IAny2EVMMessageReceiver } from "@chainlink/contracts-ccip/interfaces/IAny2EVMMessageReceiver.sol";
 import { IAny2EVMMessageReceiverV2 } from "@chainlink/contracts-ccip/interfaces/IAny2EVMMessageReceiverV2.sol";
+import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCodec.sol";
 import { FinalityCodec } from "@chainlink/contracts-ccip/libraries/FinalityCodec.sol";
@@ -43,8 +44,9 @@ contract CCIPMessagingAdapterUnitTest is Test {
         router = new MockCCIPRouter();
         adapter = new CCIPMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN, address(router));
 
-        bytes4[] memory selectors = new bytes4[](1);
+        bytes4[] memory selectors = new bytes4[](2);
         selectors[0] = MessagingAdapter.setPeer.selector;
+        selectors[1] = CCIPMessagingAdapter.setRequestedFinality.selector;
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(adapter), selectors, Roles.ADMIN);
@@ -89,6 +91,20 @@ contract CCIPMessagingAdapterUnitTest is Test {
         new CCIPMessagingAdapter(address(authority), address(turnstile), HUB_CHAIN, address(0));
     }
 
+    function test_setRequestedFinality_SetsRequestedFinality() public {
+        vm.prank(admin);
+        adapter.setRequestedFinality(REMOTE_CHAIN, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+        assertEq(
+            adapter.requestedFinality(REMOTE_CHAIN), FinalityCodec.WAIT_FOR_SAFE_FLAG, "requested finality not stored"
+        );
+    }
+
+    function test_setRequestedFinality_RevertIf_CallerIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        adapter.setRequestedFinality(REMOTE_CHAIN, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+    }
+
     function test_send_CallsCcipSendWithRemoteIdAsDestinationChainSelector() public {
         _send(GAS_LIMIT);
         assertEq(router.lastDestinationChainSelector(), REMOTE_SELECTOR, "destination chain selector not remoteId");
@@ -122,6 +138,17 @@ contract CCIPMessagingAdapterUnitTest is Test {
             router.lastExtraArgs(),
             ExtraArgsCodec._getBasicEncodedExtraArgsV3(uint32(GAS_LIMIT), FinalityCodec.WAIT_FOR_FINALITY_FLAG),
             "extraArgs not V3 with gas limit and full finality"
+        );
+    }
+
+    function test_send_SetsExtraArgsV3WithRequestedFinality() public {
+        vm.prank(admin);
+        adapter.setRequestedFinality(REMOTE_CHAIN, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+        _send(GAS_LIMIT);
+        assertEq(
+            router.lastExtraArgs(),
+            ExtraArgsCodec._getBasicEncodedExtraArgsV3(uint32(GAS_LIMIT), FinalityCodec.WAIT_FOR_SAFE_FLAG),
+            "extraArgs not V3 with gas limit and requested finality"
         );
     }
 
@@ -164,6 +191,24 @@ contract CCIPMessagingAdapterUnitTest is Test {
             adapter.quote(REMOTE_CHAIN, GAS_LIMIT, payload),
             router.getFee(REMOTE_SELECTOR, message),
             "fee not router fee for built message"
+        );
+    }
+
+    function test_quote_ReturnsRouterFeeForRequestedFinality() public {
+        vm.prank(admin);
+        adapter.setRequestedFinality(REMOTE_CHAIN, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+        router.setFee(1 ether);
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: abi.encode(peer),
+            data: payload,
+            tokenAmounts: new Client.EVMTokenAmount[](0),
+            feeToken: address(0),
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(uint32(GAS_LIMIT), FinalityCodec.WAIT_FOR_SAFE_FLAG)
+        });
+        assertEq(
+            adapter.quote(REMOTE_CHAIN, GAS_LIMIT, payload),
+            router.getFee(REMOTE_SELECTOR, message),
+            "fee not router fee for message with requested finality"
         );
     }
 
@@ -212,6 +257,18 @@ contract CCIPMessagingAdapterUnitTest is Test {
             requestedFinality == FinalityCodec.WAIT_FOR_FINALITY_FLAG
                 || (requestedFinality & allowedFinality) == requestedFinality,
             "requested finality not allowed by receiver"
+        );
+    }
+
+    function test_getCCVsAndFinalityConfig_AllowsSafeRequestedBySend() public {
+        vm.prank(admin);
+        adapter.setRequestedFinality(REMOTE_CHAIN, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+        _send(GAS_LIMIT);
+        (,,, bytes4 allowedFinality) = adapter.getCCVsAndFinalityConfig(REMOTE_SELECTOR, abi.encode(peerAddress));
+        bytes4 requestedFinality = _requestedFinality(router.lastExtraArgs());
+        assertEq(requestedFinality, FinalityCodec.WAIT_FOR_SAFE_FLAG, "requested finality not WAIT_FOR_SAFE_FLAG");
+        assertTrue(
+            (requestedFinality & allowedFinality) == requestedFinality, "requested finality not allowed by receiver"
         );
     }
 
