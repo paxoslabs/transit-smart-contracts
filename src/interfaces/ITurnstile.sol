@@ -18,12 +18,6 @@ interface ITurnstile is IMessagingReceiver {
         Generic
     }
 
-    /// @notice Execution status of messages.
-    enum MessageStatus {
-        None,
-        Executed
-    }
-
     /// @notice Body of a Deposit message, sent from a spoke chain to the hub chain.
     /// @param asset Address of the ERC20 asset being deposited.
     /// @param amount Amount of asset being deposited, denominated in native units.
@@ -83,8 +77,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param feeReceiverChainId ChainId element of accountId of the facilitation fee receiver.
     /// @param feeReceiver Address element of accountId of the facilitation fee receiver.
     /// @param deadline Deposit request submission deadline.
-    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
-    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be marked in this Turnstile's
+    /// messageExecuted (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     /// @param permit Permit struct (ignored if `Permit.deadline` field is 0).
     struct DepositAction {
@@ -126,8 +120,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param partiallyFillable Whether withdrawal may be partially executed if owner's balance is insufficient for
     /// full amount.
     /// @param conductor HubWarehouseConductor that may request and execute the action.
-    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
-    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be marked in this Turnstile's
+    /// messageExecuted (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct WithdrawalAction {
         uint64 ownerChainId;
@@ -149,8 +143,8 @@ interface ITurnstile is IMessagingReceiver {
     /// @param target Action call target address.
     /// @param data Action calldata.
     /// @param deadline Action execution deadline.
-    /// @param dependsOn Hash of a message (see digestMessage) that must already be in this Turnstile's messageStatus
-    /// as Executed (dispatched from, or received and executed on, this chain), or 0 for none.
+    /// @param dependsOn Hash of a message (see digestMessage) that must already be marked in this Turnstile's
+    /// messageExecuted (dispatched from, or received and executed on, this chain), or 0 for none.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical actions.
     struct GenericAction {
         uint64 ownerChainId;
@@ -288,10 +282,10 @@ interface ITurnstile is IMessagingReceiver {
     /// @return HubWarehouseConductor contract address.
     function hubWarehouseConductor() external view returns (address);
 
-    /// @notice Query the execution status of a message.
+    /// @notice Query whether a message was executed.
     /// @param messageHash Message's hash.
-    /// @return Message's execution status.
-    function messageStatus(bytes32 messageHash) external view returns (MessageStatus);
+    /// @return True if the message was executed.
+    function messageExecuted(bytes32 messageHash) external view returns (bool);
 
     /// @notice Query whether an address-selector combination is whitelisted for generic messages.
     /// @param target Call target.
