@@ -215,6 +215,11 @@ contract SpotSwapConductorUnitTest is Test {
         assertEq(conductor.TURNSTILE(), turnstile, "TURNSTILE not set");
     }
 
+    function test_constructor_RevertIf_SurplusRecipientIsInvalid() public {
+        vm.expectRevert(ISwapConductor.InvalidAccount.selector);
+        new SpotSwapConductor(address(authority), address(depot), bytes28(0), turnstile);
+    }
+
     function test_DOMAIN_SEPARATOR_ReturnsEip712DomainSeparator() public view {
         bytes32 expected = keccak256(
             abi.encode(

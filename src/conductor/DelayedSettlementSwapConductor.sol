@@ -42,6 +42,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     )
         SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     {
+        if (!TransitAddressLib.isValid(_penaltyRecipientAccountId)) revert InvalidAccount();
         PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;
     }
 

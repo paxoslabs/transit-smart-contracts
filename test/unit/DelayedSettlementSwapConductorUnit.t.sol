@@ -318,6 +318,16 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         assertEq(conductor.TURNSTILE(), turnstile, "TURNSTILE not set");
     }
 
+    function test_constructor_RevertIf_SurplusRecipientIsInvalid() public {
+        vm.expectRevert(ISwapConductor.InvalidAccount.selector);
+        new DelayedSettlementSwapConductor(address(authority), address(depot), bytes28(0), PENALTY, turnstile);
+    }
+
+    function test_constructor_RevertIf_PenaltyRecipientIsInvalid() public {
+        vm.expectRevert(ISwapConductor.InvalidAccount.selector);
+        new DelayedSettlementSwapConductor(address(authority), address(depot), SURPLUS, bytes28(0), turnstile);
+    }
+
     function test_FILL_RATIO_Returns100() public view {
         assertEq(conductor.FILL_RATIO(), 100, "FILL_RATIO not 100");
     }
