@@ -286,6 +286,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         pure
         returns (uint256 settlementPeriod)
     {
+        if (!first.collateralized && !second.collateralized) return 0;
         settlementPeriod = first.collateralized ? first.settlementPeriod : second.settlementPeriod;
         if (
             settlementPeriod > MAX_SETTLEMENT_PERIOD

@@ -503,6 +503,19 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
         assertEq(depot.balanceOf(RECEIVER_A, ASSET_B), 50, "receiver not paid");
     }
 
+    function test_settle_IgnoresSettlementPeriodsIfNeitherOrderIsCollateralized() public {
+        IDelayedSettlementSwapConductor.DelayedSettlementOrder memory a = _orderA();
+        a.settlementPeriod = 1 hours;
+        IDelayedSettlementSwapConductor.DelayedSettlementOrder memory b = _orderB();
+        b.settlementPeriod = 2 days;
+        IDelayedSettlementSwapConductor.DelayedSettlementOrder[] memory orders = _orders(a, b);
+        _seed(ACCOUNT_A, ASSET_A, 100);
+        _seed(ACCOUNT_B, ASSET_B, 50);
+        _settle(orders, _signatures(orders), _pairedFills(_pairedFill(100, 50)));
+        assertEq(depot.balanceOf(RECEIVER_B, ASSET_A), 100, "counterparty receiver not paid");
+        assertEq(depot.balanceOf(RECEIVER_A, ASSET_B), 50, "receiver not paid");
+    }
+
     function test_settle_ReleasesFundsToFrozenReceiver() public {
         IDelayedSettlementSwapConductor.DelayedSettlementOrder[] memory orders = _orders(_orderA(), _orderB());
         _seed(ACCOUNT_A, ASSET_A, 100);
