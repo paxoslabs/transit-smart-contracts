@@ -239,6 +239,10 @@ interface ITurnstile is IMessagingReceiver {
     /// @param selector Function selector.
     error TurnstileOnlySelector(address target, bytes4 selector);
 
+    /// @notice transferFrom cannot be a generic message target, as it could spend allowances users gave this Turnstile.
+    /// @param target Call target.
+    error TransferFromSelector(address target);
+
     /// @notice A deposit amount is zero.
     error ZeroAssets();
 

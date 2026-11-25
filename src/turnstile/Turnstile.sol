@@ -88,6 +88,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
             if (allowed && _isTurnstileOnly(target, selectors[i])) {
                 revert TurnstileOnlySelector(target, selectors[i]);
             }
+            if (allowed && selectors[i] == IERC20.transferFrom.selector) revert TransferFromSelector(target);
             genericMessageWhitelist[target][selectors[i]] = allowed;
         }
         emit GenericMessageWhitelistUpdated(target, selectors, allowed);

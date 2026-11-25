@@ -464,6 +464,13 @@ contract TurnstileUnitTest is Test {
         vm.stopPrank();
     }
 
+    function test_setRoutable_RevertIf_SelectorIsTransferFrom() public {
+        bytes4[] memory selectors = _selectors(IERC20.transferFrom.selector);
+        vm.expectRevert(abi.encodeWithSelector(ITurnstile.TransferFromSelector.selector, address(target)));
+        vm.prank(admin);
+        turnstile.setRoutable(address(target), selectors, true);
+    }
+
     function test_setAssetWhitelisted_SetsWhitelistStatusOfEachAsset() public {
         address[] memory assets = new address[](2);
         assets[0] = makeAddr("assetA");
@@ -1212,12 +1219,12 @@ contract TurnstileUnitTest is Test {
         MockERC20 approvedToken = new MockERC20();
         approvedToken.mint(vault, 100);
         vm.prank(admin);
-        turnstile.setRoutable(address(approvedToken), _selectors(IERC20.transferFrom.selector), true);
+        turnstile.setRoutable(address(approvedToken), _selectors(IERC20.approve.selector), true);
         vm.prank(vault);
         approvedToken.approve(address(turnstile), type(uint256).max);
         ITurnstile.GenericAction memory a = _genericAction();
         a.target = address(approvedToken);
-        a.data = abi.encodeCall(IERC20.transferFrom, (vault, stranger, 100));
+        a.data = abi.encodeCall(IERC20.approve, (stranger, 100));
         bytes memory body = _genericBody(a, user);
         _receive(ITurnstile.ActionType.Generic, body);
         assertEq(
@@ -1225,7 +1232,7 @@ contract TurnstileUnitTest is Test {
             uint8(ITurnstile.MessageStatus.Failed),
             "status not Failed"
         );
-        assertEq(approvedToken.balanceOf(stranger), 0, "VAULT allowance spent");
+        assertEq(approvedToken.allowance(address(turnstile), stranger), 0, "Turnstile approved stranger");
     }
 
     function test_handleReceivedMessage_Generic_SetsStatusOfMessageToFailedIfSelectorIsTurnstileOnly() public {
