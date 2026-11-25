@@ -76,7 +76,7 @@ contract DelayedSettlementHappyPaths is SharedSetup {
     }
 
     /// @dev alice sells USDG collateralized: she posts 1% now and brings the rest within the settlement period. bob's
-    /// USDC is escrowed in full. Once alice deposits and repays, the escrow releases both sides and her collateral.
+    /// USDC is escrowed in full. Once alice deposits and repays the rest, the escrow releases both sides.
     function testCollateralizedOrderRepaidBeforeDeadline() public {
         _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, COLLATERAL);
         _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, AMOUNT);
@@ -86,16 +86,16 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), 0, "alice posted collateral");
         assertEq(_balance(HUB_CHAIN_ID, bob, HUB_CHAIN_ID, usdc), 0, "bob escrowed in full");
         (,,,, uint256 debt, uint256 collateral,) = delayedSettlementSwapConductor.escrowLegs(1, 0);
-        assertEq(debt, AMOUNT, "alice owes the full amount");
+        assertEq(debt, AMOUNT - COLLATERAL, "alice owes the amount less collateral");
         assertEq(collateral, COLLATERAL, "alice collateral recorded");
 
-        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT);
+        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT - COLLATERAL);
         _relayMessages();
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
         delayedSettlementSwapConductor.repay(1, 0);
 
-        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), COLLATERAL, "alice collateral returned");
+        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), 0, "alice spent the full amount");
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");
         assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), AMOUNT, "bob bought usdg");
         assertEq(delayedSettlementSwapConductor.escrowDeadline(1), 0, "escrow released");
@@ -104,7 +104,7 @@ contract DelayedSettlementHappyPaths is SharedSetup {
     /// @dev alice never repays. After the deadline she can no longer repay, anyone may reclaim, bob's USDC is returned
     /// and alice's collateral goes to the penalty recipient.
     function testCollateralizedOrderUnpaidIsReclaimed() public {
-        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, COLLATERAL + AMOUNT);
+        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT);
         _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, AMOUNT);
         _relayMessages();
         _settleCollateralizedPair();
@@ -122,7 +122,7 @@ contract DelayedSettlementHappyPaths is SharedSetup {
 
         assertEq(_balance(HUB_CHAIN_ID, bob, HUB_CHAIN_ID, usdc), AMOUNT, "bob usdc returned");
         assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), 0, "bob bought nothing");
-        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), AMOUNT, "alice lost only her collateral");
+        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), AMOUNT - COLLATERAL, "alice lost only her collateral");
         assertEq(_balance(HUB_CHAIN_ID, PENALTY_RECIPIENT, SPOKE), COLLATERAL, "collateral forfeited");
     }
 
@@ -137,8 +137,8 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), 0, "alice posted collateral");
         assertEq(_balance(HUB_CHAIN_ID, bob, HUB_CHAIN_ID, usdc), 0, "bob posted collateral");
 
-        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT);
-        _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, AMOUNT);
+        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT - COLLATERAL);
+        _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, AMOUNT - COLLATERAL);
         _relayMessages();
         vm.chainId(HUB_CHAIN_ID);
         vm.prank(alice);
@@ -148,17 +148,17 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         vm.prank(bob);
         delayedSettlementSwapConductor.repay(1, 1);
 
-        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), COLLATERAL, "alice collateral returned");
+        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), 0, "alice spent the full amount");
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");
-        assertEq(_balance(HUB_CHAIN_ID, bob, HUB_CHAIN_ID, usdc), COLLATERAL, "bob collateral returned");
+        assertEq(_balance(HUB_CHAIN_ID, bob, HUB_CHAIN_ID, usdc), 0, "bob spent the full amount");
         assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), AMOUNT, "bob bought usdg");
         assertEq(delayedSettlementSwapConductor.escrowDeadline(1), 0, "escrow released");
     }
 
-    /// @dev Both orders are collateralized but only alice repays. On reclaim alice gets her repayment and collateral
-    /// back, and bob's collateral is forfeited.
+    /// @dev Both orders are collateralized but only alice repays. On reclaim alice gets her full amount back, and bob's
+    /// collateral is forfeited.
     function testBothCollateralizedOneDefaultsIsReclaimed() public {
-        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, COLLATERAL + AMOUNT);
+        _deposit(alice, SPOKE, robinhoodUsdg, HUB_CHAIN_ID, AMOUNT);
         _deposit(bob, HUB_CHAIN_ID, usdc, HUB_CHAIN_ID, COLLATERAL);
         _relayMessages();
         _settleCollateralizedPair(true);
@@ -173,7 +173,7 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         vm.prank(makeAddr("anyone"));
         delayedSettlementSwapConductor.reclaim(escrowIds);
 
-        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), COLLATERAL + AMOUNT, "alice repayment and collateral returned");
+        assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), AMOUNT, "alice full amount returned");
         assertEq(_balance(HUB_CHAIN_ID, alice, HUB_CHAIN_ID, usdc), 0, "alice bought nothing");
         assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), 0, "bob bought nothing");
         assertEq(_balance(HUB_CHAIN_ID, PENALTY_RECIPIENT, HUB_CHAIN_ID, usdc), COLLATERAL, "bob collateral forfeited");
@@ -197,11 +197,11 @@ contract DelayedSettlementHappyPaths is SharedSetup {
         _settle(orders, signatures, 0);
         assertEq(_balance(SPOKE, alice, SPOKE), 0, "alice posted collateral");
 
-        _deposit(alice, SPOKE, robinhoodUsdg, SPOKE, AMOUNT);
+        _deposit(alice, SPOKE, robinhoodUsdg, SPOKE, AMOUNT - COLLATERAL);
         _genericFromSpoke(abi.encodeCall(DelayedSettlementSwapConductor.repay, (1, 0)));
         _relayMessages();
 
-        assertEq(_balance(SPOKE, alice, SPOKE), COLLATERAL, "alice collateral returned");
+        assertEq(_balance(SPOKE, alice, SPOKE), 0, "alice spent the full amount");
         assertEq(_balance(SPOKE, alice, HUB_CHAIN_ID, usdc), AMOUNT, "alice bought usdc");
         assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), AMOUNT, "bob bought usdg");
     }
