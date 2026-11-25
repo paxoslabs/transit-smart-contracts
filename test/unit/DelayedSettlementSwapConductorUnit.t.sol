@@ -13,7 +13,8 @@ import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { DelayedSettlementSwapConductor } from "src/conductor/DelayedSettlementSwapConductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
-import { FACILITATED_FLAG } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { FACILITATED_FLAG } from "src/conductor/Conductor.sol";
+import { IConductor } from "src/interfaces/IConductor.sol";
 
 contract DelayedSettlementSwapConductorUnitTest is Test {
 
@@ -383,7 +384,7 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
     }
 
     function test_preApprove_RevertIf_SenderIsNotOrderOwner() public {
-        vm.expectRevert(ISwapConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.preApprove(_collateralizedOrderA());
     }
@@ -877,7 +878,7 @@ contract DelayedSettlementSwapConductorUnitTest is Test {
 
     function test_repay_RevertIf_SenderIsNotLegOwner() public {
         uint256 escrowId = _escrowed();
-        vm.expectRevert(ISwapConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         vm.prank(stranger);
         conductor.repay(escrowId, 0);
     }

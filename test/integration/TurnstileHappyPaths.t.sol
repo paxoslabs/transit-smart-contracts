@@ -9,6 +9,7 @@ import { IRequestConductor } from "src/interfaces/IRequestConductor.sol";
 import { Turnstile } from "src/turnstile/Turnstile.sol";
 import { HubWarehouseConductor } from "src/conductor/HubWarehouseConductor.sol";
 import { UserConductor } from "src/conductor/UserConductor.sol";
+import { IConductor } from "src/interfaces/IConductor.sol";
 
 contract TurnstileHappyPaths is SharedSetup {
 
@@ -164,10 +165,10 @@ contract TurnstileHappyPaths is SharedSetup {
         _dispatchOne(turnstile, ITurnstile.ActionType.Withdrawal, abi.encode(action));
 
         vm.prank(alice);
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         hubWarehouseConductor.requestWithdrawal(action);
 
-        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.expectRevert(IConductor.NotOwner.selector);
         _dispatchGeneric(
             HUB_CHAIN_ID,
             address(hubWarehouseConductor),

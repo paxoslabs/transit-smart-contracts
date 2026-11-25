@@ -7,6 +7,7 @@ import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { ISpotSwapConductor } from "src/interfaces/ISpotSwapConductor.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 
 /**
  * @title SpotSwapConductor
@@ -24,7 +25,8 @@ contract SpotSwapConductor is ISpotSwapConductor, SwapConductor {
         bytes28 _surplusRecipientAccountId,
         address _turnstile
     )
-        SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
+        SwapConductor(_authority, _surplusRecipientAccountId)
+        Conductor(_depot, _turnstile)
     { }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {

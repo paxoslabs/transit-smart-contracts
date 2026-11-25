@@ -7,6 +7,7 @@ import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { SwapConductor } from "src/conductor/SwapConductor.sol";
 import { IDelayedSettlementSwapConductor } from "src/interfaces/IDelayedSettlementSwapConductor.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 
 /**
  * @title DelayedSettlementSwapConductor
@@ -40,7 +41,8 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         bytes28 _penaltyRecipientAccountId,
         address _turnstile
     )
-        SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
+        SwapConductor(_authority, _surplusRecipientAccountId)
+        Conductor(_depot, _turnstile)
     {
         if (!TransitAddressLib.isValid(_penaltyRecipientAccountId)) revert InvalidAccount();
         PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;

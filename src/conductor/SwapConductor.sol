@@ -7,7 +7,7 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
-import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 
 /**
  * @title SwapConductor
@@ -18,10 +18,8 @@ import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnsti
  * takes effect in the current epoch.
  * @custom:security-contact security@paxoslabs.com
  */
-abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, ConductorGatedByTurnstile {
+abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Conductor {
 
-    /// @inheritdoc ISwapConductor
-    address public immutable DEPOT;
     /// @inheritdoc ISwapConductor
     bytes28 public immutable SURPLUS_RECIPIENT_ACCOUNT_ID;
 
@@ -32,17 +30,8 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Conduc
     /// @inheritdoc ISwapConductor
     mapping(bytes32 orderHash => bool) public preApproved;
 
-    constructor(
-        address _authority,
-        address _depot,
-        bytes28 _surplusRecipientAccountId,
-        address _turnstile
-    )
-        AccessManaged(_authority)
-        ConductorGatedByTurnstile(_turnstile)
-    {
+    constructor(address _authority, bytes28 _surplusRecipientAccountId) AccessManaged(_authority) {
         if (!TransitAddressLib.isValid(_surplusRecipientAccountId)) revert InvalidAccount();
-        DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
 

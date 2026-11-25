@@ -307,7 +307,7 @@ interface ITurnstile is IMessagingReceiver {
     function setHubWarehouseConductor(address _hubWarehouseConductor) external;
 
     /// @notice Set the routability of an address-selector combination by generic messages.
-    /// @dev Routable targets must use the `ConductorGatedByTurnstile` meta-transaction implementation in order to
+    /// @dev Routable targets must use the `Conductor` meta-transaction implementation in order to
     /// properly attribute a message to its sender. Allowing reverts for targets holding a VAULT allowance for this
     /// Turnstile and for any selector the authority restricts to the TURNSTILE role.
     /// @param target Call target.

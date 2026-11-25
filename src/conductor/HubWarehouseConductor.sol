@@ -8,6 +8,7 @@ import { ITurnstile } from "src/interfaces/ITurnstile.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 import { IHubWarehouseConductor } from "src/interfaces/IHubWarehouseConductor.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 
 /**
  * @title HubWarehouseConductor
@@ -28,7 +29,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         address _turnstile
     )
         AccessManaged(_authority)
-        RequestConductor(_depot, _turnstile)
+        Conductor(_depot, _turnstile)
     { }
 
     /// @inheritdoc IHubWarehouseConductor

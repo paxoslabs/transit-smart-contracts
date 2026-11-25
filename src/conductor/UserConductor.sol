@@ -6,6 +6,7 @@ import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { RequestConductor } from "src/conductor/RequestConductor.sol";
 import { IUserConductor } from "src/interfaces/IUserConductor.sol";
+import { Conductor } from "src/conductor/Conductor.sol";
 
 /**
  * @title UserConductor
@@ -17,7 +18,7 @@ import { IUserConductor } from "src/interfaces/IUserConductor.sol";
  */
 contract UserConductor is IUserConductor, RequestConductor {
 
-    constructor(address _depot, address _turnstile) RequestConductor(_depot, _turnstile) { }
+    constructor(address _depot, address _turnstile) Conductor(_depot, _turnstile) { }
 
     /// @inheritdoc IUserConductor
     function requestTransfer(TransferRequest calldata request) external {
