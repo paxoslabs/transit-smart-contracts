@@ -72,11 +72,10 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
             IDepot(DEPOT).mint(fromAccountId, assetId, amount);
             return;
         }
-        IDepot(DEPOT).mint(toAccountId, assetId, amount);
-        // The fee should never fail. If it does (e.g. a frozen recipient), the whole deposit reverts. A cross-chain
-        // deposit message can then be retried at the bridge level.
+        IDepot(DEPOT).mint(toAccountId, assetId, amount - facilitationFee);
         if (facilitationFee != 0) {
-            IDepot(DEPOT).transferFrom(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
+            IDepot(DEPOT).mint(feeReceiverAccountId, assetId, facilitationFee);
+            emit FacilitationFeePaid(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
         }
     }
 

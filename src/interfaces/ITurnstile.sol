@@ -29,7 +29,7 @@ interface ITurnstile is IMessagingReceiver {
     /// @param amount Amount of asset being deposited, denominated in native units.
     /// @param fromAccountId AccountId of depositor, credited before transfer to recipient.
     /// @param toAccountId AccountId of deposit recipient.
-    /// @param facilitationFee Part of amount transferred from the recipient to feeReceiverAccountId once credited.
+    /// @param facilitationFee Part of amount minted to feeReceiverAccountId instead of the recipient.
     /// @param feeReceiverAccountId AccountId receiving the facilitation fee; ignored if facilitationFee is 0.
     /// @param salt User-set salt used to disambiguate hashes of otherwise identical messages.
     struct DepositMessage {

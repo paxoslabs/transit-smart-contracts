@@ -14,6 +14,15 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param amount Amount burned for withdrawal.
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
+    /// @notice A deposit's facilitation fee was minted to the fee receiver instead of the recipient.
+    /// @param toAccountId Deposit recipient account, which the fee was taken from.
+    /// @param feeReceiverAccountId Fee receiver account.
+    /// @param assetId Deposited asset.
+    /// @param amount Fee amount.
+    event FacilitationFeePaid(
+        bytes28 indexed toAccountId, bytes28 indexed feeReceiverAccountId, bytes28 indexed assetId, uint256 amount
+    );
+
     /// @notice Request a withdrawal, reserving the funds from the next epoch. The sender must be the owner.
     /// @param action Withdrawal action.
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
@@ -33,7 +42,7 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param amount Amount deposited.
     /// @param fromAccountId Depositing account.
     /// @param toAccountId Recipient account.
-    /// @param facilitationFee Part of amount paid from the recipient to feeReceiverAccountId; 0 for none.
+    /// @param facilitationFee Part of amount minted to feeReceiverAccountId instead of the recipient; 0 for none.
     /// @param feeReceiverAccountId Facilitation fee receiver account.
     function receiveDeposit(
         uint64 sourceChainId,

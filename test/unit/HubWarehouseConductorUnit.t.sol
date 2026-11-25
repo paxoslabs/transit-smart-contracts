@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { Depot } from "src/depot/Depot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
@@ -118,6 +118,15 @@ contract HubWarehouseConductorUnitTest is Test {
             address(conductor).call(abi.encodePacked(data, accountId, facilitated ? FACILITATED_FLAG : bytes4(0)));
         if (!ok) {
             assembly { revert(add(result, 32), mload(result)) }
+        }
+    }
+
+    function _assertNoFacilitationFeePaidEvent() internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(
+                logs[i].topics[0] != IHubWarehouseConductor.FacilitationFeePaid.selector, "FacilitationFeePaid emitted"
+            );
         }
     }
 
@@ -335,6 +344,59 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.prank(turnstile);
         conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
         assertEq(depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "recipient not minted amount less fee");
+        assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
+    }
+
+    function test_receiveDeposit_EmitsFacilitationFeePaidEvent() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.expectEmit(address(conductor));
+        emit IHubWarehouseConductor.FacilitationFeePaid(toAccountId, feeAccountId, REMOTE_ASSET_ID, 10);
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+    }
+
+    function test_receiveDeposit_DoesNotEmitFacilitationFeePaidEventIfFeeIsZero() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.recordLogs();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 0, feeAccountId);
+        _assertNoFacilitationFeePaidEvent();
+    }
+
+    function test_receiveDeposit_DoesNotEmitFacilitationFeePaidEventIfDepositingAccountIsFrozen() public {
+        bytes28 fromAccountId = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        _freeze(owner);
+        vm.recordLogs();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, fromAccountId, toAccountId, 10, feeAccountId);
+        _assertNoFacilitationFeePaidEvent();
+    }
+
+    function test_receiveDeposit_PaysFacilitationFeeIfRecipientIsFrozen() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        _freeze(recipient);
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+        assertEq(depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "frozen recipient not minted amount less fee");
+        assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
+    }
+
+    function test_receiveDeposit_PaysFacilitationFeeIfRecipientIsOverReserved() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.prank(seeder);
+        depot.reserve(toAccountId, REMOTE_ASSET_ID, 1000);
+        _advanceEpoch();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+        assertEq(
+            depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "over-reserved recipient not minted amount less fee"
+        );
         assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
     }
 

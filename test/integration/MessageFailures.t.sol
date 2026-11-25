@@ -170,7 +170,7 @@ contract MessageFailures is SharedSetup {
         assertEq(_balance(HUB_CHAIN_ID, alice, SPOKE), AMOUNT, "not credited on redelivery");
     }
 
-    function test_handleReceivedMessage_CreditsDepositAndFeeOnRedeliveryAfterRecipientUnfreeze() public {
+    function test_handleReceivedMessage_CreditsDepositAndFeeIfRecipientIsFrozen() public {
         uint256 fee = 1e6;
         MockERC20 token = spokeUsdg[SPOKE];
         vm.prank(PREDICATE_FREEZE_MANAGER);
@@ -202,32 +202,10 @@ contract MessageFailures is SharedSetup {
             )
         );
         vm.stopPrank();
-        vm.expectRevert(abi.encodeWithSelector(IDepot.AccountFrozen.selector, _account(HUB_CHAIN_ID, bob)));
         _relayMessages();
 
-        assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), 0, "frozen recipient credited");
-        assertEq(_balance(HUB_CHAIN_ID, SOLVER_ADDRESS, SPOKE), 0, "fee paid while recipient frozen");
-
-        vm.prank(PREDICATE_FREEZE_MANAGER);
-        addressFreezeList.unfreeze(bob);
-        _receiveFromSpoke(
-            SPOKE,
-            ITurnstile.ActionType.Deposit,
-            abi.encode(
-                ITurnstile.DepositMessage({
-                    asset: address(token),
-                    amount: AMOUNT,
-                    fromAccountId: _account(SPOKE, alice),
-                    toAccountId: _account(HUB_CHAIN_ID, bob),
-                    facilitationFee: fee,
-                    feeReceiverAccountId: _account(HUB_CHAIN_ID, SOLVER_ADDRESS),
-                    salt: bytes32(0)
-                })
-            )
-        );
-
-        assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), AMOUNT - fee, "recipient not credited less fee on redelivery");
-        assertEq(_balance(HUB_CHAIN_ID, SOLVER_ADDRESS, SPOKE), fee, "fee not paid on redelivery");
+        assertEq(_balance(HUB_CHAIN_ID, bob, SPOKE), AMOUNT - fee, "frozen recipient not credited less fee");
+        assertEq(_balance(HUB_CHAIN_ID, SOLVER_ADDRESS, SPOKE), fee, "fee not paid to frozen recipient's facilitator");
     }
 
     function _requestHubChainWithdrawal(uint256 deadline) internal returns (ITurnstile.WithdrawalAction memory action) {
