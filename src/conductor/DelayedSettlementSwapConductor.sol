@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { AddressFreezeList } from "src/AddressFreezeList.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
@@ -212,10 +213,17 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // - reference the same order for both pairs
         // - contain missmatched buy/sell tokens
         // - fill an amount of 0 on either order
+        // - name an invalid receiver on either order
         if (
             fill.orderIndexes[0] == fill.orderIndexes[1] || first.sellTokenChainId != second.buyTokenChainId
                 || first.sellToken != second.buyToken || first.buyTokenChainId != second.sellTokenChainId
                 || first.buyToken != second.sellToken || fill.amounts[0] == 0 || fill.amounts[1] == 0
+                || !TransitAddressLib.isValid(
+                    TransitAddressLib.formatTransitAddress(first.receiverChainId, first.receiver)
+                )
+                || !TransitAddressLib.isValid(
+                    TransitAddressLib.formatTransitAddress(second.receiverChainId, second.receiver)
+                )
         ) {
             revert BadPair(index);
         }
@@ -302,6 +310,16 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
+
+        // If either party is frozen by now, reclaim both legs and undo the transaction. By now in _release, all funds
+        // will have been repaid so nobody will be penalized
+        AddressFreezeList freezeList = IDepot(DEPOT).addressFreezeList();
+        if (freezeList.isFrozen(legs[0].accountId) || freezeList.isFrozen(legs[1].accountId)) {
+            _reclaimLeg(legs[0]);
+            _reclaimLeg(legs[1]);
+            emit Reclaimed(escrowId);
+            return;
+        }
 
         _releaseLeg(legs, 0);
         _releaseLeg(legs, 1);
