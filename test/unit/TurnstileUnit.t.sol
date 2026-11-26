@@ -112,6 +112,10 @@ contract TurnstileUnitTest is Test {
         }
     }
 
+    function _status(bytes32 messageHash) internal view returns (uint8) {
+        return uint8(turnstile.messageStatus(messageHash));
+    }
+
     function _depositAction(uint256 amount) internal view returns (ITurnstile.DepositAction memory a) {
         a.ownerChainId = uint64(block.chainid);
         a.owner = user;
@@ -313,13 +317,13 @@ contract TurnstileUnitTest is Test {
         assertEq(turnstile.hubWarehouseConductor(), address(conductor), "hubWarehouseConductor not returned");
     }
 
-    function test_messageExecuted_ReturnsFalseForUnknownMessage() public view {
-        assertFalse(turnstile.messageExecuted(keccak256("unknown")), "unknown message marked executed");
+    function test_messageStatus_ReturnsNoneForUnknownMessage() public view {
+        assertEq(_status(keccak256("unknown")), uint8(ITurnstile.MessageStatus.None), "status not None");
     }
 
-    function test_messageExecuted_ReturnsTrueForExecutedMessage() public {
+    function test_messageStatus_ReturnsStatusOfMessage() public {
         bytes32[] memory hashes = _dispatch(_actions(_depositAction(_depositAction(100))), 0);
-        assertTrue(turnstile.messageExecuted(hashes[0]), "message not marked executed");
+        assertEq(_status(hashes[0]), uint8(ITurnstile.MessageStatus.Executed), "status not Executed");
     }
 
     function test_genericMessageWhitelist_ReturnsWhetherSelectorIsWhitelisted() public view {
@@ -492,11 +496,15 @@ contract TurnstileUnitTest is Test {
         turnstile.setAssetWhitelisted(assets, true);
     }
 
-    function test_blockMessage_MarksMessageExecuted() public {
+    function test_blockMessage_SetsMessageStatusToBlocked() public {
         bytes32 messageHash = keccak256("blocked");
         vm.prank(admin);
         turnstile.blockMessage(messageHash);
-        assertTrue(turnstile.messageExecuted(messageHash), "blocked message not marked executed");
+        assertEq(
+            uint8(turnstile.messageStatus(messageHash)),
+            uint8(ITurnstile.MessageStatus.Blocked),
+            "blocked message status not Blocked"
+        );
     }
 
     function test_blockMessage_BlocksDeliveryOfMessage() public {
@@ -504,20 +512,28 @@ contract TurnstileUnitTest is Test {
         bytes32 messageHash = turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Withdrawal, body);
         vm.prank(admin);
         turnstile.blockMessage(messageHash);
-        vm.expectRevert(ITurnstile.MessageReplay.selector);
+        vm.expectRevert(ITurnstile.MessageBlocked.selector);
         _receive(ITurnstile.ActionType.Withdrawal, body);
         assertEq(token.balanceOf(recipient), 0, "blocked withdrawal paid recipient");
         assertEq(token.balanceOf(vault), 1000, "blocked withdrawal debited vault");
     }
 
-    function test_blockMessage_SatisfiesDependsOnOfBlockedMessage() public {
+    function test_blockMessage_FailsDependsOnOfBlockedMessage() public {
         bytes32 messageHash = keccak256("blocked");
         vm.prank(admin);
         turnstile.blockMessage(messageHash);
         ITurnstile.DepositAction memory a = _depositAction(100);
         a.dependsOn = messageHash;
-        bytes32[] memory hashes = _dispatch(_actions(_depositAction(a)), 0);
-        assertTrue(turnstile.messageExecuted(hashes[0]), "action depending on blocked message not executed");
+        ITurnstile.Action[] memory actions = _actions(_depositAction(a));
+        vm.expectRevert(ITurnstile.DependencyNotExecuted.selector);
+        _dispatch(actions, 0);
+    }
+
+    function test_blockMessage_RevertIf_MessageIsExecuted() public {
+        bytes32[] memory hashes = _dispatch(_actions(_depositAction(_depositAction(100))), 0);
+        vm.expectRevert(ITurnstile.MessageReplay.selector);
+        vm.prank(admin);
+        turnstile.blockMessage(hashes[0]);
     }
 
     function test_blockMessage_RevertIf_SenderIsUnauthorized() public {
@@ -669,7 +685,7 @@ contract TurnstileUnitTest is Test {
 
     function test_dispatch_Deposit_SetsStatusOfMessageToExecuted() public {
         bytes32[] memory hashes = _dispatch(_actions(_depositAction(_depositAction(100))), 0);
-        assertTrue(turnstile.messageExecuted(hashes[0]), "message not marked executed");
+        assertEq(_status(hashes[0]), uint8(ITurnstile.MessageStatus.Executed), "status not Executed");
     }
 
     function test_dispatch_Deposit_AppliesPermitIfPermitDeadlineIsNonzero() public {
@@ -694,7 +710,9 @@ contract TurnstileUnitTest is Test {
         a.salt = bytes32(uint256(99));
         a.dependsOn = hashes[0];
         bytes32[] memory dependentHashes = _dispatch(_actions(_depositAction(a)), 0);
-        assertTrue(turnstile.messageExecuted(dependentHashes[0]), "dependent deposit not marked executed");
+        assertEq(
+            _status(dependentHashes[0]), uint8(ITurnstile.MessageStatus.Executed), "dependent deposit not Executed"
+        );
     }
 
     function test_dispatch_Deposit_EmitsDepositEvent() public {
@@ -1089,12 +1107,13 @@ contract TurnstileUnitTest is Test {
         );
     }
 
-    function test_handleReceivedMessage_MarksMessageExecuted() public {
+    function test_handleReceivedMessage_SetsStatusOfMessageToExecuted() public {
         bytes memory body = _genericBody(_genericAction(), user);
         _receive(ITurnstile.ActionType.Generic, body);
-        assertTrue(
-            turnstile.messageExecuted(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
-            "message not marked executed"
+        assertEq(
+            _status(turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Generic, body)),
+            uint8(ITurnstile.MessageStatus.Executed),
+            "status not Executed"
         );
     }
 

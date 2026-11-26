@@ -40,7 +40,7 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     address public hubWarehouseConductor;
 
     /// @inheritdoc ITurnstile
-    mapping(bytes32 messageHash => bool) public messageExecuted;
+    mapping(bytes32 messageHash => MessageStatus) public messageStatus;
     /// @inheritdoc ITurnstile
     mapping(address target => mapping(bytes4 selector => bool)) public genericMessageWhitelist;
     /// @inheritdoc ITurnstile
@@ -103,7 +103,8 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
 
     /// @inheritdoc ITurnstile
     function blockMessage(bytes32 messageHash) external restricted {
-        messageExecuted[messageHash] = true;
+        if (messageStatus[messageHash] == MessageStatus.Executed) revert MessageReplay();
+        messageStatus[messageHash] = MessageStatus.Blocked;
     }
 
     /// @inheritdoc ITurnstile
@@ -418,11 +419,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
         );
     }
 
-    /// @dev Reverts unless dependsOn is 0 or a message already marked in this Turnstile's messageExecuted. A
-    /// partially fillable withdrawal cannot be depended on: its message body holds the executed amount,
-    /// min(requested, free balance), which is unknown until execution, so its hash cannot be computed in advance.
+    /// @dev Reverts unless dependsOn is 0 or a message already Executed in this Turnstile's messageStatus. A partially
+    /// fillable withdrawal cannot be depended on: its message body holds the executed amount, min(requested, free
+    /// balance), which is unknown until execution, so its hash cannot be computed in advance.
     function _requireDependency(bytes32 dependsOn) private view {
-        if (dependsOn != 0 && !messageExecuted[dependsOn]) revert DependencyNotExecuted();
+        if (dependsOn != 0 && messageStatus[dependsOn] != MessageStatus.Executed) revert DependencyNotExecuted();
     }
 
     function _handleMessage(
@@ -439,8 +440,9 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     {
         messageHash = digestMessage(sourceChainId, actionType, body);
 
-        if (messageExecuted[messageHash]) revert MessageReplay();
-        messageExecuted[messageHash] = true;
+        if (messageStatus[messageHash] == MessageStatus.Blocked) revert MessageBlocked();
+        if (messageStatus[messageHash] == MessageStatus.Executed) revert MessageReplay();
+        messageStatus[messageHash] = MessageStatus.Executed;
 
         if (destinationChainId == block.chainid) {
             // Same-chain messages bypass the MessagingAdapter and are executed by the Turnstile directly.
