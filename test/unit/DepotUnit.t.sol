@@ -62,11 +62,11 @@ contract DepotUnitTest is Test {
         authority.setTargetFunctionRole(address(depot), pauserSelectors, Roles.PAUSER);
         authority.setTargetFunctionRole(address(depot), adminSelectors, Roles.ADMIN);
         authority.setTargetFunctionRole(address(depot), conductorSelectors, Roles.CONDUCTOR);
-        authority.setTargetFunctionRole(address(depot), epochSelectors, Roles.EPOCH);
+        authority.setTargetFunctionRole(address(depot), epochSelectors, Roles.CONDUCTOR);
         authority.setTargetFunctionRole(address(freezeList), freezeSelectors, Roles.FREEZE_MANAGER);
         authority.grantRole(Roles.PAUSER, pauser, 0);
         authority.grantRole(Roles.CONDUCTOR, conductor, 0);
-        authority.grantRole(Roles.EPOCH, epochKeeper, 0);
+        authority.grantRole(Roles.CONDUCTOR, epochKeeper, 0);
         authority.grantRole(Roles.FREEZE_MANAGER, admin, 0);
         vm.stopPrank();
     }

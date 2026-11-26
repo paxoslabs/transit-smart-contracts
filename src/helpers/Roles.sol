@@ -15,9 +15,8 @@ library Roles {
     uint64 internal constant MESSAGING_ADAPTER = 2;
     uint64 internal constant SOLVER = 3;
     uint64 internal constant CONDUCTOR = 4;
-    uint64 internal constant EPOCH = 5;
-    uint64 internal constant TURNSTILE = 6;
-    uint64 internal constant FREEZE_MANAGER = 7;
-    uint64 internal constant UNPAUSER = 8;
+    uint64 internal constant TURNSTILE = 5;
+    uint64 internal constant FREEZE_MANAGER = 6;
+    uint64 internal constant UNPAUSER = 7;
 
 }

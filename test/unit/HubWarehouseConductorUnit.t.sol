@@ -61,14 +61,13 @@ contract HubWarehouseConductorUnitTest is Test {
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(depot), depotSelectors, Roles.CONDUCTOR);
-        authority.setTargetFunctionRole(address(depot), _selectors(Depot.advanceEpoch.selector), Roles.EPOCH);
+        authority.setTargetFunctionRole(address(depot), _selectors(Depot.advanceEpoch.selector), Roles.CONDUCTOR);
         authority.setTargetFunctionRole(address(conductor), turnstileSelectors, Roles.TURNSTILE);
         authority.setTargetFunctionRole(
             address(freezeList), _selectors(AddressFreezeList.freeze.selector), Roles.FREEZE_MANAGER
         );
         authority.grantRole(Roles.CONDUCTOR, address(conductor), 0);
         authority.grantRole(Roles.CONDUCTOR, seeder, 0);
-        authority.grantRole(Roles.EPOCH, seeder, 0);
         authority.grantRole(Roles.TURNSTILE, turnstile, 0);
         authority.grantRole(Roles.FREEZE_MANAGER, admin, 0);
         vm.stopPrank();

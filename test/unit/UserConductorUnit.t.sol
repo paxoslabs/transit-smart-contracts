@@ -53,10 +53,9 @@ contract UserConductorUnitTest is Test {
 
         vm.startPrank(admin);
         authority.setTargetFunctionRole(address(depot), conductorSelectors, Roles.CONDUCTOR);
-        authority.setTargetFunctionRole(address(depot), _selectors(Depot.advanceEpoch.selector), Roles.EPOCH);
+        authority.setTargetFunctionRole(address(depot), _selectors(Depot.advanceEpoch.selector), Roles.CONDUCTOR);
         authority.grantRole(Roles.CONDUCTOR, address(conductor), 0);
         authority.grantRole(Roles.CONDUCTOR, seeder, 0);
-        authority.grantRole(Roles.EPOCH, seeder, 0);
         vm.stopPrank();
     }
 
