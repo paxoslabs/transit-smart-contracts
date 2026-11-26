@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
+import { AddressFreezeList } from "src/AddressFreezeList.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { Typehashes } from "src/helpers/Typehashes.sol";
 import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
@@ -312,10 +313,8 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
         // If either party is frozen by now, reclaim both legs and undo the transaction. By now in _release, all funds
         // will have been repaid so nobody will be penalized
-        if (
-            IDepot(DEPOT).addressFreezeList().isFrozen(legs[0].accountId)
-                || IDepot(DEPOT).addressFreezeList().isFrozen(legs[1].accountId)
-        ) {
+        AddressFreezeList freezeList = IDepot(DEPOT).addressFreezeList();
+        if (freezeList.isFrozen(legs[0].accountId) || freezeList.isFrozen(legs[1].accountId)) {
             _reclaimLeg(legs[0]);
             _reclaimLeg(legs[1]);
             emit Reclaimed(escrowId);
