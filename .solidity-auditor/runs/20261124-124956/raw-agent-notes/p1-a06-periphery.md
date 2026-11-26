@@ -1,3 +1,0 @@
-FINDING | DelayedSettlementSwapConductor | _escrowLeg | unvalidated-receiver-blocks-release (same root; also both-collateralized variant; SpotSwap safe since validated at settle)
-LEAD | Turnstile | _executeMessageLocally | short-calldata-selector-mismatch — bytes4(message.data) zero-pads <4 byte data while executed selector takes chainId suffix bytes; needs chainId >= 2^32 and admin whitelisting padded selector.
-LEAD | HubWarehouseConductor | executeWithdrawal | facilitated-withdrawal-replay-after-conductor-swap — after setHubWarehouseConductor, solver replays old facilitated partially-fillable withdrawal sig; new conductor burns again (pays to signed to).

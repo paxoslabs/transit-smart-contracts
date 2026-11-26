@@ -1,5 +1,0 @@
-FINDING | DelayedSettlementSwapConductor | repay | pause-blocks-deadline-repay — variant: Turnstile pause (not Depot) blocks spoke-owner Generic repay while reclaim still works (Depot unpaused).
-fix alt: Make `reclaim` revert while the hub Turnstile or the Depot is paused, or extend `escrowDeadline` by the time the system was paused.
-LEAD | Turnstile | _isRoutable | routable-guard-misses-sender-gated-target — guard only catches TURNSTILE-role selectors; MessagingAdapter.send (msg.sender gate) or AccessManager.execute could be whitelisted → forged Withdrawal; admin must whitelist; send needs fee.
-LEAD | Turnstile | _hasVaultAllowance | routable-guard-ignores-user-allowance — guard ignores users' allowances to Turnstile; routable token lets Generic transferFrom(victim, attacker) spend user approvals; admin must route token.
-LEAD | SwapConductor | requestOrderCancellation | turnstile-pause-blocks-spoke-cancel — Turnstile pause blocks spoke owners' cancels; solver still fills (Depot not paused); limit holds.

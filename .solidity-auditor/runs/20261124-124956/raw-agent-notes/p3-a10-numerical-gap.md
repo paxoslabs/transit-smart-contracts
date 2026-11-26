@@ -1,2 +1,0 @@
-LEAD | DelayedSettlementSwapConductor | _escrowLeg | collateral-rounding-split-escrows — collateral divUp per escrow; solver splits into k tiny pairs → collateral up to 100%; bounded by k/gas; low-decimal tokens. fix: per-order collateral or amount >= FILL_RATIO per leg.
-LEAD | UserConductor | executeTransfer | frozen-owner-zero-burn-blocks-consume — transferFrom(…,0) reverts for frozen owner; request unconsumable until deadline. fix: skip transfer when amount == 0.
