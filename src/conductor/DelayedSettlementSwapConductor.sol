@@ -42,6 +42,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
     )
         SwapConductor(_authority, _depot, _surplusRecipientAccountId, _turnstile)
     {
+        if (!TransitAddressLib.isValid(_penaltyRecipientAccountId)) revert InvalidAccount();
         PENALTY_RECIPIENT_ACCOUNT_ID = _penaltyRecipientAccountId;
     }
 
@@ -87,8 +88,11 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
 
     /// @dev internal function used in reclaim loop
     function _reclaim(uint256 escrowId) internal {
+        uint256 deadline = escrowDeadline[escrowId];
+        // Skip closed or nonexistent escrows instead of reverting, so one front-run id can't revert a whole batch
+        if (deadline == 0) return;
         // Cannot reclaim until escrowDeadline has passed
-        if (block.timestamp <= escrowDeadline[escrowId]) revert SettlementPeriodActive();
+        if (block.timestamp <= deadline) revert SettlementPeriodActive();
         Leg[2] memory legs = escrowLegs[escrowId];
         delete escrowLegs[escrowId];
         delete escrowDeadline[escrowId];
@@ -107,7 +111,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // be returned to the legs accountId.
         if (leg.debt == 0) {
             if (leg.amount != 0) {
-                IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount + leg.collateral);
+                IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.amount);
             }
             // If leg.debt != 0 and the collateral != 0 then the leg was never paid off and the order has collateral
             // held in escrow. In this case the collateral must be taken to the PENALTY_RECIPIENT_ACCOUNT_ID
@@ -265,7 +269,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
             receiverAccountId: TransitAddressLib.formatTransitAddress(order.receiverChainId, order.receiver),
             assetId: sellTokenId,
             amount: amount,
-            debt: order.collateralized ? amount : 0,
+            debt: order.collateralized ? amount - collateral : 0,
             collateral: collateral,
             fee: fill.fees[side]
         });
@@ -289,6 +293,7 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         pure
         returns (uint256 settlementPeriod)
     {
+        if (!first.collateralized && !second.collateralized) return 0;
         settlementPeriod = first.collateralized ? first.settlementPeriod : second.settlementPeriod;
         if (
             settlementPeriod > MAX_SETTLEMENT_PERIOD
@@ -336,11 +341,6 @@ contract DelayedSettlementSwapConductor is IDelayedSettlementSwapConductor, Swap
         // If there was a fee, take the fee to the SURPLUS_RECIPIENT_ACCOUNT_ID
         if (leg.fee != 0) {
             IDepot(DEPOT).transferFrom(conductorAccountId, SURPLUS_RECIPIENT_ACCOUNT_ID, leg.assetId, leg.fee);
-        }
-
-        // If there was collateral involved, release it to the payer
-        if (leg.collateral != 0) {
-            IDepot(DEPOT).transferFrom(conductorAccountId, leg.accountId, leg.assetId, leg.collateral);
         }
     }
 

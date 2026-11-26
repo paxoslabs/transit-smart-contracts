@@ -33,9 +33,20 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
 
     /// @inheritdoc IHubWarehouseConductor
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
+        if (action.conductor != address(this)) revert WrongConductor();
         _request(
             TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
-            hashWithdrawalAction(action),
+            withdrawalRequestId(action),
+            TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
+            action.amount
+        );
+    }
+
+    /// @inheritdoc IHubWarehouseConductor
+    function cancelWithdrawal(ITurnstile.WithdrawalAction calldata action) external {
+        _cancel(
+            TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner),
+            withdrawalRequestId(action),
             TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset),
             action.amount
         );
@@ -62,11 +73,10 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
             IDepot(DEPOT).mint(fromAccountId, assetId, amount);
             return;
         }
-        IDepot(DEPOT).mint(toAccountId, assetId, amount);
-        // The fee should never fail. If it does (e.g. a frozen recipient), the whole deposit reverts and the message is
-        // left Failed for an admin to retry, so the fee is only ever taken alongside a credited deposit.
+        IDepot(DEPOT).mint(toAccountId, assetId, amount - facilitationFee);
         if (facilitationFee != 0) {
-            IDepot(DEPOT).transferFrom(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
+            IDepot(DEPOT).mint(feeReceiverAccountId, assetId, facilitationFee);
+            emit FacilitationFeePaid(toAccountId, feeReceiverAccountId, assetId, facilitationFee);
         }
     }
 
@@ -76,13 +86,19 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
         restricted
         returns (uint256 amount)
     {
-        bytes32 requestId = hashWithdrawalAction(action);
+        if (action.conductor != address(this)) revert WrongConductor();
+        bytes32 requestId = withdrawalRequestId(action);
         bytes28 accountId = TransitAddressLib.formatTransitAddress(action.ownerChainId, action.owner);
         bytes28 assetId = TransitAddressLib.formatTransitAddress(action.assetChainId, action.asset);
         _consume(accountId, requestId, assetId, action.amount);
 
         if (block.timestamp > action.deadline) {
             emit RequestExpired(requestId);
+            return 0;
+        }
+
+        if (action.to == address(0)) {
+            emit RequestVoided(requestId);
             return 0;
         }
 
@@ -93,7 +109,7 @@ contract HubWarehouseConductor is IHubWarehouseConductor, AccessManaged, Request
     }
 
     /// @inheritdoc IHubWarehouseConductor
-    function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
+    function withdrawalRequestId(ITurnstile.WithdrawalAction memory action) public pure returns (bytes32) {
         return keccak256(abi.encode(Typehashes.WITHDRAWAL_ACTION, action));
     }
 
