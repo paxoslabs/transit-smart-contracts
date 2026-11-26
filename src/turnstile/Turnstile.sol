@@ -102,6 +102,11 @@ contract Turnstile is AccessManaged, Pausable, EIP712, ITurnstile {
     }
 
     /// @inheritdoc ITurnstile
+    function blockMessage(bytes32 messageHash) external restricted {
+        messageExecuted[messageHash] = true;
+    }
+
+    /// @inheritdoc ITurnstile
     function pause() external restricted {
         _pause();
     }

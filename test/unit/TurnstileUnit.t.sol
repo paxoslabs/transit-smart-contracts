@@ -63,11 +63,12 @@ contract TurnstileUnitTest is Test {
     function _deployTurnstile() internal returns (Turnstile t) {
         t = new Turnstile(address(authority), vault);
 
-        bytes4[] memory adminSelectors = new bytes4[](4);
+        bytes4[] memory adminSelectors = new bytes4[](5);
         adminSelectors[0] = Turnstile.setMessagingAdapter.selector;
         adminSelectors[1] = Turnstile.setHubWarehouseConductor.selector;
         adminSelectors[2] = Turnstile.setRoutable.selector;
         adminSelectors[3] = Turnstile.setAssetWhitelisted.selector;
+        adminSelectors[4] = Turnstile.blockMessage.selector;
 
         bytes4[] memory pauserSelectors = new bytes4[](2);
         pauserSelectors[0] = Turnstile.pause.selector;
@@ -489,6 +490,40 @@ contract TurnstileUnitTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         vm.prank(stranger);
         turnstile.setAssetWhitelisted(assets, true);
+    }
+
+    function test_blockMessage_MarksMessageExecuted() public {
+        bytes32 messageHash = keccak256("blocked");
+        vm.prank(admin);
+        turnstile.blockMessage(messageHash);
+        assertTrue(turnstile.messageExecuted(messageHash), "blocked message not marked executed");
+    }
+
+    function test_blockMessage_BlocksDeliveryOfMessage() public {
+        bytes memory body = _withdrawalMessageBody(30);
+        bytes32 messageHash = turnstile.digestMessage(REMOTE_CHAIN, ITurnstile.ActionType.Withdrawal, body);
+        vm.prank(admin);
+        turnstile.blockMessage(messageHash);
+        vm.expectRevert(ITurnstile.MessageReplay.selector);
+        _receive(ITurnstile.ActionType.Withdrawal, body);
+        assertEq(token.balanceOf(recipient), 0, "blocked withdrawal paid recipient");
+        assertEq(token.balanceOf(vault), 1000, "blocked withdrawal debited vault");
+    }
+
+    function test_blockMessage_SatisfiesDependsOnOfBlockedMessage() public {
+        bytes32 messageHash = keccak256("blocked");
+        vm.prank(admin);
+        turnstile.blockMessage(messageHash);
+        ITurnstile.DepositAction memory a = _depositAction(100);
+        a.dependsOn = messageHash;
+        bytes32[] memory hashes = _dispatch(_actions(_depositAction(a)), 0);
+        assertTrue(turnstile.messageExecuted(hashes[0]), "action depending on blocked message not executed");
+    }
+
+    function test_blockMessage_RevertIf_SenderIsUnauthorized() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        turnstile.blockMessage(keccak256("blocked"));
     }
 
     function test_pause_SetsPausedStatusToTrue() public {

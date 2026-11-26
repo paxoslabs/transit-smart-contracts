@@ -316,6 +316,12 @@ interface ITurnstile is IMessagingReceiver {
     /// @param allowed Whether the assets may be deposited.
     function setAssetWhitelisted(address[] calldata assets, bool allowed) external;
 
+    /// @notice Permanently block delivery of a message; its delivery reverts with MessageReplay.
+    /// @dev Marks messageHash in messageExecuted, so any action on this chain whose dependsOn is messageHash passes
+    /// its dependency check as if the blocked message had executed.
+    /// @param messageHash Hash of the message to block.
+    function blockMessage(bytes32 messageHash) external;
+
     /// @notice Disable sensitive functions in an emergency, including inbound message handling.
     function pause() external;
 
