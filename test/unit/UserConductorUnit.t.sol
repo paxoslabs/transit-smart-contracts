@@ -120,7 +120,7 @@ contract UserConductorUnitTest is Test {
     }
 
     function test_requestEffectiveAtEpoch_ReturnsZeroForRequestNeverMade() public view {
-        bytes32 requestId = conductor.digestTransferRequest(_transferRequest());
+        bytes32 requestId = conductor.transferRequestId(_transferRequest());
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), 0, "unknown request not zero");
     }
 
@@ -128,7 +128,7 @@ contract UserConductorUnitTest is Test {
         IUserConductor.TransferRequest memory r = _transferRequest();
         vm.prank(owner);
         conductor.requestTransfer(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(
             conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId),
             depot.settlementEpoch() + 1,
@@ -141,7 +141,7 @@ contract UserConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, 100);
         _requestAndAdvance(r);
         conductor.executeTransfer(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -157,7 +157,7 @@ contract UserConductorUnitTest is Test {
         IUserConductor.TransferRequest memory r = _transferRequest();
         vm.prank(owner);
         conductor.requestTransfer(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(
             conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId),
             depot.settlementEpoch() + 1,
@@ -169,7 +169,7 @@ contract UserConductorUnitTest is Test {
         IUserConductor.TransferRequest memory r = _transferRequest();
         r.ownerChainId = REMOTE_CHAIN;
         bytes28 remoteAccount = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         _relay(abi.encodeCall(IUserConductor.requestTransfer, (r)), remoteAccount, false);
         assertEq(
             conductor.requestEffectiveAtEpoch(remoteAccount, requestId),
@@ -182,7 +182,7 @@ contract UserConductorUnitTest is Test {
 
     function test_requestTransfer_EmitsRequestedEvent() public {
         IUserConductor.TransferRequest memory r = _transferRequest();
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Requested(OWNER_ACCOUNT, requestId, depot.settlementEpoch() + 1);
         vm.prank(owner);
@@ -261,7 +261,7 @@ contract UserConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, 100);
         _requestAndAdvance(r);
         conductor.executeTransfer(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -279,7 +279,7 @@ contract UserConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, 100);
         _relay(abi.encodeCall(IUserConductor.executeTransfer, (r)), OWNER_ACCOUNT, true);
         assertEq(depot.balanceOf(RECIPIENT_ACCOUNT, ASSET_ID), 100, "recipient not paid");
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -307,16 +307,55 @@ contract UserConductorUnitTest is Test {
         _requestAndAdvance(r);
         vm.warp(r.deadline + 1);
         conductor.executeTransfer(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
         assertEq(depot.balanceOf(RECIPIENT_ACCOUNT, ASSET_ID), 0, "funds moved");
+    }
+
+    function test_executeTransfer_ConsumesRequestWithoutMovingFundsIfRecipientAddressIsZero() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.to = address(0);
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "funds moved");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeTransfer_ConsumesRequestWithoutMovingFundsIfRecipientChainIdIsZero() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.toChainId = 0;
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "funds moved");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeTransfer_EmitsRequestVoidedEventIfRecipientIsInvalid() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.to = address(0);
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestVoided(requestId);
+        conductor.executeTransfer(r);
     }
 
     function test_executeTransfer_EmitsConsumedEvent() public {
         IUserConductor.TransferRequest memory r = _transferRequest();
         _seed(OWNER_ACCOUNT, 100);
         _requestAndAdvance(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
         conductor.executeTransfer(r);
@@ -326,7 +365,7 @@ contract UserConductorUnitTest is Test {
         IUserConductor.TransferRequest memory r = _transferRequest();
         _seed(OWNER_ACCOUNT, 100);
         _requestAndAdvance(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         vm.expectEmit(address(conductor));
         emit IUserConductor.TransferExecuted(requestId, 100);
         conductor.executeTransfer(r);
@@ -336,7 +375,7 @@ contract UserConductorUnitTest is Test {
         IUserConductor.TransferRequest memory r = _transferRequest();
         _seed(OWNER_ACCOUNT, 100);
         _requestAndAdvance(r);
-        bytes32 requestId = conductor.digestTransferRequest(r);
+        bytes32 requestId = conductor.transferRequestId(r);
         vm.warp(r.deadline + 1);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestExpired(requestId);
@@ -355,13 +394,6 @@ contract UserConductorUnitTest is Test {
         for (uint256 i; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != transferExecutedTopic, "TransferExecuted emitted");
         }
-    }
-
-    function test_executeTransfer_RevertIf_RecipientAddressIsZero() public {
-        IUserConductor.TransferRequest memory r = _transferRequest();
-        r.to = address(0);
-        vm.expectRevert(IUserConductor.ZeroAddress.selector);
-        conductor.executeTransfer(r);
     }
 
     function test_executeTransfer_RevertIf_RequestWasNeverMadeAndSenderIsNotFacilitatedOwner() public {
@@ -388,7 +420,128 @@ contract UserConductorUnitTest is Test {
         conductor.executeTransfer(r);
     }
 
-    function test_digestTransferRequest_ReturnsHashOfTypehashAndRequest() public view {
+    function test_executeTransfer_RevertIf_RequestWasCancelled() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        conductor.executeTransfer(r);
+    }
+
+    function test_cancelTransfer_ReleasesReservationOfCancelledRequest() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_cancelTransfer_KeepsOwnerBalance() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "owner balance moved");
+    }
+
+    function test_cancelTransfer_SetsRequestEffectiveAtEpochToExecuted() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
+    }
+
+    function test_cancelTransfer_AcceptsOwnerRelayedThroughTurnstile() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        r.ownerChainId = REMOTE_CHAIN;
+        bytes28 remoteAccount = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        _relay(abi.encodeCall(IUserConductor.requestTransfer, (r)), remoteAccount, false);
+        _advanceEpoch();
+        _relay(abi.encodeCall(IUserConductor.cancelTransfer, (r)), remoteAccount, false);
+        bytes32 requestId = conductor.transferRequestId(r);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(remoteAccount, requestId), conductor.EXECUTED(), "relayed cancel failed"
+        );
+    }
+
+    function test_cancelTransfer_EmitsConsumedEvent() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_EmitsRequestCancelledEvent() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        bytes32 requestId = conductor.transferRequestId(r);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestCancelled(requestId);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_SenderIsNotRequestOwner() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.prank(stranger);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasNeverMade() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasNeverMadeAndSenderIsFacilitatedOwner() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _relay(abi.encodeCall(IUserConductor.cancelTransfer, (r)), OWNER_ACCOUNT, true);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestEpochHasNotArrived() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        vm.prank(owner);
+        conductor.requestTransfer(r);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasAlreadyCancelled() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _requestAndAdvance(r);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_cancelTransfer_RevertIf_RequestWasAlreadyExecuted() public {
+        IUserConductor.TransferRequest memory r = _transferRequest();
+        _seed(OWNER_ACCOUNT, 100);
+        _requestAndAdvance(r);
+        conductor.executeTransfer(r);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelTransfer(r);
+    }
+
+    function test_transferRequestId_ReturnsHashOfTypehashAndRequest() public view {
         IUserConductor.TransferRequest memory r = _transferRequest();
         bytes32 expected = keccak256(
             abi.encode(
@@ -405,7 +558,7 @@ contract UserConductorUnitTest is Test {
                 r.salt
             )
         );
-        assertEq(conductor.digestTransferRequest(r), expected, "digest wrong");
+        assertEq(conductor.transferRequestId(r), expected, "request id wrong");
     }
 
 }

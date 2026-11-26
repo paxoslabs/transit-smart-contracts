@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.37;
 
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { IAccessManaged } from "@openzeppelin/contracts/access/manager/IAccessManaged.sol";
 import { Depot } from "src/depot/Depot.sol";
 import { AddressFreezeList } from "src/AddressFreezeList.sol";
@@ -103,6 +103,7 @@ contract HubWarehouseConductorUnitTest is Test {
         a.amount = 100;
         a.deadline = block.timestamp + 1 hours;
         a.partiallyFillable = true;
+        a.conductor = address(conductor);
         a.salt = bytes32(uint256(2));
     }
 
@@ -110,6 +111,24 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.prank(owner);
         conductor.requestWithdrawal(a);
         _advanceEpoch();
+    }
+
+    function _relay(bytes memory data, bytes28 accountId, bool facilitated) internal {
+        vm.prank(turnstile);
+        (bool ok, bytes memory result) =
+            address(conductor).call(abi.encodePacked(data, accountId, facilitated ? FACILITATED_FLAG : bytes4(0)));
+        if (!ok) {
+            assembly { revert(add(result, 32), mload(result)) }
+        }
+    }
+
+    function _assertNoFacilitationFeePaidEvent() internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(
+                logs[i].topics[0] != IHubWarehouseConductor.FacilitationFeePaid.selector, "FacilitationFeePaid emitted"
+            );
+        }
     }
 
     function _execute(
@@ -159,7 +178,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         vm.prank(owner);
         conductor.requestWithdrawal(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(
             conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId),
             depot.settlementEpoch() + 1,
@@ -169,7 +188,7 @@ contract HubWarehouseConductorUnitTest is Test {
 
     function test_requestWithdrawal_EmitsRequestedEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Requested(OWNER_ACCOUNT, requestId, depot.settlementEpoch() + 1);
         vm.prank(owner);
@@ -183,6 +202,14 @@ contract HubWarehouseConductorUnitTest is Test {
         conductor.requestWithdrawal(a);
     }
 
+    function test_requestWithdrawal_RevertIf_ActionIsBoundToAnotherConductor() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.conductor = stranger;
+        vm.expectRevert(IHubWarehouseConductor.WrongConductor.selector);
+        vm.prank(owner);
+        conductor.requestWithdrawal(a);
+    }
+
     function test_requestWithdrawal_RevertIf_RequestWasAlreadyMade() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         vm.prank(owner);
@@ -190,6 +217,117 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.expectRevert(IRequestConductor.RequestReplay.selector);
         vm.prank(owner);
         conductor.requestWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_ReleasesReservationOfCancelledRequest() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_cancelWithdrawal_KeepsOwnerBalance() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "owner balance burned");
+    }
+
+    function test_cancelWithdrawal_SetsRequestEffectiveAtEpochToExecuted() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
+    }
+
+    function test_cancelWithdrawal_AcceptsOwnerRelayedThroughTurnstile() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.ownerChainId = REMOTE_CHAIN;
+        bytes28 remoteAccount = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        _relay(abi.encodeCall(IHubWarehouseConductor.requestWithdrawal, (a)), remoteAccount, false);
+        _advanceEpoch();
+        _relay(abi.encodeCall(IHubWarehouseConductor.cancelWithdrawal, (a)), remoteAccount, false);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        assertEq(
+            conductor.requestEffectiveAtEpoch(remoteAccount, requestId), conductor.EXECUTED(), "relayed cancel failed"
+        );
+    }
+
+    function test_cancelWithdrawal_EmitsConsumedEvent() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_EmitsRequestCancelledEvent() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestCancelled(requestId);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_SenderIsNotRequestOwner() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.expectRevert(IRequestConductor.NotOwner.selector);
+        vm.prank(stranger);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasNeverMade() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasNeverMadeAndSenderIsFacilitatedOwner() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        _relay(abi.encodeCall(IHubWarehouseConductor.cancelWithdrawal, (a)), OWNER_ACCOUNT, true);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestEpochHasNotArrived() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        vm.prank(owner);
+        conductor.requestWithdrawal(a);
+        vm.expectRevert(IRequestConductor.NotEffective.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasAlreadyCancelled() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+    }
+
+    function test_cancelWithdrawal_RevertIf_RequestWasAlreadyExecuted() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        _execute(a, OWNER_ACCOUNT, false);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
     }
 
     function test_receiveDeposit_MintsSourceChainAssetToRecipient() public {
@@ -215,6 +353,59 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.prank(turnstile);
         conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
         assertEq(depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "recipient not minted amount less fee");
+        assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
+    }
+
+    function test_receiveDeposit_EmitsFacilitationFeePaidEvent() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.expectEmit(address(conductor));
+        emit IHubWarehouseConductor.FacilitationFeePaid(toAccountId, feeAccountId, REMOTE_ASSET_ID, 10);
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+    }
+
+    function test_receiveDeposit_DoesNotEmitFacilitationFeePaidEventIfFeeIsZero() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.recordLogs();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 0, feeAccountId);
+        _assertNoFacilitationFeePaidEvent();
+    }
+
+    function test_receiveDeposit_DoesNotEmitFacilitationFeePaidEventIfDepositingAccountIsFrozen() public {
+        bytes28 fromAccountId = TransitAddressLib.formatTransitAddress(REMOTE_CHAIN, owner);
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        _freeze(owner);
+        vm.recordLogs();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, fromAccountId, toAccountId, 10, feeAccountId);
+        _assertNoFacilitationFeePaidEvent();
+    }
+
+    function test_receiveDeposit_PaysFacilitationFeeIfRecipientIsFrozen() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        _freeze(recipient);
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+        assertEq(depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "frozen recipient not minted amount less fee");
+        assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
+    }
+
+    function test_receiveDeposit_PaysFacilitationFeeIfRecipientIsOverReserved() public {
+        bytes28 toAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), recipient);
+        bytes28 feeAccountId = TransitAddressLib.formatTransitAddress(uint64(block.chainid), feeReceiver);
+        vm.prank(seeder);
+        depot.reserve(toAccountId, REMOTE_ASSET_ID, 1000);
+        _advanceEpoch();
+        vm.prank(turnstile);
+        conductor.receiveDeposit(REMOTE_CHAIN, asset, 100, OWNER_ACCOUNT, toAccountId, 10, feeAccountId);
+        assertEq(
+            depot.balanceOf(toAccountId, REMOTE_ASSET_ID), 90, "over-reserved recipient not minted amount less fee"
+        );
         assertEq(depot.balanceOf(feeAccountId, REMOTE_ASSET_ID), 10, "fee receiver not paid");
     }
 
@@ -297,7 +488,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
         _execute(a, OWNER_ACCOUNT, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not EXECUTED");
     }
 
@@ -331,7 +522,7 @@ contract HubWarehouseConductorUnitTest is Test {
         _requestAndAdvance(a);
         vm.warp(a.deadline + 1);
         _execute(a, OWNER_ACCOUNT, false);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
         assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "amount burned");
     }
@@ -344,11 +535,33 @@ contract HubWarehouseConductorUnitTest is Test {
         assertEq(_execute(a, OWNER_ACCOUNT, false), 0, "amount returned nonzero");
     }
 
+    function test_executeWithdrawal_ConsumesRequestWithoutBurningIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        _execute(a, OWNER_ACCOUNT, false);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        assertEq(conductor.requestEffectiveAtEpoch(OWNER_ACCOUNT, requestId), conductor.EXECUTED(), "not consumed");
+        assertEq(depot.balanceOf(OWNER_ACCOUNT, ASSET_ID), 100, "amount burned");
+        (uint256 effective, uint256 pending,) = depot.reservation(OWNER_ACCOUNT, ASSET_ID);
+        assertEq(effective, 0, "effective reservation not released");
+        assertEq(pending, 0, "pending reservation not released");
+    }
+
+    function test_executeWithdrawal_ReturnsZeroIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        assertEq(_execute(a, OWNER_ACCOUNT, false), 0, "amount returned nonzero");
+    }
+
     function test_executeWithdrawal_EmitsConsumedEvent() public {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.Consumed(OWNER_ACCOUNT, requestId);
         _execute(a, OWNER_ACCOUNT, false);
@@ -358,7 +571,7 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.expectEmit(address(conductor));
         emit IHubWarehouseConductor.WithdrawalExecuted(requestId, 100);
         _execute(a, OWNER_ACCOUNT, false);
@@ -368,10 +581,21 @@ contract HubWarehouseConductorUnitTest is Test {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         _seed(OWNER_ACCOUNT, ASSET_ID, 100);
         _requestAndAdvance(a);
-        bytes32 requestId = conductor.hashWithdrawalAction(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
         vm.warp(a.deadline + 1);
         vm.expectEmit(address(conductor));
         emit IRequestConductor.RequestExpired(requestId);
+        _execute(a, OWNER_ACCOUNT, false);
+    }
+
+    function test_executeWithdrawal_EmitsRequestVoidedEventIfRecipientAddressIsZero() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.to = address(0);
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        bytes32 requestId = conductor.withdrawalRequestId(a);
+        vm.expectEmit(address(conductor));
+        emit IRequestConductor.RequestVoided(requestId);
         _execute(a, OWNER_ACCOUNT, false);
     }
 
@@ -380,6 +604,14 @@ contract HubWarehouseConductorUnitTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, stranger));
         vm.prank(stranger);
         conductor.executeWithdrawal(a);
+    }
+
+    function test_executeWithdrawal_RevertIf_ActionIsBoundToAnotherConductor() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        a.conductor = stranger;
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        vm.expectRevert(IHubWarehouseConductor.WrongConductor.selector);
+        _execute(a, OWNER_ACCOUNT, true);
     }
 
     function test_executeWithdrawal_RevertIf_RequestWasNeverMade() public {
@@ -405,7 +637,17 @@ contract HubWarehouseConductorUnitTest is Test {
         _execute(a, OWNER_ACCOUNT, false);
     }
 
-    function test_hashWithdrawalAction_ReturnsHashOfTypehashAndAction() public view {
+    function test_executeWithdrawal_RevertIf_RequestWasCancelled() public {
+        ITurnstile.WithdrawalAction memory a = _withdrawalAction();
+        _seed(OWNER_ACCOUNT, ASSET_ID, 100);
+        _requestAndAdvance(a);
+        vm.prank(owner);
+        conductor.cancelWithdrawal(a);
+        vm.expectRevert(IRequestConductor.RequestReplay.selector);
+        _execute(a, OWNER_ACCOUNT, false);
+    }
+
+    function test_withdrawalRequestId_ReturnsHashOfTypehashAndAction() public view {
         ITurnstile.WithdrawalAction memory a = _withdrawalAction();
         bytes32 expected = keccak256(
             abi.encode(
@@ -418,11 +660,12 @@ contract HubWarehouseConductorUnitTest is Test {
                 a.amount,
                 a.deadline,
                 a.partiallyFillable,
+                a.conductor,
                 a.dependsOn,
                 a.salt
             )
         );
-        assertEq(conductor.hashWithdrawalAction(a), expected, "hash wrong");
+        assertEq(conductor.withdrawalRequestId(a), expected, "request id wrong");
     }
 
 }

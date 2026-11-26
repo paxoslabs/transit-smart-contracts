@@ -14,9 +14,26 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param amount Amount burned for withdrawal.
     event WithdrawalExecuted(bytes32 indexed requestId, uint256 amount);
 
-    /// @notice Request a withdrawal, reserving the funds from the next epoch. The sender must be the owner.
+    /// @notice A deposit's facilitation fee was minted to the fee receiver instead of the recipient.
+    /// @param toAccountId Deposit recipient account, which the fee was taken from.
+    /// @param feeReceiverAccountId Fee receiver account.
+    /// @param assetId Deposited asset.
+    /// @param amount Fee amount.
+    event FacilitationFeePaid(
+        bytes28 indexed toAccountId, bytes28 indexed feeReceiverAccountId, bytes28 indexed assetId, uint256 amount
+    );
+
+    /// @notice The withdrawal action is bound to a different conductor.
+    error WrongConductor();
+
+    /// @notice Request a withdrawal, reserving the funds from the next epoch. The sender must be the owner, and the
+    /// action must be bound to this conductor.
     /// @param action Withdrawal action.
     function requestWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
+
+    /// @notice Cancel an effective withdrawal request, releasing its reservation. The sender must be the owner.
+    /// @param action Withdrawal action.
+    function cancelWithdrawal(ITurnstile.WithdrawalAction calldata action) external;
 
     /// @notice Credit a deposit received by the Turnstile. Mints to the recipient, then transfers the facilitation fee
     /// from the recipient to the fee receiver. A frozen sender's deposit is minted whole to its own account, with no
@@ -29,7 +46,7 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @param amount Amount deposited.
     /// @param fromAccountId Depositing account.
     /// @param toAccountId Recipient account.
-    /// @param facilitationFee Part of amount paid from the recipient to feeReceiverAccountId; 0 for none.
+    /// @param facilitationFee Part of amount minted to feeReceiverAccountId instead of the recipient; 0 for none.
     /// @param feeReceiverAccountId Facilitation fee receiver account.
     function receiveDeposit(
         uint64 sourceChainId,
@@ -43,6 +60,7 @@ interface IHubWarehouseConductor is IRequestConductor {
         external;
 
     /// @notice Execute an effective withdrawal request, burning up to the executable amount. Called by the Turnstile.
+    /// The action must be bound to this conductor.
     /// @dev Must never be in the Turnstile's genericMessageWhitelist: generic calls also arrive from the Turnstile and
     /// pass `restricted`, but only a Withdrawal dispatch sends the release message for the returned amount. A generic
     /// call would burn the owner's balance with no payout, and anyone could do it to any effective request.
@@ -53,6 +71,6 @@ interface IHubWarehouseConductor is IRequestConductor {
     /// @notice Hash of a withdrawal action, used as its request id.
     /// @param action Withdrawal action.
     /// @return Request id.
-    function hashWithdrawalAction(ITurnstile.WithdrawalAction memory action) external pure returns (bytes32);
+    function withdrawalRequestId(ITurnstile.WithdrawalAction memory action) external pure returns (bytes32);
 
 }

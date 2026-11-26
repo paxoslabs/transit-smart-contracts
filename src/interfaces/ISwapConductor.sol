@@ -51,6 +51,9 @@ interface ISwapConductor {
     /// @notice The settlement epoch advanced since the batch was built.
     error BadEpoch(uint256 epoch);
 
+    /// @notice An account is not a valid transit address.
+    error InvalidAccount();
+
     /// @notice The Depot ledger settlements are applied to.
     /// @return Depot address.
     function DEPOT() external view returns (address);

@@ -5,6 +5,7 @@ import { CCIPReceiver } from "@chainlink/contracts-ccip/applications/CCIPReceive
 import { IRouterClient } from "@chainlink/contracts-ccip/interfaces/IRouterClient.sol";
 import { Client } from "@chainlink/contracts-ccip/libraries/Client.sol";
 import { ExtraArgsCodec } from "@chainlink/contracts-ccip/libraries/ExtraArgsCodec.sol";
+import { FinalityCodec } from "@chainlink/contracts-ccip/libraries/FinalityCodec.sol";
 import { SafeCastLib } from "solady/utils/SafeCastLib.sol";
 import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
 
@@ -16,6 +17,8 @@ import { MessagingAdapter } from "src/messaging/MessagingAdapter.sol";
  */
 contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
 
+    mapping(uint64 chainId => bytes4) public requestedFinality;
+
     constructor(
         address _authority,
         address _localTurnstile,
@@ -26,8 +29,35 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         CCIPReceiver(_router)
     { }
 
-    function _quote(
+    /// @dev Receivers accept only WAIT_FOR_FINALITY_FLAG (0x00000000) and WAIT_FOR_SAFE_FLAG (0x00010000). Any other
+    /// value reverts on delivery, and the message stays stuck at the bridge. WAIT_FOR_SAFE_FLAG sends revert unless the
+    /// lane allows `safe`.
+    function setRequestedFinality(uint64 chainId, bytes4 finality) external restricted {
+        requestedFinality[chainId] = finality;
+    }
+
+    function getCCVsAndFinalityConfig(
         uint64,
+        bytes calldata
+    )
+        external
+        pure
+        override
+        returns (
+            address[] memory requiredCCVs,
+            address[] memory optionalCCVs,
+            uint8 optionalThreshold,
+            bytes4 allowedFinalityConfig
+        )
+    {
+        // No CCIP lane allows `safe` at time of writing (2026-11), and sends request full finality. Accepting `safe`
+        // lets a peer's requestedFinality be set to `safe` once lanes allow it, without redeploying every receiving
+        // adapter.
+        return (new address[](0), new address[](0), 0, FinalityCodec.WAIT_FOR_SAFE_FLAG);
+    }
+
+    function _quote(
+        uint64 chainId,
         uint64 gasLimit,
         PeerConfig memory peer,
         bytes calldata payload
@@ -37,11 +67,12 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         override
         returns (uint256 bridgeFee)
     {
-        return IRouterClient(getRouter()).getFee(uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload));
+        return IRouterClient(getRouter())
+            .getFee(SafeCastLib.toUint64(peer.remoteId), _buildMessage(chainId, peer, gasLimit, payload));
     }
 
     function _send(
-        uint64,
+        uint64 chainId,
         uint64 gasLimit,
         PeerConfig memory peer,
         bytes calldata payload
@@ -53,7 +84,7 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         // The router wraps and keeps all of msg.value (underpayment reverts), so overpayment is not refunded and no
         // ETH comes back to this adapter. Overpaid fees go to Chainlink's fee aggregator and are not recoverable.
         return IRouterClient(getRouter()).ccipSend{ value: msg.value }(
-            uint64(peer.remoteId), _buildMessage(peer, gasLimit, payload)
+            SafeCastLib.toUint64(peer.remoteId), _buildMessage(chainId, peer, gasLimit, payload)
         );
     }
 
@@ -61,19 +92,17 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
         _receive(chainIdForRemoteId[message.sourceChainSelector], bytes32(message.sender), message.data);
     }
 
-    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the Fast Confirmation
-    /// Rule: the message is sent once the source block reaches the `safe` head rather than full finality. V2 extraArgs
-    /// cannot request finality. V3 has no ordering flag; messages don't need ordering. Each lane must allow this
-    /// finality or the send reverts. V3's gasLimit is uint32, so a larger gasLimit reverts.
-    /// NOTE: a reorg past an FCR-confirmed block (requires FCR's assumptions to fail) after a deposit or withdrawal
-    /// message is sent would leave the hub balance or the spoke release unbacked.
+    /// @dev extraArgs are GenericExtraArgsV3 (contracts-ccip v2.0.0 ExtraArgsCodec) requesting the chain's
+    /// requestedFinality (default full finality, which every lane allows). V3 has no ordering flag; messages don't need
+    /// ordering. V3's gasLimit is uint32, so a larger gasLimit reverts.
     function _buildMessage(
+        uint64 chainId,
         PeerConfig memory peer,
         uint64 gasLimit,
         bytes calldata payload
     )
         internal
-        pure
+        view
         returns (Client.EVM2AnyMessage memory)
     {
         return Client.EVM2AnyMessage({
@@ -81,7 +110,9 @@ contract CCIPMessagingAdapter is MessagingAdapter, CCIPReceiver {
             data: payload,
             tokenAmounts: new Client.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3FastConfirmationRule(SafeCastLib.toUint32(gasLimit))
+            extraArgs: ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+                SafeCastLib.toUint32(gasLimit), requestedFinality[chainId]
+            )
         });
     }
 

@@ -6,6 +6,7 @@ import { ECDSA } from "solady/utils/ECDSA.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IDepot } from "src/interfaces/IDepot.sol";
 import { ISwapConductor } from "src/interfaces/ISwapConductor.sol";
+import { TransitAddressLib } from "src/helpers/TransitAddressLib.sol";
 import { ConductorGatedByTurnstile } from "src/conductor/ConductorGatedByTurnstile.sol";
 
 /**
@@ -40,6 +41,7 @@ abstract contract SwapConductor is ISwapConductor, AccessManaged, EIP712, Conduc
         AccessManaged(_authority)
         ConductorGatedByTurnstile(_turnstile)
     {
+        if (!TransitAddressLib.isValid(_surplusRecipientAccountId)) revert InvalidAccount();
         DEPOT = _depot;
         SURPLUS_RECIPIENT_ACCOUNT_ID = _surplusRecipientAccountId;
     }
